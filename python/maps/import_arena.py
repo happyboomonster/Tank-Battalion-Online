@@ -1,0 +1,43 @@
+##"import_arena.py" - A quick external library which can find and import TBO maps with much EZ.
+##Copyright (C) 2022  Lincoln V.
+##
+##This program is free software: you can redistribute it and/or modify
+##it under the terms of the GNU General Public License as published by
+##the Free Software Foundation, either version 3 of the License, or
+##(at your option) any later version.
+##
+##This program is distributed in the hope that it will be useful,
+##but WITHOUT ANY WARRANTY; without even the implied warranty of
+##MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+##GNU General Public License for more details.
+##
+##You should have received a copy of the GNU General Public License
+##along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import Arena01
+import Arena02
+import Arena03
+
+# - The beginning of the relative path to our images -
+path = ""
+
+#add our arena libraries into a list
+arena_libraries = [Arena01, Arena02, Arena03]
+
+def return_arena(arena_name): #returns the arena + tileset with the arena_name specified.
+    global path
+    for x in arena_libraries:
+        if(x.ARENA_NAME == arena_name):
+            return x.get_arena(path)
+    return None
+
+def return_arena_numerical(arena_number): #returns the arena + tileset with the arena_name specified.
+    global path
+    if(len(arena_libraries) > arena_number): #we're not getting an index error?
+        return [arena_libraries[arena_number].get_arena(path),arena_libraries[arena_number].ARENA_NAME]
+    return None #arena doesn't exist?
+
+##quick test code making sure that the arena is retrieved correctly
+##arena = return_arena("Arena01")
+##for x in range(0,len(arena[0])):
+##    print(arena[0][x])
