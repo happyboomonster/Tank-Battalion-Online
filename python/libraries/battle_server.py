@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.24---
+##"battle_server.py" library ---VERSION 0.29---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -40,6 +40,7 @@ class BattleEngine():
 
         # - Formats for netcode packets (being recieved from the client) -
         #   - Format: [None], OR if we want to buy/return something, ["buy"/"return","item type",###], enter battle ["battle","battle type"]
+        self.LOGIN_PACKET = ["<class 'str'>","<class 'str'>"]
         self.LOBBY_PACKETS = [["<class 'NoneType'>"], ["<class 'str'>", "<class 'str'>", "<class 'int'>"], ["<class 'str'>", "<class 'str'>"]]
         self.MATCH_PACKETS = ["<class 'int'>", "<class 'int'>"] #[VIEW_CT, player_view_index] OR [False] to leave matchmaker (this one doesn't need to be included)
         self.GAME_PACKETS = [["<class 'str'>"],["<class 'str'>","<class 'list'>"]]
@@ -54,11 +55,11 @@ class BattleEngine():
             self.accounts.append(account.Account("muskoka","badtbo"))
             self.accounts.append(account.Account("i","tyler"))
             self.accounts.append(account.Account("blackfang","m41"))
-            self.accounts.append(account.Account("shadow","freefood"))
-            self.accounts.append(account.Account("dingus","mylittledingus"))
+            self.accounts.append(account.Account("shadow","name11"))
+            self.accounts.append(account.Account("gubba","mylittledingus"))
             self.accounts.append(account.Account("yeudler","diycandles"))
             self.accounts.append(account.Account("necroneus","idkwhatpwdshouldbe"))
-            self.accounts.append(account.Account("booke","slsm"))
+            self.accounts.append(account.Account("allegheny1606","cabforward"))
         self.logged_in = [] #list of ["player name","player password] lists to detect who is/isn't logged in
         self.logged_in_lock = _thread.allocate_lock()
         #player_queue: List of queues of [account,socket]s in different game modes.
@@ -96,9 +97,9 @@ class BattleEngine():
         self.SPECIALIZATION_WEIGHT = 0.35 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
         self.IMBALANCE_LIMIT = 0.30 #the maximum imbalance of rating points a match is allowed to have to be finalized.
         #How many players can be put into a battle? [min, max]
-        self.PLAYER_CT = [6, 50]
+        self.PLAYER_CT = [1, 50]
         # - How long should it take before a minimum player match takes place? -
-        self.IMMEDIATE_MATCH = 130 #2 minutes = maximum wait time
+        self.IMMEDIATE_MATCH = 25 #3 minutes = maximum wait time
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
         self.TIME_SCALING_CONSTANT = self.IMMEDIATE_MATCH * self.PLAYER_CT[0] * 0.7 #how fast should the matchmaker shove players into matches if there are more than minimum players?
         # - This constant defines the minimum player count for an "optimal" match -
@@ -141,20 +142,21 @@ class BattleEngine():
 
             #get the password and username we entered to log in [name, password]
             client_data = netcode.recieve_data(Cs, self.buffersize)
-            name = client_data[0][0]
-            password = client_data[0][1]
-
-            print("[CONNECT] Recieved login data - Username: " + str(name) + " Password: " + str(password) + " - ", end="")
-
-            #Next: Get username and password. If they match an account's password and username, we log the user in as that account.
             logged_in = False
-            for x in range(0,len(self.accounts)):
-                if(name == self.accounts[x].name and password == self.accounts[x].password and (not [self.accounts[x].name, self.accounts[x].password] in self.logged_in)): #someone has NOT already logged in as us?
-                    logged_in = True
-                    # - Add the player to our "logged in" list
-                    with self.logged_in_lock:
-                        self.logged_in.append([self.accounts[x].name, self.accounts[x].password])
-                    break
+            if(client_data[0] != None and netcode.data_verify(client_data[0], self.LOGIN_PACKET)):
+                name = client_data[0][0]
+                password = client_data[0][1]
+
+                print("[CONNECT] Recieved login data - Username: " + str(name) + " Password: " + str(password) + " - ", end="")
+
+                #Next: Get username and password. If they match an account's password and username, we log the user in as that account.
+                for x in range(0,len(self.accounts)):
+                    if(name == self.accounts[x].name and password == self.accounts[x].password and (not [self.accounts[x].name, self.accounts[x].password] in self.logged_in)): #someone has NOT already logged in as us?
+                        logged_in = True
+                        # - Add the player to our "logged in" list
+                        with self.logged_in_lock:
+                            self.logged_in.append([self.accounts[x].name, self.accounts[x].password])
+                        break
             if(logged_in == False): #the person failed to log in because they got the wrong username/password?
                 Cs.close() #disconnect the client. They can reconnect to the server and try again if they like.
                 print("[CONNECT] Bad login data or player was already logged in with another system")
@@ -276,7 +278,7 @@ class BattleEngine():
                         team = None #clear our team queue variable
                         first_iter = False #make sure that the loop above knows that we are no longer on our first iteration next time the condition above gets checked! (...or first_iter)
                         if(making_matches[x] == True):
-                            team = self.matchmake(self.player_queue[x], odd_allowed=False, rating=self.experience_battles[x])
+                            team = self.matchmake(self.player_queue[x], odd_allowed=(not self.experience_battles[x]), rating=self.experience_battles[x])
                             #did we get a match? Let's send them off to the battlefield, and reset our time counter!
                             matchmaking_time[x] = time.time()
                             making_matches[x] = False #reset making_matches to its original state
@@ -295,62 +297,63 @@ class BattleEngine():
                         decrement = 0
                         for y in range(0,len(self.player_queue[x])):
                             #recieve packets (Format: [VIEW_CT, player_view_index]) #note: self.player_queue[x][1] = socket (recieve data)
-                            data_pack = netcode.recieve_data(self.player_queue[x][y - decrement][1], self.buffersize)
-                            data = data_pack[0]
-                            connected = data_pack[3] #is the client still connected?
-                            # - Set up the player_queue[x][y] list, and make sure that we set some fallback stats in case we don't get data from the client -
-                            if(len(self.player_queue[x][y - decrement]) < 3):
-                                    self.player_queue[x][y - decrement].append(0) #add a 0 to count disconnected packets.
-                            #leftovers from the lobby OR a timeout occurred? Send back some base data.
-                            VIEW_CT = 5
-                            view_index = 0
-                            if(connected): #Is this client still connected?
-                                self.player_queue[x][y][2] = 0 #we're still connected...
-                                if(data == [False]): #client asked to leave??
-                                    _thread.start_new_thread(self.lobby_server, (self.player_queue[x][y - decrement],)) #back to the lobby...(extra comma is there to make sure the 2nd function argument is a tuple)
-                                    print("[MATCHMAKER] Removed player " + str(self.player_queue[x][y - decrement][0].name) + " from the matchmaking queue")
-                                    del(self.player_queue[x][y - decrement])
-                                    decrement += 1
-                                    continue #we need to move to the next iteration of this loop to avoid errors from executing lines of code below...
-                                else: #we first need to verify our data before we go ahead on using it...
-                                    # - Verify our data -
-                                    verified = netcode.data_verify(data, self.MATCH_PACKETS)
-                                    if(verified):
-                                        VIEW_CT = data[0]
-                                        view_index = data[1]
-                                    else: #if the data is bad AND we're not getting lobby packets...well...we can send back some generic view_ct stuff (set above about 10 lines)
-                                        verify = False #check if we're still stuck in the lobby...
-                                        for check_packet in self.LOBBY_PACKETS:
-                                            if(netcode.data_verify(data, check_packet)):
-                                                verify = True
-                                                break
-                                        if(verify): #put the player back in the lobby.
-                                            _thread.start_new_thread(self.lobby_server, (self.player_queue[x][y - decrement],)) #back to the lobby...(extra comma is there to make sure the 2nd function argument is a tuple)
-                                            print("[MATCHMAKER] Removed player " + str(self.player_queue[x][y - decrement][0].name) + " from the matchmaking queue due to lobby desync")
-                                            del(self.player_queue[x][y - decrement])
-                                            decrement += 1
-                                            continue #we need to move to the next iteration of this loop to avoid errors from executing lines of code below...
-                            #Server Send Format: [in_battle(True/False), viewing_players data list, player_count] (send data)
-                            view_data = []
-                            for b in range(0,VIEW_CT):
-                                if(b + view_index < len(self.player_queue[x])):
-                                    view_data.append(self.player_queue[x][b + view_index - decrement][0].return_data())
-                                else:
-                                    break
-                            netcode.send_data(self.player_queue[x][y - decrement][1], self.buffersize, [True, view_data, len(self.player_queue[x])])
-                            if(not connected): #we need to log this player out and remove him from the queue IF they have been disconnected for a few packets in a row.
+                            if(self.player_queue[x][y - decrement][1] != "bot"): #this is NOT a bot socket?
+                                data_pack = netcode.recieve_data(self.player_queue[x][y - decrement][1], self.buffersize)
+                                data = data_pack[0]
+                                connected = data_pack[3] #is the client still connected?
+                                # - Set up the player_queue[x][y] list, and make sure that we set some fallback stats in case we don't get data from the client -
                                 if(len(self.player_queue[x][y - decrement]) < 3):
-                                    self.player_queue[x][y - decrement].append(0) #add a 0 to count disconnected packets.
-                                self.player_queue[x][y - decrement][2] += 1
-                                if(self.player_queue[x][y - decrement][2] > 3): #4 lost packets in a row? disconnect the player.
-                                    #self.player_queue[x][y - decrement] is the player that disconnected.
-                                    saved = self.logout_player(self.player_queue[x][y - decrement])
-                                    if(saved):
-                                        print("[MATCHMAKER] Successfully saved player data from user " + str(self.player_queue[x][y - decrement][0].name) + " during matchmaking")
+                                        self.player_queue[x][y - decrement].append(0) #add a 0 to count disconnected packets.
+                                #leftovers from the lobby OR a timeout occurred? Send back some base data.
+                                VIEW_CT = 5
+                                view_index = 0
+                                if(connected): #Is this client still connected?
+                                    self.player_queue[x][y][2] = 0 #we're still connected...
+                                    if(data == [False]): #client asked to leave??
+                                        _thread.start_new_thread(self.lobby_server, (self.player_queue[x][y - decrement],)) #back to the lobby...(extra comma is there to make sure the 2nd function argument is a tuple)
+                                        print("[MATCHMAKER] Removed player " + str(self.player_queue[x][y - decrement][0].name) + " from the matchmaking queue")
+                                        del(self.player_queue[x][y - decrement])
+                                        decrement += 1
+                                        continue #we need to move to the next iteration of this loop to avoid errors from executing lines of code below...
+                                    else: #we first need to verify our data before we go ahead on using it...
+                                        # - Verify our data -
+                                        verified = netcode.data_verify(data, self.MATCH_PACKETS)
+                                        if(verified):
+                                            VIEW_CT = data[0]
+                                            view_index = data[1]
+                                        else: #if the data is bad AND we're not getting lobby packets...well...we can send back some generic view_ct stuff (set above about 10 lines)
+                                            verify = False #check if we're still stuck in the lobby...
+                                            for check_packet in self.LOBBY_PACKETS:
+                                                if(netcode.data_verify(data, check_packet)):
+                                                    verify = True
+                                                    break
+                                            if(verify): #put the player back in the lobby.
+                                                _thread.start_new_thread(self.lobby_server, (self.player_queue[x][y - decrement],)) #back to the lobby...(extra comma is there to make sure the 2nd function argument is a tuple)
+                                                print("[MATCHMAKER] Removed player " + str(self.player_queue[x][y - decrement][0].name) + " from the matchmaking queue due to lobby desync")
+                                                del(self.player_queue[x][y - decrement])
+                                                decrement += 1
+                                                continue #we need to move to the next iteration of this loop to avoid errors from executing lines of code below...
+                                #Server Send Format: [in_battle(True/False), viewing_players data list, player_count] (send data)
+                                view_data = []
+                                for b in range(0,VIEW_CT):
+                                    if(b + view_index < len(self.player_queue[x])):
+                                        view_data.append(self.player_queue[x][b + view_index - decrement][0].return_data())
                                     else:
-                                        print("[MATCHMAKER] Failed to save player data from user " + str(self.player_queue[x][y - decrement][0].name) + " during matchmaking")
-                                    del(self.player_queue[x][y - decrement])
-                                    decrement += 1 #make sure we don't get an IndexError...I hate those things!!
+                                        break
+                                netcode.send_data(self.player_queue[x][y - decrement][1], self.buffersize, [True, view_data, len(self.player_queue[x])])
+                                if(not connected): #we need to log this player out and remove him from the queue IF they have been disconnected for a few packets in a row.
+                                    if(len(self.player_queue[x][y - decrement]) < 3):
+                                        self.player_queue[x][y - decrement].append(0) #add a 0 to count disconnected packets.
+                                    self.player_queue[x][y - decrement][2] += 1
+                                    if(self.player_queue[x][y - decrement][2] > 3): #4 lost packets in a row? disconnect the player.
+                                        #self.player_queue[x][y - decrement] is the player that disconnected.
+                                        saved = self.logout_player(self.player_queue[x][y - decrement])
+                                        if(saved):
+                                            print("[MATCHMAKER] Successfully saved player data from user " + str(self.player_queue[x][y - decrement][0].name) + " during matchmaking")
+                                        else:
+                                            print("[MATCHMAKER] Failed to save player data from user " + str(self.player_queue[x][y - decrement][0].name) + " during matchmaking")
+                                        del(self.player_queue[x][y - decrement])
+                                        decrement += 1 #make sure we don't get an IndexError...I hate those things!!
             time.sleep(0.15) #~4PPS sounds good to me... (I'm accounting for 100ms ping)
 
     # - Typical battle with no stakes except losing silver - server side -
@@ -373,6 +376,8 @@ class BattleEngine():
         arena = arena_lib.Arena(arena_data[0], arena_data[1], arena_data[2])
         arena.set_flag_locations(arena_data[6])
         arena_lock = _thread.allocate_lock()
+        # - Create a GFX manager to reduce netcode load -
+        gfx = GFX.GFX_Manager()
         # - Set players in the right position -
         for teams in range(0,len(players[0])):
             for player in range(0,len(players[0][teams][0])):
@@ -386,10 +391,10 @@ class BattleEngine():
         player_number = 0
         for teams in range(0,len(players[0])):
             for player in range(0,len(players[0][teams][0])):
-                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[0][teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, False, teams))
+                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[0][teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, False, teams, gfx))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
-        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated))
+        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx))
 
     # - This battle mode allows you to lose experience, which is needed to unlock new tanks -
     def ranked_battle_server(self, players):
@@ -411,6 +416,8 @@ class BattleEngine():
         arena = arena_lib.Arena(arena_data[0], arena_data[1], arena_data[2])
         arena.set_flag_locations(arena_data[6])
         arena_lock = _thread.allocate_lock()
+        # - Create a GFX manager to reduce netcode load -
+        gfx = GFX.GFX_Manager()
         # - Set players in the right position -
         for teams in range(0,len(players[0])):
             for player in range(0,len(players[0][teams][0])):
@@ -424,13 +431,13 @@ class BattleEngine():
         player_number = 0
         for teams in range(0,len(players[0])):
             for player in range(0,len(players[0][teams][0])): #the True at the end is to let all threads know that this battle is for more stakes then just cash!
-                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[0][teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, True, teams))
+                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[0][teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, True, teams, gfx))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
-        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated))
+        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx))
 
     # - Handles most of the computation for battles, excluding packet exchanging -
-    def battle_server_compute(self, game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated):
+    def battle_server_compute(self, game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx):
         battle = True #this goes false when the battle is finished.
         TILE_SIZE = 20 #this is a constant which we don't *really* need...
         framecounter = 0 #we need a framecounter for handling particle generation
@@ -443,6 +450,7 @@ class BattleEngine():
         bricks = arena_data[4]
         destroyed_brick = arena_data[5]
         battle_timeout = None
+        clock = pygame.time.Clock() #limit the CPU usage just a bit, ok?
         while battle:
             # - Update our framecounter -
             if(framecounter >= 65535):
@@ -464,6 +472,8 @@ class BattleEngine():
 
             decrement = 0 # - Update all the "game_objects" in the game -
             with game_objects_lock:
+                # - Attempt to spawn powerups -
+                entity.spawn_powerups(arena,game_objects,["","","","","","","","","",""]) #the "" are dummy images...The client will have to populate those spaces with proper images.
                 for x in range(0,len(game_objects)):
                     if(game_objects[x - decrement].type == "Tank"): #Are we updating a tank object?
                         if(game_objects[x - decrement].destroyed != True):
@@ -472,12 +482,13 @@ class BattleEngine():
                                 game_objects.append(potential_bullet)
                             # - Try to use powerups if the client requested one -
                             #game_objects[x - decrement].use_powerup(0, server=True)
-                            game_objects[x - decrement].clock(TILE_SIZE, [1, 1], particles, framecounter) #update all tank objects
+                            game_objects[x - decrement].clock(TILE_SIZE, [1, 1], particles, framecounter, gfx) #update all tank objects
                         else: #now we need to check if we exploded the tank yet....
                             if(game_objects[x - decrement].explosion_done == False): #we haven't done the explosion yet?
                                 #Create a nice big explosion
-                                with particles_lock:
-                                    GFX.create_explosion(particles, [game_objects[x - decrement].overall_location[0] + 0.5,game_objects[x - decrement].overall_location[1] + 0.5], 2.25, [0.1, 2.0], [[255,0,0],[255,255,0],[100,100,0]], [[0,0,0],[50,50,50],[100,100,100]], 1.0, 0, "BOOM", arena.TILE_SIZE)
+                                with gfx.lock:
+                                    gfx.create_explosion([game_objects[x - decrement].overall_location[0] + 0.5,game_objects[x - decrement].overall_location[1] + 0.5], 2.25, [0.1, 2.0], [[255,0,0],[255,255,0],[100,100,0]], [[0,0,0],[50,50,50],[100,100,100]], 1.0, 0, "BOOM")
+                                #GFX.create_explosion(particles, [game_objects[x - decrement].overall_location[0] + 0.5,game_objects[x - decrement].overall_location[1] + 0.5], 2.25, [0.1, 2.0], [[255,0,0],[255,255,0],[100,100,0]], [[0,0,0],[50,50,50],[100,100,100]], 1.0, 0, "BOOM", arena.TILE_SIZE)
                                 # - Set the tank's explosion_done flag to False (I know, it's backwards, but it would break 2p_bot_demo otherwise) -
                                 game_objects[x - decrement].explosion_done = True
                     elif(game_objects[x - decrement].type == "Bullet"): #Are we updating a bullet object?
@@ -485,7 +496,7 @@ class BattleEngine():
                             del(game_objects[x - decrement])
                             decrement += 1
                             continue
-                        game_objects[x - decrement].clock(particles, framecounter) #clock the bullet
+                        game_objects[x - decrement].clock(gfx, framecounter) #clock the bullet
                         game_objects[x - decrement].move() #move the bullet
                         # - Check: Has the bullet hit anything? -
                         bullet_collision = game_objects[x - decrement].return_collision(TILE_SIZE)
@@ -512,7 +523,9 @@ class BattleEngine():
                                 # - Add some particle effects -
                                 particles.append(GFX.Particle(game_objects[x - decrement].map_location[:], game_objects[x - decrement].map_location[:], 0.5, 0.3, [175,25,25], [50,50,50], time.time(), time.time() + 1.5, str(round(damage_numbers[1],0))))
                                 #Bullet stuff: self.shell_explosion_colors, self.shell_type
-                                GFX.create_explosion(particles, [game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words=None, TILE_SIZE=20)
+                                with gfx.lock:
+                                    gfx.create_explosion([game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, None)
+                                #GFX.create_explosion(particles, [game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words=None, TILE_SIZE=20)
                         # - A wall? -
                         if(game_objects[x - decrement].destroyed != True): #the bullet isn't destroyed yet, is it?
                             for t in collided_tiles:
@@ -532,7 +545,9 @@ class BattleEngine():
                                             if(damage_numbers != None):
                                                 particles.append(GFX.Particle(game_objects[x - decrement].map_location[:], game_objects[x - decrement].map_location[:], 0.5, 0.3, [175,175,25], [50,50,50], time.time(), time.time() + 1.5, str(round(damage_numbers[1],0))))
                                                 #Bullet stuff: self.shell_explosion_colors, self.shell_type
-                                                GFX.create_explosion(particles, [game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words="bang", TILE_SIZE=20)
+                                                with gfx.lock:
+                                                    gfx.create_explosion([game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, "bang")
+                                                #GFX.create_explosion(particles, [game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words="bang", TILE_SIZE=20)
                                 elif(game_objects[y].type == "Bullet"): #collided with a bullet? Don't need to check if it's destroyed, 'cause they don't last the whole match...
                                     collision = entity.check_collision(game_objects[x - decrement], game_objects[y], TILE_SIZE)
                                     if(collision[0]): #The bullet hit another bullet?
@@ -542,11 +557,23 @@ class BattleEngine():
                                             particles.append(GFX.Particle(game_objects[x - decrement].map_location[:], game_objects[x - decrement].map_location[:], 0.5, 0.3, [200,200,25], [50,50,50], time.time(), time.time() + 1.5, str(round(damage_numbers[1],0))))
                                             particles.append(GFX.Particle(game_objects[y].map_location[:], game_objects[y].map_location[:], 0.5, 0.3, [200,25,25], [50,50,50], time.time(), time.time() + 1.5, str(round(damage_numbers[0],0))))
                                             #Bullet stuff: self.shell_explosion_colors, self.shell_type
-                                            GFX.create_explosion(particles, [game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words="pow", TILE_SIZE=20)
-                                            GFX.create_explosion(particles, [game_objects[y].map_location[0] + 0.5, game_objects[y].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[y].shell_explosion_colors[game_objects[y].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words="pop", TILE_SIZE=20)
+                                            with gfx.lock:
+                                                gfx.create_explosion([game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, "pow")
+                                                gfx.create_explosion([game_objects[y].map_location[0] + 0.5, game_objects[y].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[y].shell_explosion_colors[game_objects[y].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, "pop")
+                                            #GFX.create_explosion(particles, [game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words="pow", TILE_SIZE=20)
+                                            #GFX.create_explosion(particles, [game_objects[y].map_location[0] + 0.5, game_objects[y].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[y].shell_explosion_colors[game_objects[y].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words="pop", TILE_SIZE=20)
 
                     elif(game_objects[x - decrement].type == "Powerup"): #Are we managing a powerup?
-                        pass
+                        # - Check if the powerup has been collected -
+                        for y in range(0,len(game_objects)):
+                            if(game_objects[y].type == "Tank"): #only tanks can collect powerups
+                                if(entity.check_collision(game_objects[x - decrement], game_objects[y], arena.TILE_SIZE, tank_collision_offset=5)[0]): #the tank got the powerup?
+                                    game_objects[x - decrement].use(game_objects[y]) #it will despawn automatically from the code below...
+                                    break
+                        game_objects[x - decrement].clock() #update the powerup's state
+                        if(game_objects[x - decrement].despawn == True): #despawn the powerup?
+                            del(game_objects[x - decrement])
+                            decrement += 1
 
                 # - Check if any teams were eliminated -
                 for teams in range(0,len(eliminated)):
@@ -569,6 +596,9 @@ class BattleEngine():
                             # - Set our eliminated status to destruction_number, which is the order in which teams were destroyed -
                             eliminated[teams][1] = destruction_number
 
+                # - Limit CPS -
+                clock.tick(30)
+
             # - Check if all but one team has been eliminated -
             battle_end_check = 0 #this variable needs to equal len(eliminated) - 1 by the time this loop is finished for the game to end.
             for battle_end in range(0,len(eliminated)):
@@ -583,7 +613,7 @@ class BattleEngine():
 
     # - Player_data is a list of [account, socket].
     # - This function exchanges packets between client and server, AND stuffs the client's data into the game_objects list. It can also function as a dummy client, with a bot controlling the tank. -
-    def battle_server(self, game_objects, game_objects_lock, player_data, player_index, map_name, particles, particles_lock, arena, eliminated, experience=False, team_num=0):
+    def battle_server(self, game_objects, game_objects_lock, player_data, player_index, map_name, particles, particles_lock, arena, eliminated, experience=False, team_num=0, gfx=None):
         #Send packet description: All packets start with a "prefix", a small string describing what the packet does and the format corresponding to it.
         # - Type A) Setup packet. Very long packet, used to setup the client's game state. (Not entity related stuff; Account data, arena data, etc.)
         #       Format: ["setup", account.return_data(), map_name]
@@ -608,7 +638,7 @@ class BattleEngine():
         clock = pygame.time.Clock() #limit PPS to 20
 
         packet_phase = "init" #defines which type of packet we send - "setup","sync","end","end2","packet","init", OR "bot", which is used to signify that no one actually needs any data sent through this thread...
-        if(type(player_data[1]) == type("bot")):
+        if(player_data[1] == "bot"):
             packet_phase = "bot"
             bot_computer = entity.Bot(team_num,player_index,player_rating=1.15)
 
@@ -652,8 +682,11 @@ class BattleEngine():
                             for x in particles:
                                 particle_list.append(x.return_data())
                             packet_data.append(particle_list) #send particle data
+                        with gfx.lock:
+                            packet_data.append(gfx.return_data())
                     else:
                         packet_data.append(None) #not sending particle data this packet.
+                        packet_data.append(None)
                     # - Send map data to client every Xnd packet -
                     if(packet_counter % 2 == 0):
                         arena_data = []
@@ -754,12 +787,15 @@ class BattleEngine():
             # - Check if we should switch packet_phase to "end" (game over). This can happen EITHER if we are eliminated, OR if we win. -
             win = 0
             for x in eliminated:
-                if(x[0] == game_objects[player_index].team and x[1] != False): #our team is destroyed? End flag it is...
-                    packet_phase = "end"
+                if(x[0] == game_objects[player_index].team and x[1] != False): #our team is destroyed? End flag it is...IF we're NOT a bot!!!
+                    if(packet_phase == "bot"):
+                        packets = False
+                    else: #then we can let the client (not a bot) know it's end time
+                        packet_phase = "end"
                     break
                 elif(x[1] != False):
                     win += 1
-            if(win == len(eliminated) - 1): #all teams were eliminated BUT ourselves?
+            if(win >= len(eliminated) - 1): #all teams were eliminated BUT ourselves?
                 if(packet_phase != "bot"):
                     packet_phase = "end"
                 else: #just kill the thread...
@@ -768,16 +804,19 @@ class BattleEngine():
             if(packet_phase == "bot"): #this is a bot player's thread? Let's do some bot computing!
                 all_blocks = blocks[:] #grab all blocks the bot cannot move through
                 for x in bricks:
-                    blocks.append(x)
-                tanks = [] #gather all tanks from game_objects
-                for x in game_objects:
-                    if(x.type == "Tank" and x.name != game_objects[player_index].name or x.team != game_objects[player_index].team):
-                        tanks.append(x)
-                bullets = [] #gather all bullets from game_objects
-                for x in game_objects:
-                    if(x.type == "Bullet" and x.team != game_objects[player_index].team):
-                        bullets.append(x)
-                bot_computer.analyse_game(tanks,bullets,arena,arena.TILE_SIZE,all_blocks,tank_collision_offset=1.5)
+                    all_blocks.append(x)
+                with game_objects_lock:
+                    tanks = [] #gather all tanks from game_objects
+                    for x in game_objects:
+                        if((x.type == "Tank")): # and x.name != game_objects[player_index].name) or (x.type == "Tank" and x.team != game_objects[player_index].team)):
+                            tanks.append(x)
+                    bullets = [] #gather all bullets from game_objects
+                    for x in game_objects:
+                        if(x.type == "Bullet" and x.team != game_objects[player_index].team):
+                            bullets.append(x)
+                    potential_bullet = bot_computer.analyse_game(tanks,bullets,arena,arena.TILE_SIZE,all_blocks)
+                    if(potential_bullet != None): #did the bot shoot?
+                        game_objects.append(potential_bullet)
                     
             clock.tick(20) #limit PPS to 20
 
@@ -898,12 +937,13 @@ class BattleEngine():
     #player_queue is a list: [ [account, client socket], [account, client socket] ... ] ***Player_queue MUST be locked while matchmaking to avoid index errors***
     def matchmake(self, player_queue, odd_allowed=False, rating=False): #creates a match from the player queue
         potential_match = self.return_team_ratings(player_queue, odd_allowed, rating) #check: Is this match going to be too unbalanced?
+        bot_added = False #this flag is needed so that we can delete the bot if one is created and matchmaking fails
         if(potential_match != None): #we have a match?
             if(potential_match >= self.IMBALANCE_LIMIT and len(player_queue) < self.PLAYER_CT[1]): #this match is too imbalanced? And there's room for another player? (or bot)
                 # Typically, no match would be made. However, I can add a bot to the game...!
                 #We add a bot to the queue which should be powerful enough to make up for its stupidity...ROFL (not happening at the moment due to bugs)
-                #player_queue.append([self.create_account(potential_match * 0.75),"bot"])
-                pass
+                player_queue.append([self.create_account(potential_match * 0.75),"bot"])
+                bot_added = True
             # - Now, the matchmaker can continue at this point
         else: #we can't make a match out of our current queue of players. Not enough in queue perhaps? =(
             return None
@@ -956,6 +996,8 @@ class BattleEngine():
             #Teams format: [[players, rating], [players, rating]...]
             return [teams, teams[0][1] - teams[1][1]] #return the matchmaking result (includes player accounts, socket connections), and imbalances.
         else: #no match could be made... :(
+            if(bot_added): #remove the bot from the player queue
+                del(player_queue[len(player_queue) - 1]) #the bot is always the last player in the queue.
             return None
 
     def anti_cheat(self): #checks old_data list and can see if any players are cheating based on that.

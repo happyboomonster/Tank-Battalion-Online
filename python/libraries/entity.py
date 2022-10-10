@@ -179,8 +179,10 @@ class Bullet(): #specs_multiplier format: [ damage buff/nerf, penetration buff/n
         self.old_time = time.time()
 
         # - Handle drawing fire on the tank + damage numbers from fire -
-        if(self.fire_inflict > 1.025): #Are we going to set fire to someone's engine?? Add particles!
+        if(self.fire_inflict > 1.025 and str(type(particles)) == "<class 'list'>"): #Are we going to set fire to someone's engine?? Add particles!
             GFX.create_fire(particles,self.map_location,framecounter)
+        elif(self.fire_inflict > 1.025): #this is for if we are using a GFX_Manager() object instead of a Particle() list.
+            particles.create_fire(self.map_location)
 
     def move(self): #move the bullet, how simple.
         speed = (self.penetration / 4.75) #calculate the bullet's speed in tiles/second based on its penetration
@@ -439,7 +441,7 @@ class Tank():
         #finished!
         return direction
 
-    def clock(self, TILE_SIZE=20, screen_scale=[1, 1],particles=[],current_frame=0): #call this function each time the computation loop runs in a game.
+    def clock(self, TILE_SIZE=20, screen_scale=[1, 1],particles=[],current_frame=0,gfx=None): #call this function each time the computation loop runs in a game.
         self.time_difference = time.time() - self.old_time #set time_difference
         self.old_time = time.time() #reset old_time
         # - Update our overall position so that the server knows where we are -
@@ -471,7 +473,9 @@ class Tank():
                 particles.append((GFX.Particle(self.overall_location, [self.overall_location[0], self.overall_location[1] - 1], 1, 0.75, [200,200,0], [50,50,50], time.time(), time.time() + 2.5, str(int(round(self.damage_second, 0))))))
 
         # - Handle drawing fire on the tank + damage numbers from fire -
-        if(self.fire > 0.025): #fire in engine?? Add particles!
+        if(self.fire > 0.025 and gfx != None): #fire in engine?? Add particles!
+            gfx.create_fire(self.overall_location)
+        elif(self.fire > 0.025):
             GFX.create_fire(particles,self.overall_location,current_frame)
                     
         # - Manage powerup cooldowns, both when in use, and when cooling down before next use -

@@ -1,4 +1,4 @@
-##"GFX.py" library ---VERSION 0.08---
+##"GFX.py" library ---VERSION 0.13---
 ## - REQUIRES: "font.py" library
 ## - For creating basic graphical effects (usually based on particles) in the same scale as your screen in a game -
 ##Copyright (C) 2022  Lincoln V.
@@ -20,6 +20,7 @@ import time
 import pygame
 import font
 import random
+import _thread
 
 # - This function prevents colors from being outside their max/min values due to timing errors -
 def colorsafe(color):
@@ -157,6 +158,73 @@ class Particle(): #a square onscreen which can A) change size, B) change color, 
         self.timeout = data[14] #this becomes true once the particle is finished its job (providing a temporary effect onscreen)
         self.last_clock = time.time() - data[15]
 
+class GFX_Manager(): # - A class which helps transmit a large amount of particles over netcode without overloading transmission protocols -
+    def __init__(self):
+        # - Particle tracking variables -
+        self.last_id = 0
+        self.max_id = 1000 #max of 1000 explosions/fires happening at once
+
+        # - Constants -
+        self.TIMEOUT = 2.0 #seconds
+
+        # - Particle list (Format: [ ["explosion/fire",ID#,parameters,start_time], ["explosion/fire",ID#,parameters,start_time]... ] ) -
+        self.particle_effects = []
+
+        # - lock for threading -
+        self.lock = _thread.allocate_lock()
+
+    def create_explosion(self, position, explosion_radius, particle_sizes, start_colors, end_colors, duration, time_offset, optional_words): #creates an explosion...
+        self.last_id += 1
+        params = [position, explosion_radius, particle_sizes, start_colors, end_colors, duration, time_offset, optional_words]
+        self.particle_effects.append(["explosion", self.last_id, params, time.time()])
+
+    def create_fire(self, location): #start something on fire!
+        self.last_id += 1
+        self.particle_effects.append(["fire", self.last_id, location, time.time()])
+
+    def purge(self): #deletes old particles
+        decrement = 0
+        for x in range(0,len(self.particle_effects)):
+            if(time.time() - self.particle_effects[x - decrement][3] > self.TIMEOUT):
+                del(self.particle_effects[x - decrement])
+                decrement += 1
+
+    def draw(self, particles, current_frame, TILE_SIZE): #adds the particles to the player's particles list to be drawn and deletes only the explosions after they have been drawn
+        decrement = 0
+        for x in range(0,len(self.particle_effects)):
+            if(self.particle_effects[x - decrement][0] == "explosion"): #an explosion occurred?
+                position = self.particle_effects[x - decrement][2][0]
+                explosion_radius = self.particle_effects[x - decrement][2][1]
+                particle_sizes = self.particle_effects[x - decrement][2][2]
+                start_colors = self.particle_effects[x - decrement][2][3]
+                end_colors = self.particle_effects[x - decrement][2][4]
+                duration = self.particle_effects[x - decrement][2][5]
+                time_offset = self.particle_effects[x - decrement][2][6]
+                optional_words = self.particle_effects[x - decrement][2][7]
+                create_explosion(particles, position, explosion_radius, particle_sizes, start_colors, end_colors, duration, time_offset, optional_words, TILE_SIZE)
+                del(self.particle_effects[x - decrement])
+                decrement += 1
+            elif(self.particle_effects[x - decrement][0] == "fire"): #fire? - Format: ["fire",ID#,[X,Y],time.time()]
+                create_fire(particles,self.particle_effects[x - decrement][2],current_frame)
+
+    def enter_data(self, data): #Copies the data from data[] IF we haven't already copied that data into our GFX manager
+        # - Start by deleting all fire effects -
+        decrement = 0
+        for x in range(0,len(self.particle_effects)):
+            if(self.particle_effects[x - decrement][0] == "fire"):
+                del(self.particle_effects[x - decrement])
+                decrement += 1
+        for x in data: #add the new effects into self.particle_effects
+            if(x[1] > self.last_id or self.last_id == 1000 and x[1] < self.last_id): #this is a new effect?
+                self.last_id = x[1] #make sure we don't add the effect again...
+                self.particle_effects.append([x[0], x[1], x[2], time.time() - x[3]])
+
+    def return_data(self,precision=2):
+        data = [] #get the data from self.particle_effects
+        for x in self.particle_effects:
+            data.append([x[0], x[1], x[2], round(time.time() - x[3])])
+        return data
+
 #pretty self explanatory. Give the function the parameters it needs, and it makes a big explosion.
 def create_explosion(particles, position, explosion_radius, particle_sizes, start_colors, end_colors, duration, time_offset=0, optional_words=None, TILE_SIZE=1): #creates an explosion with varying color, choosable size and position.
     for x in range(0,5): #create a bunch of circle particles for start
@@ -188,6 +256,7 @@ last_fire_time = time.time()
 fire_draw_interval = 0.05
 fire_color = [255,0,0]
 fire_color_change = 2
+MAX_FIRE_FRAME = 5 #maximum of 5 particles created per frame
 
 def create_fire(particles,location,current_frame): #run this every frame you want the fire to last for. Creates a cartoonish fire from top view.
     global last_fire_frame
@@ -202,6 +271,8 @@ def create_fire(particles,location,current_frame): #run this every frame you wan
         last_fire_frame = current_frame #update the frame bookmark
         #add the GFX particles to the particles list
         for x in range(0,int(last_frame_time)): #make sure we account for missed frames and lag
+            if(x > MAX_FIRE_FRAME): #we need to account for missed frames, that's true, but we also don't want to re-lag the machine to death...
+                break
             particles.append(Particle([location[0] + 0.5, location[1] + 0.5], [location[0] + 0.5 + random.randint(-5,5) / 10, location[1] + 0.5 + random.randint(-5,5) / 10], 0.1, 0.05, fire_color[:], [50,50,50], time.time(), time.time() + 1, random.randint(1,2)))
         # - Update fire_color -
         #First: We start by changing R by fire_color_change
@@ -245,6 +316,66 @@ def create_fire(particles,location,current_frame): #run this every frame you wan
 ##    if(round(time.time() % 0.1, 3) == 0): #create an explosion on occasion
 ##        create_explosion(particles, [random.randint(0,32), random.randint(0,24)], random.randint(2,15), [0.1, random.randint(0,3)], [[255,0,0],[255,255,0]],[[0,0,0],[100,100,100],[50,50,50]], 0.80, 0, "boom")
 ##
+##    decrement = 0
+##    for x in range(0,len(particles)): #update the particle states and draw them onscreen
+##        particles[x + decrement].clock()
+##        particles[x + decrement].draw(1, [20, 20], [0, 0], screen)
+##        if(particles[x + decrement].timeout == True):
+##            del(particles[x + decrement])
+##            decrement -= 1
+##
+##    pygame.display.flip() #update the screen and clear it for next frame
+##    screen.fill([0,0,0])
+##
+##pygame.quit()
+
+        
+###short demo test for the GFX_Manager class
+##screen = pygame.display.set_mode([640,480])
+##
+##particles = []
+##gfx = GFX_Manager()
+##client_gfx = GFX_Manager()
+##
+##fire_pos = [0,0]
+##
+##current_frame = 0
+##
+##running = True
+##while running:
+##    # - Manage the framecounter -
+##    current_frame += 1
+##    if(current_frame > 65535):
+##        current_frame = 0
+##    
+##    for event in pygame.event.get(): #event loop
+##        if(event.type == pygame.QUIT):
+##            running = False
+##
+##    #***This code down below would happen on the server***
+##    if(round(time.time() % 0.0025, 2) == 0): #randomly create a bunch of particles, 10 in a second
+##        fire_pos[0] += random.randint(-1,1) / 20
+##        fire_pos[1] += random.randint(-1,1) / 20
+##        fire_pos[0] = abs(fire_pos[0])
+##        fire_pos[1] = abs(fire_pos[1])
+##        if(fire_pos[0] > screen.get_width()):
+##            fire_pos[0] = screen.get_width()
+##        if(fire_pos[1] > screen.get_height()):
+##            fire_pos[1] = screen.get_height()
+##        gfx.create_fire(fire_pos[:])
+##
+##    if(round(time.time() % 0.2, 3) == 0): #create an explosion on occasion
+##        gfx.create_explosion([random.randint(0,32), random.randint(0,24)], random.randint(3,8), [0.1, random.randint(2,5)], [[255,0,0],[255,255,0]],[[0,0,0],[100,100,100],[50,50,50]], 0.80, 0, "boom")
+##
+##    gfx.purge() #delete old particle entries
+##
+##    gfx_data = gfx.return_data()
+##
+##    #***This code would happen on the client***
+##    client_gfx.enter_data(gfx_data)
+##    client_gfx.draw(particles, current_frame, 1)
+##
+##    # - Update the particles -
 ##    decrement = 0
 ##    for x in range(0,len(particles)): #update the particle states and draw them onscreen
 ##        particles[x + decrement].clock()

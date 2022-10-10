@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.24---
+##"battle_client.py" library ---VERSION 0.26---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -747,7 +747,9 @@ class BattleEngine():
         blocks = []
 
         # - Game setup -
-        particles = [] #list of particle effects (explosions, fire, etc.)
+        particles = [] #list of particle effects (explosions, fire, etc.) - These are managed 
+        gfx_particles = []
+        gfx = GFX.GFX_Manager()
         framecounter = 0 #this makes sense...frame counter for particle stuff I wanna say?
         particles_lock = _thread.allocate_lock()
 
@@ -759,16 +761,22 @@ class BattleEngine():
         running = [True] #HAS to be a list so that the value is shared between the _netcode() thread and this thread...bad things happen otherwise.
         explosion_timer = time.time() #this is for checking when the last "game over" explosion happened
         fps = 30 #this is needed for moving the cursor around at a reasonable rate
+        framecounter = 0
         
         # - These flags are for netcode operation which also involves the client frontend -
         game_end = False #this flag helps me end the game smoothly.
         sync = False #this flag prevents us from moving when the server syncs us.
         eliminated = [] #this only gets filled with data once it is game over.
         
-        _thread.start_new_thread(self.battle_client_netcode,(player_tank, player_account, entities, entities_lock, particles, particles_lock, arena, blocks, screen_scale, running, sync, game_end, eliminated, hud, hud_lock)) #start up the netcode
+        _thread.start_new_thread(self.battle_client_netcode,(player_tank, player_account, entities, entities_lock, particles, particles_lock, arena, blocks, screen_scale, running, sync, game_end, eliminated, hud, hud_lock, gfx)) #start up the netcode
 
         # - Now we use this thread to draw graphics, and do keypress detection etc. -
         while running[0]:
+            # - Update our framecounter -
+            framecounter += 1
+            if(framecounter > 65535):
+                framecounter = 0
+            
             # - Make sure our cursor stays onscreen -
             mousepos[0] = abs(mousepos[0]) #no negative locations allowed!
             mousepos[1] = abs(mousepos[1])
@@ -780,7 +788,7 @@ class BattleEngine():
             running[0] = not controller.get_keys() #handle controller stuff real EZ
             keys = self.controls.get_input()
 
-            # - Increment our framecounter counter -
+            # - Increment our framecounter -
             if(framecounter >= 65535):
                 framecounter = 0
             else:
@@ -909,7 +917,11 @@ class BattleEngine():
             if(len(eliminated) != 0): #game over?
                 if(time.time() - explosion_timer > 0.50): #create an explosion every X seconds
                     explosion_timer = time.time() #reset the explosion timer...
-                    GFX.create_explosion(particles, [random.randint(0,tile_viewport[0]), random.randint(0,tile_viewport[1])], random.randint(2,6), [0.05, random.randint(1,3)], [[255,0,0],[255,255,0]],[[0,0,0],[100,100,100],[50,50,50]], 0.80, 0, "game over", arena.TILE_SIZE)
+                    GFX.create_explosion(particles, [random.randint(0,tile_viewport[0]), random.randint(0,tile_viewport[1])], random.randint(2,6), [0.05, random.randint(2,4)], [[255,0,0],[255,255,0]],[[0,0,0],[100,100,100],[50,50,50]], 0.80, 0, "game over", arena.TILE_SIZE)
+
+            # - Copy the GFX_Manager particles into the particles[] list -
+            with gfx.lock:
+                gfx.draw(gfx_particles, framecounter, arena.TILE_SIZE)
 
             # - Draw everything -
             self.screen.fill([0,0,0]) #start with black...every good game starts with a black screen.
@@ -945,7 +957,7 @@ class BattleEngine():
                         bar += 1 #increment the HP bar counter
             # - Draw all particle effects and delete old particles -
             with particles_lock:
-                # - Delete any particles which are finished their job (this has to happen first to avoid invalid color arguments from bad timing) -
+                # - Delete any particles() which are finished their job (this has to happen first to avoid invalid color arguments from bad timing) -
                 decrement = 0
                 for x in range(0,len(particles)):
                     if(particles[x - decrement].timeout == True):
@@ -955,6 +967,16 @@ class BattleEngine():
                 for x in particles: # - Draw the remaining particles -
                     x.clock()
                     x.draw(arena.TILE_SIZE, screen_scale, player_tank.map_location[:], self.screen)
+            # - Delete any gfx_particles() which are finished their job (this has to happen first to avoid invalid color arguments from bad timing) -
+            decrement = 0
+            for x in range(0,len(gfx_particles)):
+                if(gfx_particles[x - decrement].timeout == True):
+                    del(gfx_particles[x - decrement])
+                    decrement += 1
+            for x in gfx_particles: # - Draw the remaining particles -
+                x.clock()
+                x.draw(arena.TILE_SIZE, screen_scale, player_tank.map_location[:], self.screen)
+                
             # - Draw the menu -
             battle_menu.draw_menu([0,0],[self.screen.get_width(), self.screen.get_height()],self.screen,mousepos)
             hud.draw_HUD(self.screen)
@@ -972,7 +994,7 @@ class BattleEngine():
             fps = clock.get_fps()
             pygame.display.set_caption("Tank Battalion Online - FPS: " + str(int(fps)))
         
-    def battle_client_netcode(self, player_tank, player_account, entities, entities_lock, particles, particles_lock, arena, blocks, screen_scale, running, sync, game_end, eliminated, hud, hud_lock): #netcode and background processes for battle_client().
+    def battle_client_netcode(self, player_tank, player_account, entities, entities_lock, particles, particles_lock, arena, blocks, screen_scale, running, sync, game_end, eliminated, hud, hud_lock, gfx): #netcode and background processes for battle_client().
         setup = True #do we still need to set up the game?
         packets = True #are we going to stop exchanging packets yet?
         clock = pygame.time.Clock() #I like to see my PPS
@@ -1066,8 +1088,11 @@ class BattleEngine():
                                     tmp_particle = GFX.Particle([0,0], [0,0], 1, 1, [0,0,0], [0,0,0], 1, 2, form=0) #create a blank particle
                                     tmp_particle.enter_data(x) #enter some attribute data into the particle
                                     particles.append(tmp_particle) #add it to the particles list so it can be drawn
-                        if(data[3] != None): #the server is sending block updates this packet?
-                            arena.modify_tiles(data[3]) #update our tiles...
+                        if(data[3] != None): #we got GFX_Manager particle data too?
+                            with gfx.lock:
+                                gfx.enter_data(data[3])
+                        if(data[4] != None): #the server is sending block updates this packet?
+                            arena.modify_tiles(data[4]) #update our tiles...
                                 
                 elif(data[0] == "end"): #game over?
                     if(len(eliminated) != len(data[2])): #make sure eliminated is the right length
