@@ -1,4 +1,4 @@
-##"account.py" library ---VERSION 0.22---
+##"account.py" library ---VERSION 0.23---
 ## - REQUIRES: "entity.py"
 ## - For managing account data in Tank Battalion Online -
 ##Copyright (C) 2022  Lincoln V.
@@ -190,7 +190,7 @@ class Account():
 
         #Load the tank with shells and powerups
         tank.shells = self.shells
-        tank.powerups = self.powerups[:]
+        tank.powerups = self.powerups.copy()
 
         #Update the tank's "start HP and armor" variables
         tank.start_HP = tank.HP
@@ -276,6 +276,7 @@ class Account():
                     self.cash -= price
                     self.powerups[item_index] = True #we now has powerup!
                 else:
+                    self.powerups[item_index] = None #powerup is not there =(
                     return False #we couldn't get item
         elif(item == "shell"): #ammunition?
             price = self.shell_prices[item_index] * self.damage_multiplier

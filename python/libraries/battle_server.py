@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.23---
+##"battle_server.py" library ---VERSION 0.24---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -90,19 +90,19 @@ class BattleEngine():
         # - Matchmaker constants -
         self.EXP_WEIGHT = 0.0005 #this defines the overall power of a player (more EXP = more experienced player = more strategic = more dangerous)
         self.UPGRADE_WEIGHT = 0.5 #this defines the overall power of a player (more upgrades = more powerful tank)
-        self.CASH_WEIGHT = 0.00005 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
-        self.SHELLS_WEIGHT = [0.025, 0.035, 0.05, 0.075] #this defines the overall power of a player (more powerful shells = more dangerous)
-        self.POWERUP_WEIGHT = 1.0 / 6 #this defines the overall power of a player (more powerups = more dangerous)
+        self.CASH_WEIGHT = 0.0 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
+        self.SHELLS_WEIGHT = [0.025, 0.05, 0.075, 0.15] #this defines the overall power of a player (more powerful shells = more dangerous)
+        self.POWERUP_WEIGHT = 2.5 / 6 #this defines the overall power of a player (more powerups = more dangerous)
         self.SPECIALIZATION_WEIGHT = 0.35 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
-        self.IMBALANCE_LIMIT = 2.50 #the maximum imbalance of rating points a match is allowed to have to be finalized.
+        self.IMBALANCE_LIMIT = 0.30 #the maximum imbalance of rating points a match is allowed to have to be finalized.
         #How many players can be put into a battle? [min, max]
-        self.PLAYER_CT = [2, 50]
+        self.PLAYER_CT = [6, 50]
         # - How long should it take before a minimum player match takes place? -
-        self.IMMEDIATE_MATCH = 45 #2 minutes = maximum wait time
+        self.IMMEDIATE_MATCH = 130 #2 minutes = maximum wait time
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
         self.TIME_SCALING_CONSTANT = self.IMMEDIATE_MATCH * self.PLAYER_CT[0] * 0.7 #how fast should the matchmaker shove players into matches if there are more than minimum players?
         # - This constant defines the minimum player count for an "optimal" match -
-        self.OPTIMAL_MATCH_CT = 6 #3 players on each team is really the bare minimum for a *good* battle...
+        self.OPTIMAL_MATCH_CT = 16 #X/2 players on each team is really the bare minimum for a *good* battle...
 
         # - Map picker constants -
         self.SQUARES_PER_PERSON = 9 #3x3 per person is a decent space I think.
