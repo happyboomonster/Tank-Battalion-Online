@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.26---
+##"battle_client.py" library ---VERSION 0.27---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -922,6 +922,7 @@ class BattleEngine():
             # - Copy the GFX_Manager particles into the particles[] list -
             with gfx.lock:
                 gfx.draw(gfx_particles, framecounter, arena.TILE_SIZE)
+                gfx.purge() #delete old particles
 
             # - Draw everything -
             self.screen.fill([0,0,0]) #start with black...every good game starts with a black screen.
