@@ -1,4 +1,4 @@
-##"GFX.py" library ---VERSION 0.13---
+##"GFX.py" library ---VERSION 0.14---
 ## - REQUIRES: "font.py" library
 ## - For creating basic graphical effects (usually based on particles) in the same scale as your screen in a game -
 ##Copyright (C) 2022  Lincoln V.
@@ -165,7 +165,7 @@ class GFX_Manager(): # - A class which helps transmit a large amount of particle
         self.max_id = 1000 #max of 1000 explosions/fires happening at once
 
         # - Constants -
-        self.TIMEOUT = 2.0 #seconds
+        self.TIMEOUT = 0.15 #seconds...This way fire doesn't lag people's PCs to death...because the only way to update the position for fire is to spawn new fire and wait for the old fire to despawn.
 
         # - Particle list (Format: [ ["explosion/fire",ID#,parameters,start_time], ["explosion/fire",ID#,parameters,start_time]... ] ) -
         self.particle_effects = []

@@ -1,4 +1,4 @@
-##"netcode.py" library ---VERSION 0.37---
+##"netcode.py" library ---VERSION 0.38---
 ##Copyright (C) 2022  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
@@ -174,6 +174,7 @@ def recieve_data(Cs,buffersize): #tries to recieve some data without checking it
     #   --- IF we can't evaluate the data string as-is, we try to see if there is ANYTHING left in the socket buffer ---
     else: #this occurs if data != None
         if(initial_success == False and not Cs._closed):
+            Cs.settimeout(0.35)
             while len(list(data)) < Nbuffersize and not Cs._closed: #grab some data if we can
                 data_pack = socket_recv(Cs,Nbuffersize - len(list(data)))
                 if(data_pack[1] == 'timeout'): #if we got a timeout error, we ran out of data to retrieve...packet LOST
@@ -198,6 +199,8 @@ def recieve_data(Cs,buffersize): #tries to recieve some data without checking it
     if(Cs._closed):
         errors.append(ERROR_MSGS[SOCK_CLOSE])
         connected = False
+    else:
+        configure_socket(Cs)
     return [data, ping, errors, connected] #return the data this function gathered
 
 # - Clears out all data within a socket connection -

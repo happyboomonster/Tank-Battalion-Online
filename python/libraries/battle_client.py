@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.27---
+##"battle_client.py" library ---VERSION 0.28---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -106,8 +106,21 @@ class BattleEngine():
             # - Start the login script -
             self.login(IP,PORT)
 
-    def login(self,IP,PORT):
-        valid = False
+    def login(self,IP=None,PORT=None):
+        valid = False # - Start by grabbing the server's port and IP address from the client user -
+        while not valid:
+            if(IP != None and PORT != None):
+                valid = True
+            else:
+                if(IP == None): #It's hard to tell whether the IP is a valid one, so I just expect people to type it in right.
+                    IP = menu.get_input(self.screen,"Please enter the server IP")
+                if(PORT == None): #...But I can check whether someone typed in a valid port number...
+                    PORT = menu.get_input(self.screen,"Please enter the server port number")
+                    try:
+                        PORT = int(PORT)
+                    except: #we didn't give a number?
+                        PORT = None #Psyche! Try again...
+        valid = False # - Next we grab login data -
         while not valid:
             login_username_input = menu.get_input(self.screen,"Please enter your username")
             if(login_username_input == None): #player clicked X?
@@ -115,7 +128,7 @@ class BattleEngine():
             login_password_input = menu.get_input(self.screen,"Please enter your password")
             if(login_username_input == None or login_password_input == None): #player clicked X?
                 return None #finish the function; quit the application
-            else:
+            else: #...annnnd see if we can connect.
                 valid = self.connect_server(IP,PORT,login_username_input,login_password_input)
 
     def connect_server(self,IP,PORT,username,password):

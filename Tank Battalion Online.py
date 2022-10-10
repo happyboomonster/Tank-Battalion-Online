@@ -21,5 +21,5 @@ sys.path.insert(0, "python/maps")
 import battle_client
 battle_client.init("python/libraries/")
 #this should auto-run the game code
-engine = battle_client.BattleEngine("192.168.50.47",5031)
+engine = battle_client.BattleEngine(None,5031)
 pygame.quit() #exit pygame
