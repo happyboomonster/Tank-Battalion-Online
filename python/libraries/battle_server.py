@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.32---
+##"battle_server.py" library ---VERSION 0.34---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -40,7 +40,7 @@ class BattleEngine():
 
         # - Formats for netcode packets (being recieved from the client) -
         #   - Format: [None], OR if we want to buy/return something, ["buy"/"return","item type",###], enter battle ["battle","battle type"]
-        self.LOGIN_PACKET = ["<class 'str'>","<class 'str'>"]
+        self.LOGIN_PACKET = ["<class 'str'>","<class 'str'>","<class 'bool'>"]
         self.LOBBY_PACKETS = [["<class 'NoneType'>"], ["<class 'str'>", "<class 'str'>", "<class 'int'>"], ["<class 'str'>", "<class 'str'>"]]
         self.MATCH_PACKETS = ["<class 'int'>", "<class 'int'>"] #[VIEW_CT, player_view_index] OR [False] to leave matchmaker (this one doesn't need to be included)
         self.GAME_PACKETS = [["<class 'str'>"],["<class 'str'>","<class 'list'>"]]
@@ -97,9 +97,9 @@ class BattleEngine():
         self.SPECIALIZATION_WEIGHT = 0.35 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
         self.IMBALANCE_LIMIT = 0.30 #the maximum imbalance of rating points a match is allowed to have to be finalized.
         #How many players can be put into a battle? [min, max]
-        self.PLAYER_CT = [2, 50]
+        self.PLAYER_CT = [1, 50]
         # - How long should it take before a minimum player match takes place? -
-        self.IMMEDIATE_MATCH = 90 #X/60 minutes = maximum wait time
+        self.IMMEDIATE_MATCH = 25 #X/60 minutes = maximum wait time
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
         self.TIME_SCALING_CONSTANT = self.IMMEDIATE_MATCH * self.PLAYER_CT[0] * 0.7 #how fast should the matchmaker shove players into matches if there are more than minimum players?
         # - This constant defines the minimum player count for an "optimal" match -
@@ -146,8 +146,13 @@ class BattleEngine():
             if(client_data[0] != None and netcode.data_verify(client_data[0], self.LOGIN_PACKET)):
                 name = client_data[0][0]
                 password = client_data[0][1]
+                signin = client_data[0][2]
 
-                print("[CONNECT] Recieved login data - Username: " + str(name) + " Password: " + str(password) + " - ", end="")
+                print("[CONNECT] Recieved login/create account data - Username: " + str(name) + " Password: " + str(password) + " - ", end="")
+
+                # - Create the player's acccount if the player does not have an account already -
+                if(signin == False):
+                    self.accounts.append(account.Account(name, password))
 
                 #Next: Get username and password. If they match an account's password and username, we log the user in as that account.
                 for x in range(0,len(self.accounts)):
@@ -365,6 +370,8 @@ class BattleEngine():
         game_objects_lock = _thread.allocate_lock()
         # - Which map are we playing on? -
         map_name = self.pick_map(players[0])
+        if(map_name == False): #we didn't get a map? (0 players in match)
+            return None #exit this battle!
         # - This is for holding all particle effects. This lets people know where gunfights are happening easily because everyone gets to see them -
         particles = []
         particles_lock = _thread.allocate_lock()
@@ -405,6 +412,8 @@ class BattleEngine():
         game_objects_lock = _thread.allocate_lock()
         # - Which map are we playing on? -
         map_name = self.pick_map(players[0])
+        if(map_name == False): #we didn't get a map? (0 players in match)
+            return None #exit this battle!
         # - This is for holding all particle effects. This lets people know where gunfights are happening easily because everyone gets to see them -
         particles = []
         particles_lock = _thread.allocate_lock()
@@ -671,13 +680,13 @@ class BattleEngine():
                     with game_objects_lock:
                         game_object_data = [] #gather all entity data into one list (this could be moved into the compute thread later on)
                         for x in range(0,len(game_objects)):
-                            game_object_data.append(game_objects[x].return_data())
+                            game_object_data.append(game_objects[x].return_data(2, False))
                     packet_data = ["end", game_object_data, eliminated] #this way we can see the scoreboard at the end of the game...
                 elif(packet_phase == "packet"): #typical data packet
                     with game_objects_lock:
                         game_object_data = [] #gather all entity data into one list (this could be moved into the compute thread later on)
                         for x in range(0,len(game_objects)):
-                            game_object_data.append(game_objects[x].return_data())
+                            game_object_data.append(game_objects[x].return_data(2, False))
                     packet_data = ["packet", game_object_data]
                     # - Send particle data to client every Xnd packet -
                     if(packet_counter % 2 == 0): #it's every second packet?
@@ -852,9 +861,11 @@ class BattleEngine():
                 # - Get the total area of the map in tiles -
                 # - Potential_map[0][0] is the map itself, potential_map[0][1] is the map's tiles, potential_map[1] is the map's name
                 tiles = len(potential_map[0][0]) * len(potential_map[0][0][0]) #get the map's area
-                if(tiles / player_ct >= self.SQUARES_PER_PERSON): #will it host as many players as we want????????
+                if(player_ct != 0 and tiles / player_ct >= self.SQUARES_PER_PERSON): #will it host as many players as we want????????
                     #YES!
                     available_maps.append(potential_map[1]) #just append the map's name, nothing else. We can get the map's data later using import_arena.
+                elif(player_ct == 0):
+                    return False #we need to put an end to a battle with no players...
                 else:
                     #NO...
                     pass

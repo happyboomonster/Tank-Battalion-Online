@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.28---
+##"battle_client.py" library ---VERSION 0.29---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -107,7 +107,64 @@ class BattleEngine():
             self.login(IP,PORT)
 
     def login(self,IP=None,PORT=None):
-        valid = False # - Start by grabbing the server's port and IP address from the client user -
+        login_menu = menu.Menuhandler()
+        login_menu.create_menu(["login","create account"],[["",""],["",""]],[],[],"Tank Battalion Online Login")
+
+        # - Key configuration -
+        directions = self.controls.buttons[10:14]
+        shoot = self.controls.buttons[14]
+
+        clock = pygame.time.Clock()
+
+        cursorpos = [0,0]
+
+        # - Wait until the player clicks da button -
+        running = True
+        login = True
+        while running:
+            keys = self.controls.get_input()
+            running = not controller.get_keys()
+
+            for x in keys:
+                if(x in directions):
+                     cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * login_menu.menu_scale
+                     cursorpos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * login_menu.menu_scale
+                
+            if(shoot in keys): #click?
+                clicked_button = login_menu.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height()],cursorpos)
+                if(clicked_button[0][0] != None):
+                    if(clicked_button[0][0] == 0): #login
+                        login = True
+                        running = False
+                    elif(clicked_button[0][0] == 1): #create new account
+                        login = False
+                        running = False
+
+            login_menu.update(self.screen) #update the menu scale
+
+            # - Make sure our cursor stays onscreen -
+            cursorpos[0] = abs(cursorpos[0]) #no negative locations allowed!
+            cursorpos[1] = abs(cursorpos[1])
+            if(cursorpos[0] > self.screen.get_width()): #can't be offscreen by being too big either!
+                cursorpos[0] -= self.screen.get_width()
+            if(cursorpos[1] > self.screen.get_height()):
+                cursorpos[1] -= self.screen.get_height()
+
+            fps = clock.get_fps() #fps stuff
+            clock.tick()
+
+            self.screen.fill([0,0,0]) #draw everything
+            login_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,cursorpos)
+            # - Draw crosshair -
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] - int(8 * login_menu.menu_scale)],[cursorpos[0],cursorpos[1] - int(4 * login_menu.menu_scale)],int(3 * login_menu.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] + int(8 * login_menu.menu_scale)],[cursorpos[0],cursorpos[1] + int(4 * login_menu.menu_scale)],int(3 * login_menu.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] + int(8 * login_menu.menu_scale),cursorpos[1]],[cursorpos[0] + int(4 * login_menu.menu_scale),cursorpos[1]],int(3 * login_menu.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] - int(8 * login_menu.menu_scale),cursorpos[1]],[cursorpos[0] - int(4 * login_menu.menu_scale),cursorpos[1]],int(3 * login_menu.menu_scale))
+            pygame.display.flip()
+
+        controller.empty_keys()
+        
+        valid = False # - Grab the server's port and IP address from the client user -
         while not valid:
             if(IP != None and PORT != None):
                 valid = True
@@ -129,9 +186,9 @@ class BattleEngine():
             if(login_username_input == None or login_password_input == None): #player clicked X?
                 return None #finish the function; quit the application
             else: #...annnnd see if we can connect.
-                valid = self.connect_server(IP,PORT,login_username_input,login_password_input)
+                valid = self.connect_server(IP,PORT,login_username_input,login_password_input,login)
 
-    def connect_server(self,IP,PORT,username,password):
+    def connect_server(self,IP,PORT,username,password,login):
         #create a connection to the server
         connection = True
         self.Cs = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #create a python Socket object for our Client/game
@@ -144,7 +201,7 @@ class BattleEngine():
 
         if(connection):
             #try send our username and password
-            netcode.send_data(self.Cs, self.buffersize, [username, password])
+            netcode.send_data(self.Cs, self.buffersize, [username, password, login])
 
             #Now, we wait 0.5 seconds and check whether the server closed the socket. If the server did, we got the wrong password/username.
             #If not, we probably got it right and we can continue!
@@ -461,6 +518,7 @@ class BattleEngine():
                 with self.waiting_for_queue_lock:
                     self.waiting_for_queue = True
                 self.battle_queue(battle_settings[0][0])
+                controller.empty_keys()
                 self.waiting_for_queue = False
                 with self.request_lock:
                     self.request[0] = None #clear the halt on the packets thread for the lobby client.

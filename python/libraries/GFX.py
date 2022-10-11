@@ -165,7 +165,7 @@ class GFX_Manager(): # - A class which helps transmit a large amount of particle
         self.max_id = 1000 #max of 1000 explosions/fires happening at once
 
         # - Constants -
-        self.TIMEOUT = 0.15 #seconds...This way fire doesn't lag people's PCs to death...because the only way to update the position for fire is to spawn new fire and wait for the old fire to despawn.
+        self.TIMEOUT = 0.075 #seconds...This way fire doesn't lag people's PCs to death...because the only way to update the position for fire is to spawn new fire and wait for the old fire to despawn.
 
         # - Particle list (Format: [ ["explosion/fire",ID#,parameters,start_time], ["explosion/fire",ID#,parameters,start_time]... ] ) -
         self.particle_effects = []

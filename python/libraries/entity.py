@@ -1,4 +1,4 @@
-##"entity.py" library ---VERSION 0.50---
+##"entity.py" library ---VERSION 0.51---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -92,7 +92,7 @@ class Powerup(): #for collectible items within the map
         #draw the powerup/item onscreen
         screen.blit(pygame.transform.scale(self.image,[TILE_SIZE * screen_scale[0], TILE_SIZE * screen_scale[1]]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
 
-    def return_data(self): #gathers data so this can be sent over netcode (certain attributes do not need to be sent)
+    def return_data(self, precision=2, clear_flags=None): #gathers data so this can be sent over netcode (certain attributes do not need to be sent)
         return [
             self.type,
             self.map_location,
@@ -237,7 +237,7 @@ class Bullet(): #specs_multiplier format: [ damage buff/nerf, penetration buff/n
         else: #NO vfx? Simple! Just blit the image onscreen! (with scaling, of course)
             screen.blit(pygame.transform.scale(self.image,[TILE_SIZE * screen_scale[0], TILE_SIZE * screen_scale[1]]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
 
-    def return_data(self, precision=2): #returns bullet data to be sent over netcode
+    def return_data(self, precision=2, clear_flags=None): #returns bullet data to be sent over netcode
         return [
             self.type,
             self.map_location,
@@ -688,7 +688,7 @@ class Tank():
             self.shot_pending = True
         return None #you can't shoot yet...
 
-    def return_data(self, precision=2): #returns tank data to be sent over netcode
+    def return_data(self, precision=2, clear_flags=True): #returns tank data to be sent over netcode
         return_list = [
             self.type,
             round(self.speed,precision),
@@ -715,8 +715,9 @@ class Tank():
             self.powerups,
             round(self.RPM,precision)
             ]
-        self.powerup_request = None #clear the powerup_request flag
-        self.shot_pending = False #clear the shot_pending flag after we grab our data; This is just a good place to do it...
+        if(clear_flags):
+            self.powerup_request = None #clear the powerup_request flag
+            self.shot_pending = False #clear the shot_pending flag after we grab our data; This is just a good place to do it...
         return return_list
 
     def enter_data(self, data, TILE_SIZE=20, screen_scale=[1,1], server=False): #enters the data from Tank.return_data()
