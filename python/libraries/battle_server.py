@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.30---
+##"battle_server.py" library ---VERSION 0.31---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -598,6 +598,10 @@ class BattleEngine():
 
             # - Limit CPS -
             clock.tick(30)
+
+            # - Purge old GFX items -
+            with gfx.lock:
+                gfx.purge()
 
             # - Check if all but one team has been eliminated -
             battle_end_check = 0 #this variable needs to equal len(eliminated) - 1 by the time this loop is finished for the game to end.
