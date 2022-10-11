@@ -821,7 +821,8 @@ class BattleEngine():
                         mousepos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 80 * battle_menu.menu_scale
                         mousepos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 80 * battle_menu.menu_scale
                 if(shoot in keys and not CURSOR_MOD in keys):
-                    player_tank.shoot(arena.TILE_SIZE, server=False)
+                    with player_tank.lock:
+                        player_tank.shoot(arena.TILE_SIZE, server=False)
                 elif(shoot in keys and CURSOR_MOD in keys): #we're shooting a menu item? ...Here we go...menu collision...
                     collide = battle_menu.menu_collision([0,0],[self.screen.get_width(), self.screen.get_height()],mousepos,inc=None)
                     if(battle_menu.current_menu == 0 and collide[0][1] != None): #menu index 0?

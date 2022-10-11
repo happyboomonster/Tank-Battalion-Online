@@ -706,7 +706,7 @@ class Tank():
             round(self.goal_rotation,precision),
             round(self.old_direction,precision),
             round(time.time() - self.last_shot,precision), #seconds ago last shot happened
-            self.shot_pending, #does the CLIENT want to shoot? (sorry servers, you can't do that)
+            eval(str(self.shot_pending)), #does the CLIENT want to shoot? (sorry servers, you can't do that)
             self.current_shell, #which shell does the client want to shoot?
             round(self.total_damage,precision),
             self.kills,

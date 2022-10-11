@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.31---
+##"battle_server.py" library ---VERSION 0.32---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -597,7 +597,7 @@ class BattleEngine():
                             eliminated[teams][1] = destruction_number
 
             # - Limit CPS -
-            clock.tick(30)
+            clock.tick(60)
 
             # - Purge old GFX items -
             with gfx.lock:
