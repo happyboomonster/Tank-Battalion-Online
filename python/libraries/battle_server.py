@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.34---
+##"battle_server.py" library ---VERSION 0.35---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -97,9 +97,9 @@ class BattleEngine():
         self.SPECIALIZATION_WEIGHT = 0.35 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
         self.IMBALANCE_LIMIT = 0.30 #the maximum imbalance of rating points a match is allowed to have to be finalized.
         #How many players can be put into a battle? [min, max]
-        self.PLAYER_CT = [1, 50]
+        self.PLAYER_CT = [3, 50]
         # - How long should it take before a minimum player match takes place? -
-        self.IMMEDIATE_MATCH = 25 #X/60 minutes = maximum wait time
+        self.IMMEDIATE_MATCH = 45 #X/60 minutes = maximum wait time
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
         self.TIME_SCALING_CONSTANT = self.IMMEDIATE_MATCH * self.PLAYER_CT[0] * 0.7 #how fast should the matchmaker shove players into matches if there are more than minimum players?
         # - This constant defines the minimum player count for an "optimal" match -

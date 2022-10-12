@@ -1,4 +1,4 @@
-##"GFX.py" library ---VERSION 0.14---
+##"GFX.py" library ---VERSION 0.15---
 ## - REQUIRES: "font.py" library
 ## - For creating basic graphical effects (usually based on particles) in the same scale as your screen in a game -
 ##Copyright (C) 2022  Lincoln V.
@@ -225,8 +225,18 @@ class GFX_Manager(): # - A class which helps transmit a large amount of particle
             data.append([x[0], x[1], x[2], round(time.time() - x[3])])
         return data
 
+gfx_quality = 1.0
+
 #pretty self explanatory. Give the function the parameters it needs, and it makes a big explosion.
 def create_explosion(particles, position, explosion_radius, particle_sizes, start_colors, end_colors, duration, time_offset=0, optional_words=None, TILE_SIZE=1): #creates an explosion with varying color, choosable size and position.
+    global gfx_quality
+    for x in range(0,int(pow(explosion_radius * TILE_SIZE, 2) * gfx_quality)): #create a bunch of square particles next
+        random.shuffle(start_colors) #shuffle our color options
+        random.shuffle(end_colors)
+        random_start_color = start_colors[0] #pick a random color for both ending and starting our effect based on the choices we allow in our parameters above
+        random_end_color = end_colors[0]
+        #add the finished particle to our collecive list
+        particles.append(Particle([position[0], position[1]], [position[0] + random.randint(-explosion_radius * 100, explosion_radius * 100) / 100, position[1] + random.randint(-explosion_radius * 100, explosion_radius * 100) / 100], particle_sizes[0], particle_sizes[1], random_start_color[:], random_end_color[:], time.time() + time_offset, time.time() + duration + time_offset, 1))
     for x in range(0,5): #create a bunch of circle particles for start
         random.shuffle(start_colors) #shuffle our color options
         random.shuffle(end_colors)
@@ -234,13 +244,6 @@ def create_explosion(particles, position, explosion_radius, particle_sizes, star
         random_end_color = end_colors[0]
         #add the finished particle to our collecive list
         particles.append(Particle([position[0], position[1]], [position[0] + random.randint(-explosion_radius * 100, explosion_radius * 100) / 100, position[1] + random.randint(-explosion_radius * 100, explosion_radius * 100) / 100], particle_sizes[0] / 2, particle_sizes[1] / 2, random_start_color[:], random_end_color[:], time.time() + time_offset + (duration / (x + 1) / 2), time.time() + duration + time_offset + (duration / (x + 1) / 2), 2))
-    for x in range(0,int(pow(explosion_radius * TILE_SIZE, 2))): #create a bunch of square particles next
-        random.shuffle(start_colors) #shuffle our color options
-        random.shuffle(end_colors)
-        random_start_color = start_colors[0] #pick a random color for both ending and starting our effect based on the choices we allow in our parameters above
-        random_end_color = end_colors[0]
-        #add the finished particle to our collecive list
-        particles.append(Particle([position[0], position[1]], [position[0] + random.randint(-explosion_radius * 100, explosion_radius * 100) / 100, position[1] + random.randint(-explosion_radius * 100, explosion_radius * 100) / 100], particle_sizes[0], particle_sizes[1], random_start_color[:], random_end_color[:], time.time() + time_offset, time.time() + duration + time_offset, 1))
     if(optional_words != None):
         for x in range(0,int(explosion_radius * TILE_SIZE / 5)): #create a bunch of word particles
             random.shuffle(start_colors) #shuffle our color options
@@ -265,12 +268,13 @@ def create_fire(particles,location,current_frame): #run this every frame you wan
     global fire_color
     global fire_color_change
     global last_frame_time
-    if(current_frame == last_fire_frame or time.time() - last_fire_time >= fire_draw_interval):
+    global gfx_quality
+    if(current_frame == last_fire_frame or time.time() - last_fire_time >= fire_draw_interval / gfx_quality):
         if(current_frame != last_fire_frame): #we need to set a timing value if we JUST started a new frame.
             last_frame_time = round((time.time() - last_fire_time) / fire_draw_interval,0)
         last_fire_frame = current_frame #update the frame bookmark
         #add the GFX particles to the particles list
-        for x in range(0,int(last_frame_time)): #make sure we account for missed frames and lag
+        for x in range(0,int(last_frame_time * gfx_quality)): #make sure we account for missed frames and lag
             if(x > MAX_FIRE_FRAME): #we need to account for missed frames, that's true, but we also don't want to re-lag the machine to death...
                 break
             particles.append(Particle([location[0] + 0.5, location[1] + 0.5], [location[0] + 0.5 + random.randint(-5,5) / 10, location[1] + 0.5 + random.randint(-5,5) / 10], 0.1, 0.05, fire_color[:], [50,50,50], time.time(), time.time() + 1, random.randint(1,2)))
@@ -314,7 +318,7 @@ def create_fire(particles,location,current_frame): #run this every frame you wan
 ##        particles.append(Particle([random.randint(0,32),random.randint(0,24)], [random.randint(0,32),random.randint(0,24)], random.randint(1,5), random.randint(1,5), [random.randint(0,255),random.randint(0,255),random.randint(0,255)], [0,0,0], time.time(), time.time() + 5, "words"))
 ##
 ##    if(round(time.time() % 0.1, 3) == 0): #create an explosion on occasion
-##        create_explosion(particles, [random.randint(0,32), random.randint(0,24)], random.randint(2,15), [0.1, random.randint(0,3)], [[255,0,0],[255,255,0]],[[0,0,0],[100,100,100],[50,50,50]], 0.80, 0, "boom")
+##        create_explosion(particles, [random.randint(0,32), random.randint(0,24)], random.randint(2,10), [0.1, random.randint(1,3)], [[255,0,0],[255,255,0]],[[0,0,0],[100,100,100],[50,50,50]], 0.80, 0, "boom")
 ##
 ##    decrement = 0
 ##    for x in range(0,len(particles)): #update the particle states and draw them onscreen

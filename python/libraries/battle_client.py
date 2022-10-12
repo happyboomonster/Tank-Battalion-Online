@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.29---
+##"battle_client.py" library ---VERSION 0.31---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -288,7 +288,7 @@ class BattleEngine():
         lobby_menu.create_menu(["^ Available","Improved Fuel +35% Speed","Fire Extinguisher -10% Speed","Dangerous Loading +50% RPM -10% HP","Explosive Tip +25% DMG. -5% RPM -5% PN.",
                                 "Amped Gun +25% PN. -10% HP","Extra Armor +50% Armor -50% Speed","Back"],[["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""]],[[7,1]],[],"Tank Battalion Online Store - Powerups")
         lobby_menu.create_menu(["Back","Battle Type","Battle"],[["",""],["Unrated Battle","Experience Battle"],["",""]],[[0,0]],[],"Tank Battalion Online Battle Menu") #this line will need to be changed based on what battle modes are available.
-        lobby_menu.create_menu(["Back","Key config","Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier"],[["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""]],[[0,0]],[],"Tank Battalion Online Settings")
+        lobby_menu.create_menu(["Back","Key config","Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier","GFX Quality"],[["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],[1,30]],[[0,0]],[],"Tank Battalion Online Settings")
 
         # - Define what action clicking a specific button will perform -
         purchase_mode = "buy"
@@ -300,11 +300,14 @@ class BattleEngine():
             [[None],[None],["buy","specialize",1],["buy","specialize",-1],[None]],
             [[None],["buy","powerup",0],["buy","powerup",1],["buy","powerup",2],["buy","powerup",3],["buy","powerup",4],["buy","powerup",5],[None]],
             [[None],[None],["battle","Battle Type"]],
-            [[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None]],
+            [[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None]],
             ]
 
         # - Create a special second menu with a menu depth of 1 (no sub menus) for special stuff like end-game results -
         special_menu = menu.Menuhandler()
+
+        # - Last index of key configuration stuff -
+        last_keyconfig = 18
 
         # - Brief desctiption of what every button does in the game -
         damage_numbers = entity.Bullet(None, "", 0, 0, [1,1,1,1,1], None)
@@ -320,7 +323,7 @@ class BattleEngine():
             ["EXP can be earned by playing rating battles.","This is the current state of your tank   -","Make your tank faster, shoot with more RPM and penetration but with less damage.","Make your tank slower, decrease RPM and penetration, but increase damage significantly.",""],
             ["^ can be earned in battles or purchased.","","","","","","This powerup acts a little strangely - If you have armor left, that armor gets increased by 50% temporarily. If you have no armor left, you will recieve no benefit from using this powerup, because 0 armor times 1.5 equals 0 armor.",""],
             ["Back to the lobby menu   -","Change the type of battle you want to enter   -","Enter the battle queue   -"],
-            ["","","","","","","","","","","","","","","","","","",""]
+            ["","","","","","","","","","","","","","","","","","","","Graphical Effects Quality"]
             ]
 
         # - Create an HUD to display the descriptions of menu items -
@@ -416,6 +419,7 @@ class BattleEngine():
                                 opt_str = menu.keys[b][1]
                                 break
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,key_configuration_names[x])
+                    GFX.gfx_quality = int(lobby_menu.grab_settings(["GFX Quality"])[0][0]) / 20
                     
                 #update our menu's scale
                 lobby_menu.update(self.screen)
@@ -488,7 +492,7 @@ class BattleEngine():
                             if(self.request != [None]):
                                 self.request_pending = time.time()
                         # - Check if the button we pressed was in menu # 7 (key config) -
-                        if(lobby_menu.current_menu == 7 and clicked_button[1] == 7 and clicked_button[0][0] - 2 >= 0): #we didn't change into this menu?? We were already here when we clicked?
+                        if(lobby_menu.current_menu == 7 and clicked_button[1] == 7 and clicked_button[0][0] - 2 >= 0 and clicked_button[0][0] <= last_keyconfig): #we didn't change into this menu?? We were already here when we clicked?
                             config = True
                             controller.empty_keys() #empty the key list
                             while config: #wait until the client configures the key
