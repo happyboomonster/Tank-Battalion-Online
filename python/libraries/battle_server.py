@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.35---
+##"battle_server.py" library ---VERSION 0.36---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -97,7 +97,7 @@ class BattleEngine():
         self.SPECIALIZATION_WEIGHT = 0.35 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
         self.IMBALANCE_LIMIT = 0.30 #the maximum imbalance of rating points a match is allowed to have to be finalized.
         #How many players can be put into a battle? [min, max]
-        self.PLAYER_CT = [3, 50]
+        self.PLAYER_CT = [1, 50]
         # - How long should it take before a minimum player match takes place? -
         self.IMMEDIATE_MATCH = 45 #X/60 minutes = maximum wait time
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
@@ -957,7 +957,7 @@ class BattleEngine():
             if(potential_match >= self.IMBALANCE_LIMIT and len(player_queue) < self.PLAYER_CT[1]): #this match is too imbalanced? And there's room for another player? (or bot)
                 # Typically, no match would be made. However, I can add a bot to the game...!
                 #We add a bot to the queue which should be powerful enough to make up for its stupidity...ROFL (not happening at the moment due to bugs)
-                player_queue.append([self.create_account(potential_match * 0.75),"bot"])
+                player_queue.append([self.create_account(potential_match),"bot"])
                 bot_added = True
             # - Now, the matchmaker can continue at this point
         else: #we can't make a match out of our current queue of players. Not enough in queue perhaps? =(

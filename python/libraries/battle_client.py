@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.31---
+##"battle_client.py" library ---VERSION 0.32---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -218,10 +218,15 @@ class BattleEngine():
     def lobby_client(self): #this is the backend for the lobby - netcode.
         with self.request_lock:
             self.request = [None]
+        # - Set self.request_pending to ON so that players do not try to enter queue immediately (it won't work initially...) -
+        self.request_pending = time.time()
+        
         while self.running:
             if(self.request == [False]):
                 while (self.request == [False]): #we get stuck in this loop until self.request != [False] - This way we can keep this thread running without needing to halt it...
                     time.sleep(0.2)
+                # - Set the request_pending flag to true -
+                self.request_pending = time.time()
                 #clear the socket once we're out of our hibernation routine...
                 netcode.clear_socket(self.Cs)
 
@@ -458,10 +463,10 @@ class BattleEngine():
                             opt_str = str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + " " + str(round(self.acct.refund("shell",x,True),2)) + "^"
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,shell_names[x])
             else: #we need to configure our special window/menu...which is always just a set of strings, with no settings you can change lol
-                optionsettings = []
+                options_settings = []
                 for x in range(0,len(self.special_window) - 1):
-                    optionsettings.append(["",""])
-                special_menu.create_menu(self.special_window[:len(self.special_window) - 1],optionsettings,[],[],self.special_window[len(self.special_window) - 1])
+                    options_settings.append(["",""])
+                special_menu.create_menu(self.special_window[:len(self.special_window) - 1],options_settings,[],[],self.special_window[len(self.special_window) - 1])
                 special_menu.update(self.screen)
 
             # - Make sure our cursor stays onscreen -
