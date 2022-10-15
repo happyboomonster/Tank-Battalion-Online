@@ -1,4 +1,4 @@
-##"entity.py" library ---VERSION 0.51---
+##"entity.py" library ---VERSION 0.53---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -249,7 +249,8 @@ class Bullet(): #specs_multiplier format: [ damage buff/nerf, penetration buff/n
             self.team,
             self.destroyed,
             self.explosion_colors,
-            self.shell_vfx
+            self.shell_vfx,
+            round(time.time() - self.spawn_time,precision) #this is needed for proper disk shell rotation.
             ]
 
     def enter_data(self, data): #enters data into the Bullet() object from Bullet.return_data()
@@ -264,6 +265,7 @@ class Bullet(): #specs_multiplier format: [ damage buff/nerf, penetration buff/n
         self.destroyed = data[8]
         self.explosion_colors = data[9]
         self.shell_vfx = data[10]
+        self.spawn_time = time.time() - data[11]
 
 class Brick():
     def __init__(self, HP, armor):
@@ -441,7 +443,7 @@ class Tank():
         #finished!
         return direction
 
-    def clock(self, TILE_SIZE=20, screen_scale=[1, 1],particles=[],current_frame=0,gfx=None): #call this function each time the computation loop runs in a game.
+    def clock(self, TILE_SIZE=20, screen_scale=[1, 1],particles=[],current_frame=0,gfx=None,server=True): #call this function each time the computation loop runs in a game.
         self.time_difference = time.time() - self.old_time #set time_difference
         self.old_time = time.time() #reset old_time
         # - Update our overall position so that the server knows where we are -
@@ -479,23 +481,24 @@ class Tank():
             GFX.create_fire(particles,self.overall_location,current_frame)
                     
         # - Manage powerup cooldowns, both when in use, and when cooling down before next use -
-        for x in range(0,len(self.powerups)):
-            if(self.powerups[x] != True):
-                if(self.powerups[x] != None and str(type(self.powerups[x])) == "<class 'float'>"): #this is a cooldown period.
-                    self.powerups[x] -= self.time_difference
-                elif(self.powerups[x] != None and str(type(self.powerups[x])) == "<class 'str'>"): #this is a usage time period.
-                    self.powerups[x] = str(float(self.powerups[x]) - self.time_difference)
-                if(self.powerups[x] != None):
-                    if(float(str(self.powerups[x])) < 0.025): #our powerup timer is basically at 0?
-                        if(str(type(self.powerups[x])) == "<class 'float'>"): #our powerup cooldown is finished, and we can use our powerup again?
-                            self.powerups[x] = True #make sure the computer knows that this powerup is ready for use!
-                        elif(str(type(self.powerups[x])) == "<class 'str'>"): #our powerup timer is finished...now we have to wait for it to cool down...
-                            self.powerups[x] = self.POWERUP_COOLDOWN #blehhhh. Who wants to wait 30 seconds before we can go 15% faster? Unplayable.
-                            #Next, we have to "undo" the buff we gave our tank...
-                            for b in range(0,len(self.powerup_effects[x])):
-                                #we only need to restore values which are stored as float values.
-                                if(str(type(self.powerup_effects[x][b][1])) == "<class 'float'>"):
-                                   exec(self.powerup_effects[x][b][0] + " /= " + str(self.powerup_effects[x][b][1]))
+        if(server):
+            for x in range(0,len(self.powerups)):
+                if(self.powerups[x] != True):
+                    if(self.powerups[x] != None and str(type(self.powerups[x])) == "<class 'float'>"): #this is a cooldown period.
+                        self.powerups[x] -= self.time_difference
+                    elif(self.powerups[x] != None and str(type(self.powerups[x])) == "<class 'str'>"): #this is a usage time period.
+                        self.powerups[x] = str(float(self.powerups[x]) - self.time_difference)
+                    if(self.powerups[x] != None):
+                        if(float(str(self.powerups[x])) < 0.025): #our powerup timer is basically at 0?
+                            if(str(type(self.powerups[x])) == "<class 'float'>"): #our powerup cooldown is finished, and we can use our powerup again?
+                                self.powerups[x] = True #make sure the computer knows that this powerup is ready for use!
+                            elif(str(type(self.powerups[x])) == "<class 'str'>"): #our powerup timer is finished...now we have to wait for it to cool down...
+                                self.powerups[x] = self.POWERUP_COOLDOWN #blehhhh. Who wants to wait 30 seconds before we can go 15% faster? Unplayable.
+                                #Next, we have to "undo" the buff we gave our tank...
+                                for b in range(0,len(self.powerup_effects[x])):
+                                    #we only need to restore values which are stored as float values.
+                                    if(str(type(self.powerup_effects[x][b][1])) == "<class 'float'>"):
+                                       exec(self.powerup_effects[x][b][0] + " /= " + str(self.powerup_effects[x][b][1]))
 
         # - Return the damage done to this tank via fire -
         if(return_damage):
@@ -706,7 +709,7 @@ class Tank():
             round(self.goal_rotation,precision),
             round(self.old_direction,precision),
             round(time.time() - self.last_shot,precision), #seconds ago last shot happened
-            eval(str(self.shot_pending)), #does the CLIENT want to shoot? (sorry servers, you can't do that)
+            self.shot_pending, #does the CLIENT want to shoot? (sorry servers, you can't do that)
             self.current_shell, #which shell does the client want to shoot?
             round(self.total_damage,precision),
             self.kills,
@@ -1384,7 +1387,7 @@ def check_collision(Entity1, Entity2, TILE_SIZE, tank_collision_offset=1):
     else:
         return [collided, None]
 
-POWERUP_SPAWN_TIME = 30.0 #30 seconds between each powerup spawn
+POWERUP_SPAWN_TIME = 45.0 #X seconds between each powerup spawn
 last_powerup_spawn = time.time() - POWERUP_SPAWN_TIME / 1.5 #when did we last spawn powerups?
 POWERUP_CT = 10 #how many different powerups can we spawn on the map?
 def spawn_powerups(arena,powerups,images): #spawns powerups every POWERUP_SPAWN_TIME

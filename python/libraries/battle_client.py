@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.32---
+##"battle_client.py" library ---VERSION 0.33---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -40,7 +40,7 @@ class BattleEngine():
         self.controls.buttons = [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n, pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d, pygame.K_e, pygame.K_ESCAPE, pygame.K_SPACE]
 
         # - Packet formats (what we recieve from the server) -
-        self.LOBBY_PACKETS = [["<class 'bool'>", "<class 'list'>", "..."], ["<class 'NoneType'>", "<class 'list'>", "..."], ["<class 'bool'>", "<class 'str'>", "<class 'list'>", "..."]]
+        self.LOBBY_PACKETS = [["<class 'bool'>", "<class 'list'>", "<class 'list'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'list'>"], ["<class 'bool'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'bool'>", "<class 'str'>", "<class 'list'>", "<class 'NoneType'>"]]
         self.MATCH_PACKET = ["<class 'bool'>", "<class 'list'>", "<class 'int'>"] #[in_battle(True/False), viewing_players data list, player_count]
         self.GAME_PACKET = ["<class 'str'>", "...", "...", "...", "...", "..."] #the last sublists of the game_packet do not get transmitted every packet...and the data isn't a consistent type either =(
 
@@ -909,7 +909,6 @@ class BattleEngine():
                     if(x in keys):
                         player_tank.use_shell(tank_bullets.index(x))
 
-
             # - Update P1's HUD, starting with P1's HP/Armor bar and the menu update command -
             battle_menu.update(self.screen)
             if(player_tank.armor > 0.025):
@@ -977,7 +976,7 @@ class BattleEngine():
             # - Handle updating various objects (this MUST go before collision detection happens) -
             arena.shuffle_tiles() #update the arena object's tile shuffling system
             with player_tank.lock: #update some of our various timing variables for reload time, etc.
-                player_tank.clock(arena.TILE_SIZE, screen_scale, particles, framecounter)
+                player_tank.clock(arena.TILE_SIZE, screen_scale, particles, framecounter, None, False)
             screen_scale = arena.get_scale(tile_viewport, self.screen)
 
             # - Handle tank collision (just our tank, nobody else's) -
@@ -1216,6 +1215,8 @@ class BattleEngine():
                         player_tank.HP = entities[x].HP
                         player_tank.armor = entities[x].armor
                         player_tank.speed = entities[x].speed
+                        player_tank.RPM = entities[x].RPM
+                        player_tank.last_shot = entities[x].last_shot
                         for y in range(0,len(entities[x].shells)):
                             player_tank.shells[y] = entities[x].shells[y]
                         for y in range(0,len(entities[x].powerups)):

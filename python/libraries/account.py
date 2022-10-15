@@ -1,4 +1,4 @@
-##"account.py" library ---VERSION 0.24---
+##"account.py" library ---VERSION 0.25---
 ## - REQUIRES: "entity.py"
 ## - For managing account data in Tank Battalion Online -
 ##Copyright (C) 2022  Lincoln V.
@@ -153,16 +153,76 @@ class Account():
         if(self.specialization == 0):
             decisions.append("specialize")
         decision = decisions[random.randint(0,len(decisions) - 1)]
-        if(decision == "specialize"): #I programmed this a bit differently from everything else because
+        #I programmed specialization a bit differently from everything else for some reason...You don't request to specialize "1 more step heavy", you request to buy the specialization value you would like to be in total.
+        if(decision == "specialize"):
             rng_num = random.randint(-6,6)
         elif(decision == "powerup"):
-            rng_num = random.randint(0,5)
+            rng_num = random.randint(0,len(self.powerups) - 1)
         else:
-            rng_num = random.randint(0,3)
+            rng_num = random.randint(0,len(self.shells) - 1)
         self.purchase(decision, rng_num)
         if(self.bot):
             self.cash = 0
             self.experience = 0
+
+    def bot_purchase(self):
+        self.cash = 10000000.0 #set our cash and experience to good values
+        self.experience = 100000000.0
+        # - Now we make a decision based on how much ammunition we own -
+        decisions = ["shell"]
+        # - Take the sum of all our shells in our tank -
+        sum_shells = 0
+        for x in self.shells:
+            sum_shells += x
+        # - Take the sum of the maximum amount of shells we could have -
+        sum_max_shells = 0
+        for x in self.max_shells:
+            sum_max_shells += x
+        if(sum_shells > 0): #avoid div0 errors
+            if(sum_shells / (sum_max_shells / 3.5) >= 1): #we can get upgrades + powerups since we already have a good amount of shells
+                decisions.append("powerup")
+                decisions.append("upgrade")
+                decisions.append("specialization")
+        # - If we don't have the minimum amount of shells, the only thing which will be purchased is shells -
+        random.shuffle(decisions) #pick a random purchase option
+        decision = decisions[0]
+        #I programmed specialization a bit differently from everything else for some reason...You don't request to specialize "1 more step heavy", you request to buy the specialization value you would like to be in total.
+        if(decision == "specialize"):
+            rng_num = random.randint(-6,6)
+        elif(decision == "powerup"):
+            rng_num = random.randint(0,len(self.powerups) - 1)
+        else:
+            rng_num = random.randint(0,len(self.shells) - 1)
+        self.purchase(decision, rng_num)
+        # - Reset our cash and experience values -
+        self.cash = 0
+        self.experience = 0
+
+    def bot_refund(self):
+        # - Now we make a decision based on how much ammunition we own -
+        decisions = ["shell"]
+        # - Take the sum of all our shells in our tank -
+        sum_shells = 0
+        for x in self.shells:
+            sum_shells += x
+        # - Take the sum of the maximum amount of shells we could have -
+        sum_max_shells = 0
+        for x in self.max_shells:
+            sum_max_shells += x
+        if(sum_shells > 0): #avoid div0 errors
+            if(sum_shells / (sum_max_shells / 3.5) <= 1): #we can sell upgrades + powerups if we don't have enough shells
+                decisions.append("powerup")
+                decisions.append("upgrade")
+        random.shuffle(decisions) #pick a random purchase option
+        decision = decisions[0]
+        if(decision == "powerup"):
+            rng_num = random.randint(0,len(self.powerups) - 1)
+        else:
+            rng_num = random.randint(0,len(self.shells) - 1)
+        self.refund(decision, rng_num)
+        # - Reset our cash and experience values -
+        self.cash = 0
+        self.experience = 0
 
     def create_tank(self, image, team_name): #returns a tank object with all the account's tank stats taken into account.
         tank = entity.Tank(image, [self.name,team_name]) #create a generic tank object

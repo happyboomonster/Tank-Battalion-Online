@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.36---
+##"battle_server.py" library ---VERSION 0.37---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -489,15 +489,12 @@ class BattleEngine():
                             potential_bullet = game_objects[x - decrement].shoot(20, server=True) #did the client try to shoot? And, were we able to let them shoot?
                             if(potential_bullet != None): #if our gunshot was successful, we add the bullet object to our game objects list.
                                 game_objects.append(potential_bullet)
-                            # - Try to use powerups if the client requested one -
-                            #game_objects[x - decrement].use_powerup(0, server=True)
                             game_objects[x - decrement].clock(TILE_SIZE, [1, 1], particles, framecounter, gfx) #update all tank objects
                         else: #now we need to check if we exploded the tank yet....
                             if(game_objects[x - decrement].explosion_done == False): #we haven't done the explosion yet?
                                 #Create a nice big explosion
                                 with gfx.lock:
                                     gfx.create_explosion([game_objects[x - decrement].overall_location[0] + 0.5,game_objects[x - decrement].overall_location[1] + 0.5], 2.25, [0.1, 2.0], [[255,0,0],[255,255,0],[100,100,0]], [[0,0,0],[50,50,50],[100,100,100]], 1.0, 0, "BOOM")
-                                #GFX.create_explosion(particles, [game_objects[x - decrement].overall_location[0] + 0.5,game_objects[x - decrement].overall_location[1] + 0.5], 2.25, [0.1, 2.0], [[255,0,0],[255,255,0],[100,100,0]], [[0,0,0],[50,50,50],[100,100,100]], 1.0, 0, "BOOM", arena.TILE_SIZE)
                                 # - Set the tank's explosion_done flag to False (I know, it's backwards, but it would break 2p_bot_demo otherwise) -
                                 game_objects[x - decrement].explosion_done = True
                     elif(game_objects[x - decrement].type == "Bullet"): #Are we updating a bullet object?
@@ -534,7 +531,6 @@ class BattleEngine():
                                 #Bullet stuff: self.shell_explosion_colors, self.shell_type
                                 with gfx.lock:
                                     gfx.create_explosion([game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, None)
-                                #GFX.create_explosion(particles, [game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words=None, TILE_SIZE=20)
                         # - A wall? -
                         if(game_objects[x - decrement].destroyed != True): #the bullet isn't destroyed yet, is it?
                             for t in collided_tiles:
@@ -556,7 +552,6 @@ class BattleEngine():
                                                 #Bullet stuff: self.shell_explosion_colors, self.shell_type
                                                 with gfx.lock:
                                                     gfx.create_explosion([game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, "bang")
-                                                #GFX.create_explosion(particles, [game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words="bang", TILE_SIZE=20)
                                 elif(game_objects[y].type == "Bullet"): #collided with a bullet? Don't need to check if it's destroyed, 'cause they don't last the whole match...
                                     collision = entity.check_collision(game_objects[x - decrement], game_objects[y], TILE_SIZE)
                                     if(collision[0]): #The bullet hit another bullet?
@@ -569,8 +564,6 @@ class BattleEngine():
                                             with gfx.lock:
                                                 gfx.create_explosion([game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, "pow")
                                                 gfx.create_explosion([game_objects[y].map_location[0] + 0.5, game_objects[y].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[y].shell_explosion_colors[game_objects[y].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, "pop")
-                                            #GFX.create_explosion(particles, [game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words="pow", TILE_SIZE=20)
-                                            #GFX.create_explosion(particles, [game_objects[y].map_location[0] + 0.5, game_objects[y].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[y].shell_explosion_colors[game_objects[y].shell_type], [[0,0,0],[50,50,50],[100,100,100]], duration=0.75, time_offset=0, optional_words="pop", TILE_SIZE=20)
 
                     elif(game_objects[x - decrement].type == "Powerup"): #Are we managing a powerup?
                         # - Check if the powerup has been collected -
@@ -606,7 +599,7 @@ class BattleEngine():
                             eliminated[teams][1] = destruction_number
 
             # - Limit CPS -
-            clock.tick(60)
+            clock.tick(30)
 
             # - Purge old GFX items -
             with gfx.lock:
@@ -903,8 +896,11 @@ class BattleEngine():
 
     def create_account(self,rating,player_name="Bot Player"): #creates an account with upgrades which correspond roughly to the rating value you input.
         bot_account = account.Account(player_name,"pwd",True) #create a bot account
-        while self.return_rating(bot_account) < rating:
-            bot_account.random_purchase()
+        while self.return_rating(bot_account) < rating or self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT:
+            while self.return_rating(bot_account) < rating:
+                bot_account.bot_purchase()
+            while self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT:
+                bot_account.bot_refund()
         return bot_account
 
     def return_team_ratings(self, player_queue, odd_allowed=False, rating=False):
