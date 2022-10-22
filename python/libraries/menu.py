@@ -1,4 +1,4 @@
-##"menu.py" library ---VERSION 0.12---
+##"menu.py" library ---VERSION 0.13---
 ##Copyright (C) 2022  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
@@ -298,7 +298,7 @@ class Menu():
                     break
         return settings[:]
 
-def get_input(screen,header=""): #makes a basic text input UI with a header of your choice
+def get_input(screen,header="",flags=pygame.RESIZABLE): #makes a basic text input UI with a header of your choice
     global keys
     text = "" #this is what we've entered into the UI
     scale = 1.0 #the scale of our text as we draw it
@@ -328,6 +328,8 @@ def get_input(screen,header=""): #makes a basic text input UI with a header of y
         for event in pygame.event.get(): #check if somebody wanted to type something...
             if(event.type == pygame.QUIT): #we wanted to exit the text box?
                 return None
+            elif(event.type == pygame.VIDEORESIZE):
+                screen = pygame.display.set_mode(event.size, flags)
             elif(event.type == pygame.KEYDOWN):
                 if(event.key == pygame.K_RETURN): #they pressed enter!!!
                     running = False #exit the loop

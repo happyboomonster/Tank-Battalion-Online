@@ -99,7 +99,7 @@ class BattleEngine():
         #How many players can be put into a battle? [min, max]
         self.PLAYER_CT = [1, 50]
         # - How long should it take before a minimum player match takes place? -
-        self.IMMEDIATE_MATCH = 300 #X/60 minutes = maximum wait time
+        self.IMMEDIATE_MATCH = 25 #X/60 minutes = maximum wait time
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
         self.TIME_SCALING_CONSTANT = self.IMMEDIATE_MATCH * self.PLAYER_CT[0] * 0.7 #how fast should the matchmaker shove players into matches if there are more than minimum players?
         # - This constant defines the minimum player count for an "optimal" match -

@@ -1,4 +1,4 @@
-##"account.py" library ---VERSION 0.27---
+##"account.py" library ---VERSION 0.28---
 ## - REQUIRES: "entity.py"
 ## - For managing account data in Tank Battalion Online -
 ##Copyright (C) 2022  Lincoln V.
@@ -250,7 +250,7 @@ class Account():
 
         #Load the tank with shells and powerups
         tank.shells = self.shells
-        tank.powerups = self.powerups.copy()
+        tank.powerups = self.powerups[:]
 
         #Update the tank's "start HP and armor" variables
         tank.start_HP = tank.HP

@@ -37,17 +37,17 @@ arena_libraries = [
     t4_Arena01, t4_Arena02, t4_Arena03
                    ]
 
-def return_arena(arena_name): #returns the arena + tileset with the arena_name specified.
+def return_arena(arena_name, convert=False): #returns the arena + tileset with the arena_name specified.
     global path
     for x in arena_libraries:
         if(x.ARENA_NAME == arena_name):
-            return x.get_arena(path)
+            return x.get_arena(path, convert)
     return None
 
-def return_arena_numerical(arena_number): #returns the arena + tileset with the arena_name specified.
+def return_arena_numerical(arena_number, convert=False): #returns the arena + tileset with the arena_name specified.
     global path
     if(len(arena_libraries) > arena_number): #we're not getting an index error?
-        return [arena_libraries[arena_number].get_arena(path),arena_libraries[arena_number].ARENA_NAME]
+        return [arena_libraries[arena_number].get_arena(path, convert),arena_libraries[arena_number].ARENA_NAME]
     return None #arena doesn't exist?
 
 ##quick test code making sure that the arena is retrieved correctly

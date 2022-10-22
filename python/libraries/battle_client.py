@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.39---
+##"battle_client.py" library ---VERSION 0.40---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -34,6 +34,8 @@ def init(path_str=""):
 class BattleEngine():
     def __init__(self,IP,PORT,autostart=True):
         self.buffersize = 10
+
+        self.PYGAME_FLAGS = pygame.RESIZABLE
 
         # - Default key configuration settings -
         self.controls = controller.Controls(4 + 6 + 4 + 1 + 1 + 1,"kb") #4: shells - 6: powerups - 4: movement - 1: shoot  - 1: ESC key - 1: Crosshair modifier
@@ -107,7 +109,7 @@ class BattleEngine():
         # - Autostart -
         if(autostart):
             # - Display stuff / game graphics stuff -
-            self.screen = pygame.display.set_mode([320,240], pygame.RESIZABLE)
+            self.screen = pygame.display.set_mode([320,240], self.PYGAME_FLAGS)
 
             # - Start the login script -
             self.login(IP,PORT)
@@ -129,7 +131,10 @@ class BattleEngine():
         login = True
         while running:
             keys = self.controls.get_input()
-            running = not controller.get_keys()
+            event_pack = controller.get_keys()
+            running = not event_pack[0]
+            if(event_pack[1] != None): #we requested a window resize?
+                self.screen = pygame.display.set_mode(event_pack[1], self.PYGAME_FLAGS)
 
             for x in keys:
                 if(x in directions):
@@ -489,8 +494,11 @@ class BattleEngine():
                 cursorpos[1] -= self.screen.get_height()
 
             # - Check if we have clicked any buttons -
+            event_pack = controller.get_keys()
             with self.running_lock:
-                self.running = not controller.get_keys()
+                self.running = not event_pack[0]
+            if(event_pack[1] != None): #we requested a window resize?
+                self.screen = pygame.display.set_mode(event_pack[1], self.PYGAME_FLAGS)
             keys = self.controls.get_input()
             for x in directions:
                 if(x in keys):
@@ -699,8 +707,11 @@ class BattleEngine():
                 cursorpos[1] -= self.screen.get_height()
             
             # - Check if we have clicked any buttons -
+            event_pack = controller.get_keys()
             with self.running_lock:
-                self.running = not controller.get_keys()
+                self.running = not event_pack[0]
+            if(event_pack[1] != None): #we requested a window resize?
+                self.screen = pygame.display.set_mode(event_pack[1], self.PYGAME_FLAGS)
             keys = self.controls.get_input()
             for x in directions:
                 if(x in keys):
@@ -886,8 +897,12 @@ class BattleEngine():
                 mousepos[0] -= self.screen.get_width()
             if(mousepos[1] > self.screen.get_height()):
                 mousepos[1] -= self.screen.get_height()
-            
-            running[0] = not controller.get_keys() #handle controller stuff real EZ
+
+            # - Get controller input -
+            event_pack = controller.get_keys()
+            running[0] = not event_pack[0]
+            if(event_pack[1] != None): #we requested a window resize?
+                self.screen = pygame.display.set_mode(event_pack[1], self.PYGAME_FLAGS)
             keys = self.controls.get_input()
 
             # - Increment our framecounter -
@@ -1140,21 +1155,21 @@ class BattleEngine():
 
         #define our list of powerup images
         powerup_images = [
-            pygame.image.load(path + "../../pix/blocks/powerups/fuel.png"),
-            pygame.image.load(path + "../../pix/blocks/powerups/fire-extinguisher.png"),
-            pygame.image.load(path + "../../pix/blocks/powerups/dangerous-loading.png"),
-            pygame.image.load(path + "../../pix/blocks/powerups/explosive-tip.png"),
-            pygame.image.load(path + "../../pix/blocks/powerups/amped-gun.png"),
-            pygame.image.load(path + "../../pix/blocks/powerups/makeshift-armor.png"),
-            pygame.image.load(path + "../../pix/ammunition/hollow_shell_button.png"),
-            pygame.image.load(path + "../../pix/ammunition/regular_shell_button.png"),
-            pygame.image.load(path + "../../pix/ammunition/explosive_shell_button.png"),
-            pygame.image.load(path + "../../pix/ammunition/disk_shell_button.png")
+            pygame.image.load(path + "../../pix/blocks/powerups/fuel.png").convert(),
+            pygame.image.load(path + "../../pix/blocks/powerups/fire-extinguisher.png").convert(),
+            pygame.image.load(path + "../../pix/blocks/powerups/dangerous-loading.png").convert(),
+            pygame.image.load(path + "../../pix/blocks/powerups/explosive-tip.png").convert(),
+            pygame.image.load(path + "../../pix/blocks/powerups/amped-gun.png").convert(),
+            pygame.image.load(path + "../../pix/blocks/powerups/makeshift-armor.png").convert(),
+            pygame.image.load(path + "../../pix/ammunition/hollow_shell_button.png").convert(),
+            pygame.image.load(path + "../../pix/ammunition/regular_shell_button.png").convert(),
+            pygame.image.load(path + "../../pix/ammunition/explosive_shell_button.png").convert(),
+            pygame.image.load(path + "../../pix/ammunition/disk_shell_button.png").convert()
             ]
 
         #define ally and enemy images
-        ally_image = pygame.image.load(path + "../../pix/Characters(gub)/p1U.png")
-        enemy_image = pygame.image.load(path + "../../pix/Characters(gub)/p2U.png")
+        ally_image = pygame.image.load(path + "../../pix/Characters(gub)/p1U.png").convert_alpha()
+        enemy_image = pygame.image.load(path + "../../pix/Characters(gub)/p2U.png").convert_alpha()
         
         while packets:
             #recieve data from the server
@@ -1176,13 +1191,13 @@ class BattleEngine():
                     player_account.enter_data(data[1]) #gotta make sure we have our account + tank set up properly
                     with player_tank.lock:
                         #team name will get set on a sync packet. The server will have to send one right after setup occurs.
-                        player_tank_new = player_account.create_tank(pygame.image.load(path + "../../pix/Characters(gub)/p1U.png"), "team name here...")
+                        player_tank_new = player_account.create_tank(pygame.image.load(path + "../../pix/Characters(gub)/p1U.png").convert_alpha(), "team name here...")
                         player_tank.enter_data(player_tank_new.return_data(), arena.TILE_SIZE, screen_scale)
                     # - Set up the arena -
                     with arena.lock:
                         arena_name = data[2] #the server sent us the name of the arena we're playing on
                         print(arena_name)
-                        arena_data = import_arena.return_arena(arena_name) #get our arena data from the name the server sent us
+                        arena_data = import_arena.return_arena(arena_name, True) #get our arena data from the name the server sent us (and convert the images to faster formats for blitting)
                         arena.arena = arena_data[0] #input the arena data into our arena object
                         arena.tiles = arena_data[1]
                         arena.shuffle_patterns = arena_data[2]

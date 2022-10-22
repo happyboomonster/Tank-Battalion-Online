@@ -1,4 +1,4 @@
-##"entity.py" library ---VERSION 0.55---
+##"entity.py" library ---VERSION 0.56---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -647,7 +647,7 @@ class Tank():
 
     def return_collision(self, TILE_SIZE, collision_offset): #returns the tank's collision coordinates in tile coordinates
         # - Calculate the tank's onscreen coordinates -
-        screen_coordinates = self.overall_location.copy()
+        screen_coordinates = self.overall_location[:]
         screen_coordinates.append(0)
         screen_coordinates.append(0)
         # - Add the x2 and y2 coordinates -
@@ -673,7 +673,7 @@ class Tank():
                         #Create a bullet object!
                         new_bullet = Bullet(self.shell_images[self.current_shell], self.team, self.current_shell, self.old_direction, [self.damage_multiplier, self.penetration_multiplier, self.fire_inflict],self)
                         #Find out EXACTLY where we are in the map.
-                        map_position = self.overall_location.copy()
+                        map_position = self.overall_location[:]
                         #Increment map_position by 0.75 in whichever direction we are facing.
                         if(self.old_direction == 0): #up?
                             map_position[1] -= 0.75

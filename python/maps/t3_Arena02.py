@@ -18,7 +18,7 @@ import pygame
 
 ARENA_NAME = "t3_Arena02"
 
-def get_arena(path=""):
+def get_arena(path="", convert=False):
     # - Define the tiles used for this arena -
     tiles = [pygame.image.load(path + "../../pix/blocks/ground/asphalt.png"), #0
             pygame.image.load(path + "../../pix/blocks/ground/forest.png"),
@@ -55,6 +55,11 @@ def get_arena(path=""):
             pygame.image.load(path + "../../pix/fortresses/team-red.png"), #32
             pygame.image.load(path + "../../pix/fortresses/team-yellow.png") #33
              ]
+
+    # - Convert all images IF we requested them to be converted -
+    if(convert):
+        for x in range(0,len(tiles)):
+            tiles[x] = tiles[x].convert()
 
     # - Define a shuffle pattern for tile images -
     shuffle_pattern = [
