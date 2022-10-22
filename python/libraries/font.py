@@ -1,4 +1,4 @@
-##"font.py" library ---VERSION 0.03---
+##"font.py" library ---VERSION 0.04---
 ##Copyright (C) 2022  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
@@ -133,9 +133,9 @@ def draw_words(words, coords, color, scale, screen):
                     pointA[1] = int(pointA[1] * 1.0 * scale)
                     pointB[0] = int(pointB[0] * 1.0 * scale)
                     pointB[1] = int(pointB[1] * 1.0 * scale)
-                    pointA[0] += coords[0] + (x * SIZE * scale) #position them correctly
-                    pointA[1] += coords[1]
-                    pointB[0] += coords[0] + (x * SIZE * scale)
-                    pointB[1] += coords[1]
+                    pointA[0] += int(coords[0] + (x * SIZE * scale)) #position them correctly
+                    pointA[1] += int(coords[1])
+                    pointB[0] += int(coords[0] + (x * SIZE * scale))
+                    pointB[1] += int(coords[1])
                     pygame.draw.line(screen,color,pointA,pointB,int(1.0 * scale) + 1) #draw the line between those points
                 break #exit this "findletter's index" loop, and move on to the next one

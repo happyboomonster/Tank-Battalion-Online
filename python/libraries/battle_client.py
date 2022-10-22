@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.33---
+##"battle_client.py" library ---VERSION 0.39---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -91,12 +91,18 @@ class BattleEngine():
 
         # - Matchmaker constants -
         self.EXP_WEIGHT = 0.0005 #this defines the overall power of a player (more EXP = more experienced player = more strategic = more dangerous)
-        self.UPGRADE_WEIGHT = 0.5 #this defines the overall power of a player (more upgrades = more powerful tank)
-        self.CASH_WEIGHT = 0.0005 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
-        self.SHELLS_WEIGHT = [0.025, 0.035, 0.05, 0.075] #this defines the overall power of a player (more powerful shells = more dangerous)
-        self.POWERUP_WEIGHT = 0.10 / 6 #this defines the overall power of a player (more powerups = more dangerous)
-        self.SPECIALIZATION_WEIGHT = 0.025 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
-        self.IMBALANCE_LIMIT = 2.50 #the maximum imbalance of rating points a match is allowed to have to be finalized.
+        self.UPGRADE_WEIGHT = 1.25 #this defines the overall power of a player (more upgrades = more powerful tank)
+        self.CASH_WEIGHT = 0.0 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
+        self.SHELLS_WEIGHT = [0.025, 0.05, 0.075, 0.15] #this defines the overall power of a player (more powerful shells = more dangerous)
+        self.POWERUP_WEIGHT = 2.5 / 6 #this defines the overall power of a player (more powerups = more dangerous)
+        self.SPECIALIZATION_WEIGHT = 1.125 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
+        self.IMBALANCE_LIMIT = 0.30 #the maximum imbalance of rating points a match is allowed to have to be finalized.
+
+        # - Battle constants -
+        self.EXPLOSION_TIMER = 1.0 #seconds; how long between each explosion when game over occurs?
+        self.WORDS_QTY = 15 #how many words to spawn in each self.EXPLOSION_TIMER interval?
+        # - How long does the server's compute thread of a battle last AFTER game over has occurred? -
+        self.BATTLE_TIMER = 30.0 #seconds
 
         # - Autostart -
         if(autostart):
@@ -355,6 +361,9 @@ class BattleEngine():
         directions = self.controls.buttons[10:14]
         shoot = self.controls.buttons[14]
 
+        # - This flag is to make sure that we don't get the red X the first thing we get into the lobby -
+        first_entry = True
+
         #Things that will need to be changed when I add 2/3p split screen online modes:
         # - Multiple players' lobby data being transmitted through one socket (perhaps use a list with all player connections for data?)
         # - pygame.display.set_caption() may only happen in one thread
@@ -425,6 +434,7 @@ class BattleEngine():
                                 break
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,key_configuration_names[x])
                     GFX.gfx_quality = int(lobby_menu.grab_settings(["GFX Quality"])[0][0]) / 20
+                    self.WORDS_QTY = int(int(lobby_menu.grab_settings(["GFX Quality"])[0][0]) / 2)
                     
                 #update our menu's scale
                 lobby_menu.update(self.screen)
@@ -463,10 +473,11 @@ class BattleEngine():
                             opt_str = str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + " " + str(round(self.acct.refund("shell",x,True),2)) + "^"
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,shell_names[x])
             else: #we need to configure our special window/menu...which is always just a set of strings, with no settings you can change lol
-                options_settings = []
-                for x in range(0,len(self.special_window) - 1):
-                    options_settings.append(["",""])
-                special_menu.create_menu(self.special_window[:len(self.special_window) - 1],options_settings,[],[],self.special_window[len(self.special_window) - 1])
+                with self.special_window_lock:
+                    options_settings = []
+                    for x in range(0,len(self.special_window) - 1):
+                        options_settings.append(["",""])
+                    special_menu.create_menu(self.special_window[:len(self.special_window) - 1],options_settings,[],[],self.special_window[len(self.special_window) - 1])
                 special_menu.update(self.screen)
 
             # - Make sure our cursor stays onscreen -
@@ -550,6 +561,11 @@ class BattleEngine():
                     penetration = round(dummy_tank.penetration_multiplier,2)
                     RPM = round(dummy_tank.RPM,2)
                     hud.update_HUD_element_value(0,"Tank stats - " + str(armor) + " Armor, " + str(speed) + " Speed, " + str(damage) + " Damage multiplier, " + str(penetration) + " Penetration multiplier, " + str(RPM) + " RPM   -")
+
+            # - Make sure that our crosshair does not become a red X when we enter the lobby -
+            if(first_entry == True and self.special_window == None and self.request_pending == False):
+                self.request_pending = True
+                first_entry = False
                 
             #draw everything
             self.screen.fill([0,0,0]) #draw our menu stuff onscreen
@@ -559,7 +575,11 @@ class BattleEngine():
                 else: #draw the menu as normal
                     lobby_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,cursorpos)
             else: #draw special_menu
-                special_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,cursorpos)
+                try:
+                    with self.special_window_lock:
+                        special_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,cursorpos)
+                except Exception as e: #we got an error from some sort of threading issue?
+                    print("An exception occurred during special_menu.draw_menu: " + str(e) + " - Nonfatal")
             #draw our cursor onscreen (it's a crosshair LOL...I should add a gunshot effect for when you click on the screen...)
             # - Change: Crosshair is only when a request is not pending...and is ALWAYS a crosshair when in special_menu.
             if(self.request_pending == True or self.special_window != None):
@@ -840,6 +860,8 @@ class BattleEngine():
         mousepos = [0,0] #where is our cursor located?
         running = [True] #HAS to be a list so that the value is shared between the _netcode() thread and this thread...bad things happen otherwise.
         explosion_timer = time.time() #this is for checking when the last "game over" explosion happened
+        #counts how many explosions occurred. Using this, we can detect approximately how many seconds game over has been and exit the match at an appropriate time.
+        explosion_counter = 0
         fps = 30 #this is needed for moving the cursor around at a reasonable rate
         framecounter = 0
         
@@ -993,11 +1015,47 @@ class BattleEngine():
                         player_tank.unmove()
                         break
 
+            # - Check if it is time to leave (self.BATTLE_TIMER * 0.65 seconds after game over) -
+            #   - NOTE: This MUST be here to avoid the server deleting the player data server-side,
+            #       and crashing the client during the results screen.
+            if(explosion_counter * self.EXPLOSION_TIMER > self.BATTLE_TIMER * 0.65): #time to exit battle?
+                running[0] = False
+
             # - Set up an explosion system IF the game is over -
-            if(len(eliminated) != 0): #game over?
-                if(time.time() - explosion_timer > 0.50): #create an explosion every X seconds
-                    explosion_timer = time.time() #reset the explosion timer...
-                    GFX.create_explosion(particles, [random.randint(0,tile_viewport[0]), random.randint(0,tile_viewport[1])], random.randint(2,6), [0.05, random.randint(2,4)], [[255,0,0],[255,255,0]],[[0,0,0],[100,100,100],[50,50,50]], 0.80, 0, "game over", arena.TILE_SIZE)
+            msg = None #if this does not equal None, we create explosions. If it equals None, then the game's not over yet.
+            destroyed_counter = 0 #if this gets equal to len(eliminated) - 1, we know the game is finished.
+            self_eliminated = False
+            for x in eliminated:
+                if(x[0] == player_tank.team and x[1] != False): #our team got eliminated?
+                    msg = ["game over","defeat","L","oig"][random.randint(0,3)]
+                elif(x[1] != False):
+                    destroyed_counter += 1
+                if(x[0] == player_tank.team):
+                    if(x[1] == False):
+                        self_eliminated = False
+                    else:
+                        self_eliminated = True
+            if(destroyed_counter >= len(eliminated) - 1 and self_eliminated == False):
+                msg = ["game over","W","victory"][random.randint(0,2)]
+
+            #create an explosion every X seconds + a bunch of word particles
+            if(time.time() - explosion_timer > self.EXPLOSION_TIMER and msg != None):
+                explosion_timer = time.time() #reset the explosion timer...
+                explosion_counter += 1
+                GFX.create_explosion(particles, [random.randint(0,tile_viewport[0]), random.randint(0,tile_viewport[1])], random.randint(2,6), [0.05, random.randint(1,3)], [[255,0,0],[255,255,0]],[[0,0,0],[100,100,100],[50,50,50]], 0.85, 0, msg, arena.TILE_SIZE)
+                # - Create a burst of word particles to help us understand the fact that the game's over -
+                for x in range(0,self.WORDS_QTY): #create 10 words in this interval of self.EXPLOSION_TIMER time
+                    time_offset = (self.EXPLOSION_TIMER / (x + 1))
+                    start_map_pos = [random.randint(0,tile_viewport[0]), random.randint(0,tile_viewport[1])]
+                    finish_map_pos = [start_map_pos[0] + random.randint(-1,1), start_map_pos[1] + random.randint(-1,1)]
+                    start_size = random.randint(1,200) / 100
+                    finish_size = random.randint(1,200) / 100
+                    start_color = [random.randint(0,255),random.randint(0,255),random.randint(0,255)]
+                    finish_color = [random.randint(0,255),random.randint(0,255),random.randint(0,255)]
+                    time_start = time.time() + time_offset
+                    time_finish = time.time() + self.EXPLOSION_TIMER + time_offset
+                    form = msg #text
+                    particles.append(GFX.Particle(start_map_pos, finish_map_pos, start_size, finish_size, start_color, finish_color, time_start, time_finish, form))
 
             # - Copy the GFX_Manager particles into the particles[] list -
             with gfx.lock:
@@ -1174,8 +1232,19 @@ class BattleEngine():
                                 gfx.enter_data(data[3])
                         if(data[4] != None): #the server is sending block updates this packet?
                             arena.modify_tiles(data[4]) #update our tiles...
+                        # - Update eliminated list -
+                        if(len(eliminated) != len(data[5])): #make sure eliminated is the right length
+                            if(len(eliminated) > len(data[5])):
+                                for x in range(0,len(eliminated) - len(data[5])):
+                                    del(eliminated[len(eliminated) - 1])
+                            else:
+                                for x in range(0,len(data[5]) - len(eliminated)):
+                                    eliminated.append(["",False])
+                        for x in range(0,len(data[5])): #this is the order teams were eliminated in.
+                            eliminated[x] = data[5][x]
                                 
                 elif(data[0] == "end"): #game over?
+                    # - Update eliminated list -
                     if(len(eliminated) != len(data[2])): #make sure eliminated is the right length
                         if(len(eliminated) > len(data[2])):
                             for x in range(0,len(eliminated) - len(data[2])):
@@ -1244,13 +1313,9 @@ class BattleEngine():
         if(rating): #this is for rated/ranked battles only.
             player_stat += self.EXP_WEIGHT * player_account.experience #add player exp to predicted performance
         player_stat += self.CASH_WEIGHT * player_account.cash #add player cash to predicted performance
-        # - Find the player's average upgrade level -
-        avg_player_upgrade = 0
+        # - Find the player's individual upgrade levels, and add player rating from them -
         for b in range(0,len(player_account.upgrades)):
-            avg_player_upgrade += player_account.upgrades[b]
-        avg_player_upgrade /= len(player_account.upgrades)
-        # - Add the player's average upgrade level to the player's predicted performance -
-        player_stat += self.UPGRADE_WEIGHT * avg_player_upgrade
+            player_stat += pow(player_account.upgrades[b], self.UPGRADE_WEIGHT) - 1
         # - Add the player's number of shells of each type to the player's predicted performance -
         for x in range(0,len(player_account.shells)):
             player_stat += player_account.shells[x] * self.SHELLS_WEIGHT[x]
@@ -1259,13 +1324,16 @@ class BattleEngine():
             if(player_account.powerups[x] == True):
                 player_stat += self.POWERUP_WEIGHT
         # - Add the player's specialization number to the player's predicted performance -
-        player_stat += self.SPECIALIZATION_WEIGHT * abs(player_account.specialization)
+        player_stat += pow(self.SPECIALIZATION_WEIGHT, abs(player_account.specialization)) - 1
         return player_stat
 
     def create_account(self,rating,player_name="Bot Player"): #creates an account with upgrades which correspond roughly to the rating value you input.
         bot_account = account.Account(player_name,"pwd",True) #create a bot account
-        while self.return_rating(bot_account) < rating:
-            bot_account.random_purchase()
+        while self.return_rating(bot_account) < rating or self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT:
+            while self.return_rating(bot_account) < rating:
+                bot_account.bot_purchase()
+            while self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT:
+                bot_account.bot_refund()
         return bot_account
 
 #engine = BattleEngine("192.168.50.47",5031)

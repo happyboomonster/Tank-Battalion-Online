@@ -1,4 +1,4 @@
-##"entity.py" library ---VERSION 0.53---
+##"entity.py" library ---VERSION 0.55---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -90,7 +90,7 @@ class Powerup(): #for collectible items within the map
         screen_coordinates[0] -= arena_offset[0] * TILE_SIZE * screen_scale[0]
         screen_coordinates[1] -= arena_offset[1] * TILE_SIZE * screen_scale[1]
         #draw the powerup/item onscreen
-        screen.blit(pygame.transform.scale(self.image,[TILE_SIZE * screen_scale[0], TILE_SIZE * screen_scale[1]]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
+        screen.blit(pygame.transform.scale(self.image,[int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
 
     def return_data(self, precision=2, clear_flags=None): #gathers data so this can be sent over netcode (certain attributes do not need to be sent)
         return [
@@ -227,15 +227,15 @@ class Bullet(): #specs_multiplier format: [ damage buff/nerf, penetration buff/n
             # - Find the difference in pixels between rotated_image and self.image -
             image_difference = [(rotated_image.get_width() - self.image.get_width()) / 2.0, (rotated_image.get_height() - self.image.get_height()) / 2.0]
             # - Scale "rotated_image" -
-            scaled_image = pygame.transform.scale(rotated_image, [TILE_SIZE * image_scale[0] * screen_scale[0], TILE_SIZE * image_scale[1] * screen_scale[1]])
+            scaled_image = pygame.transform.scale(rotated_image, [int(TILE_SIZE * image_scale[0] * screen_scale[0]), int(TILE_SIZE * image_scale[1] * screen_scale[1])])
             # - Draw it onscreen, taking into account the extra pixels created by rotating the image -
             screen.blit(scaled_image, [int(screen_coordinates[0] - image_difference[0] * screen_scale[0]), int(screen_coordinates[1] - image_difference[1] * screen_scale[1])])
         elif(self.shell_vfx == 'directional blit'): #we need to rotate the bullet image based on which direction it points
             #we don't need to account for extra pixels because we're doing right-angle rotation
             rotated_image = pygame.transform.rotate(self.image, self.direction)
-            screen.blit(pygame.transform.scale(rotated_image, [TILE_SIZE * screen_scale[0], TILE_SIZE * screen_scale[1]]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
+            screen.blit(pygame.transform.scale(rotated_image, [int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
         else: #NO vfx? Simple! Just blit the image onscreen! (with scaling, of course)
-            screen.blit(pygame.transform.scale(self.image,[TILE_SIZE * screen_scale[0], TILE_SIZE * screen_scale[1]]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
+            screen.blit(pygame.transform.scale(self.image,[int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
 
     def return_data(self, precision=2, clear_flags=None): #returns bullet data to be sent over netcode
         return [
@@ -642,8 +642,8 @@ class Tank():
             screen_coordinates[1] -= third_person_coords[1] * screen_scale[1] * TILE_SIZE
         # - Rotate the tank image, scale it, and paste it onscreen -
         rotated_image = pygame.transform.rotate(self.image, self.direction) #optional: switch self.direction to old_direction
-        scaled_image = pygame.transform.scale(rotated_image, [TILE_SIZE * screen_scale[0], TILE_SIZE * screen_scale[1]])
-        screen.blit(scaled_image, [screen_coordinates[0], screen_coordinates[1]])
+        scaled_image = pygame.transform.scale(rotated_image, [int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])])
+        screen.blit(scaled_image, [int(screen_coordinates[0]), int(screen_coordinates[1])])
 
     def return_collision(self, TILE_SIZE, collision_offset): #returns the tank's collision coordinates in tile coordinates
         # - Calculate the tank's onscreen coordinates -
@@ -1135,6 +1135,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                             index += 1
                             if(index > len(players[self.player_number].shells) - 1):
                                 index = 0 #We've been looking for more powerful shells; What if there are less powerful ones available?
+                                
     def use_powerups(self,players,bullets,player_aggro,bullet_aggro): #this function decides which powerups (and when) the bot is going to use them
         player_HP = players[self.player_number].HP / players[self.player_number].start_HP
         if(player_aggro != None): #we're fighting another player?
@@ -1146,9 +1147,9 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
             #Now that we've chosen a powerup from self.POWERUP_AGGRESSION_LIST, we need to check to see if it's worth using it...
             if(self.POWERUP_AGGRESSION_LIST[powerup] in self.HP_DEPENDANT_POWERUPS):
                 if(player_HP > 0.5): #we have more than half of our HP left?
-                    players[self.player_number].use_powerup(self.POWERUP_AGGRESSION_LIST[powerup])
+                    players[self.player_number].use_powerup(self.POWERUP_AGGRESSION_LIST[powerup],False)
             else: #this powerup won't negatively affect HP. Let's use it!
-                players[self.player_number].use_powerup(self.POWERUP_AGGRESSION_LIST[powerup])
+                players[self.player_number].use_powerup(self.POWERUP_AGGRESSION_LIST[powerup],False)
         if(bullet_aggro != None): #we're trying to shoot a bullet?
             #if the bullet is getting close, and we have enough armor, we're going to use armor boost to counter the shot.
             #Also, we can use a speed boost to make ourselves move faster to shoot the bullet.
@@ -1158,19 +1159,19 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                                ]
             distance = pow(pow(abs(position_difference[0]),2) + pow(abs(position_difference[1]),2),0.5) #find the distance between us and the bullet
             if(distance < self.BULLET_DISTANCE_THRESHOLD): #we're too close to the bullet???
-                players[self.player_number].use_powerup(0) #+35% speed
+                players[self.player_number].use_powerup(0,False) #+35% speed
                 if(players[self.player_number].armor > self.ARMOR_BOOST_THRESHOLD): #we have enough armor to make the armor boost worthwhile, and the bullet is really close?
-                    players[self.player_number].use_powerup(5) #+50% armor
+                    players[self.player_number].use_powerup(5,False) #+50% armor
         #we have fire in engine? We're going to go a little more aggressive with powerups, and we're also going to extinguish that if we have no bullets coming our way.
         if(players[self.player_number].fire != 0):
             if(player_aggro): #we're going hyper-aggressive!
                 if(player_HP > 0.5): #we have more than 50HP left?
-                    players[self.player_number].use_powerup(2) #Dangerous loading (RPM boost)
-                    players[self.player_number].use_powerup(3) #Explosive tip (fire in engine, +25% damage?)
-                    players[self.player_number].use_powerup(4) #More penetration (I forgot what this powerup was technically called)
+                    players[self.player_number].use_powerup(2,False) #Dangerous loading (RPM boost)
+                    players[self.player_number].use_powerup(3,False) #Explosive tip (fire in engine, +25% damage?)
+                    players[self.player_number].use_powerup(4,False) #More penetration (I forgot what this powerup was technically called)
             if(not bullet_aggro): #we're only going to extinguish fire if we don't have a bullet coming our way.
-                players[self.player_number].use_powerup(1) #Fire extinguisher (no fire in gas tank, -10% speed)
-                players[self.player_number].use_powerup(0) #Improved Fuel (+35% speed) Used to counter fire extinguisher's -10% speed.
+                players[self.player_number].use_powerup(1,False) #Fire extinguisher (no fire in gas tank, -10% speed)
+                players[self.player_number].use_powerup(0,False) #Improved Fuel (+35% speed) Used to counter fire extinguisher's -10% speed.
 
     #analyses the current game state, and creates 2 decisions based on this:
     # - A) Which direction to move, or not to move at all

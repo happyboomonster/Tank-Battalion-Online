@@ -1,4 +1,4 @@
-##"Arena03.py" - A goofy little map meant for no more than 8 players
+##"t3_Arena01.py" - Three-team battlefield
 ##Copyright (C) 2022  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 
 import pygame
 
-ARENA_NAME = "Arena03"
+ARENA_NAME = "t3_Arena01"
 
 def get_arena(path=""):
     # - Define the tiles used for this arena -
@@ -73,7 +73,7 @@ def get_arena(path=""):
         ]
 
     # - Which tiles are flags? -
-    flags = [30,31,32,33]
+    flags = [30,31,32]
 
     # - The destroyed brick tile -
     destroyed_brick = 13
@@ -85,13 +85,20 @@ def get_arena(path=""):
     blocks.remove(13) #destroyed bricks can be driven through!
 
     # - Define the arena -
-    arena = [ #size 7x10 (y,x)
-         [24,19,19,19,19,19,19,19,19,21],
-         [20,30, 9, 1, 2,12, 0,11,31,20],
-         [20,11,29, 2, 1,25, 0,29, 9,20],
-         [20, 4, 4,12,24,22,12, 3, 3,20],
-         [20, 9,29, 3,26, 2, 1,29,11,20],
-         [20,33,11, 3,12, 1, 2, 9,32,20],
-         [23,19,19,19,19,19,19,19,19,22]
-         ]
+    arena = [ #size 15x15
+         [24,19,15,19,19,19,19,19,19,19,19,19,15,19,21],
+         [20, 4,26, 4, 4, 9, 1,30, 1, 9, 4, 4,26, 4,20],
+         [20, 4, 4, 4,29, 9, 1, 2, 2, 9,29, 4, 4, 4,20],
+         [20, 4,29, 0, 4,10,11,12,11,10, 0, 0,29, 4,20],
+         [20, 4, 0, 0,29, 4,29, 4,29, 4,29, 0, 4, 4,20],
+         [20, 0, 0, 0, 4, 0, 4, 0, 4, 0, 4, 0, 0, 4,20],
+         [17,28, 0, 9, 9, 9, 0, 0, 0, 9, 9, 9, 0,27,18],
+         [20, 2, 0, 9, 0, 0, 0,29, 0, 0, 0, 9, 0, 2,20],
+         [20, 1, 0, 0, 0, 0,11, 4,10, 0, 0, 0, 0, 2,20],
+         [20, 2,11, 0, 0,29, 4, 4, 4,29, 0, 0,11, 2,20],
+         [20, 3,29,11,29, 0, 4,25, 4, 4,29,11,29, 3,20],
+         [20, 1, 1, 9,11, 0, 4,26, 0, 0,11, 9, 1, 3,20],
+         [20, 3, 3, 2,29,11, 4, 9, 0,11,29, 2, 1, 3,20],
+         [20,32, 3, 2, 2, 1, 1,25, 1, 3, 2, 2, 3,31,20],
+         [23,19,19,19,19,19,19,16,19,19,19,19,19,19,22]]
     return [arena, tiles, shuffle_pattern, blocks, bricks, destroyed_brick, flags]

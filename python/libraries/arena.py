@@ -1,4 +1,4 @@
-##"arena.py" library ---VERSION 0.18---
+##"arena.py" library ---VERSION 0.19---
 ## - For drawing (and manipulating) maps within Tank Battalion Online -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -183,8 +183,8 @@ class Arena():
                     try:
                         if(self.arena[pre_y][pre_x] == None): #is there no arena data for this index?
                             continue #just skip it...
-                        scaled_tile = pygame.transform.scale(self.tiles[self.arena[pre_y][pre_x]],[self.TILE_SIZE * scale_x, self.TILE_SIZE * scale_y])
-                        screen.blit(scaled_tile, [x * self.TILE_SIZE * scale_x + (final_offset[0] * self.TILE_SIZE * scale_x), y * self.TILE_SIZE * scale_y + (final_offset[1] * self.TILE_SIZE * scale_y)])
+                        scaled_tile = pygame.transform.scale(self.tiles[self.arena[pre_y][pre_x]],[int(self.TILE_SIZE * scale_x), int(self.TILE_SIZE * scale_y)])
+                        screen.blit(scaled_tile, [int(x * self.TILE_SIZE * scale_x + (final_offset[0] * self.TILE_SIZE * scale_x)), int(y * self.TILE_SIZE * scale_y + (final_offset[1] * self.TILE_SIZE * scale_y))])
                     except IndexError: #sometimes we try to draw beyond our arena boundaries. If so, we just don't try to draw that tile.
                         pass
 

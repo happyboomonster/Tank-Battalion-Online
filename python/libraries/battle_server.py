@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.37---
+##"battle_server.py" library ---VERSION 0.38---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -90,16 +90,16 @@ class BattleEngine():
 
         # - Matchmaker constants -
         self.EXP_WEIGHT = 0.0005 #this defines the overall power of a player (more EXP = more experienced player = more strategic = more dangerous)
-        self.UPGRADE_WEIGHT = 0.5 #this defines the overall power of a player (more upgrades = more powerful tank)
+        self.UPGRADE_WEIGHT = 1.25 #this defines the overall power of a player (more upgrades = more powerful tank)
         self.CASH_WEIGHT = 0.0 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
         self.SHELLS_WEIGHT = [0.025, 0.05, 0.075, 0.15] #this defines the overall power of a player (more powerful shells = more dangerous)
         self.POWERUP_WEIGHT = 2.5 / 6 #this defines the overall power of a player (more powerups = more dangerous)
-        self.SPECIALIZATION_WEIGHT = 0.35 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
+        self.SPECIALIZATION_WEIGHT = 1.125 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
         self.IMBALANCE_LIMIT = 0.30 #the maximum imbalance of rating points a match is allowed to have to be finalized.
         #How many players can be put into a battle? [min, max]
         self.PLAYER_CT = [1, 50]
         # - How long should it take before a minimum player match takes place? -
-        self.IMMEDIATE_MATCH = 45 #X/60 minutes = maximum wait time
+        self.IMMEDIATE_MATCH = 300 #X/60 minutes = maximum wait time
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
         self.TIME_SCALING_CONSTANT = self.IMMEDIATE_MATCH * self.PLAYER_CT[0] * 0.7 #how fast should the matchmaker shove players into matches if there are more than minimum players?
         # - This constant defines the minimum player count for an "optimal" match -
@@ -107,6 +107,9 @@ class BattleEngine():
 
         # - Map picker constants -
         self.SQUARES_PER_PERSON = 9 #3x3 per person is a decent space I think.
+
+        # - How long should the compute thread of a battle last AFTER game over has occurred? -
+        self.BATTLE_TIMER = 30.0 #seconds
 
         if(autostart):
             _thread.start_new_thread(self.matchmaker_loop,())
@@ -610,7 +613,7 @@ class BattleEngine():
             for battle_end in range(0,len(eliminated)):
                 if(eliminated[battle_end][1] != False): #this team got eliminated?
                     battle_end_check += 1
-            if(battle_timeout != None and time.time() - battle_timeout > 30): #30 seconds after battle ends? Kill this thread.
+            if(battle_timeout != None and time.time() - battle_timeout > self.BATTLE_TIMER): #30 seconds after battle ends? Kill this thread.
                 print("[BATTLE] Main compute thread ended...")
                 break #exit the loop! We're done here!
             elif(battle_end_check >= len(eliminated) - 1 and battle_timeout == None): #battle ends?
@@ -703,6 +706,8 @@ class BattleEngine():
                         packet_data.append(arena_data)
                     else:
                         packet_data.append(None)
+                    # - Send the state of all teams to the client -
+                    packet_data.append(eliminated)
                 netcode.send_data(player_data[1], self.buffersize, packet_data) #send the battle data
 
                 # - Recieve data from the client -
@@ -814,13 +819,13 @@ class BattleEngine():
                 with game_objects_lock:
                     tanks = [] #gather all tanks from game_objects
                     for x in game_objects:
-                        if((x.type == "Tank")): # and x.name != game_objects[player_index].name) or (x.type == "Tank" and x.team != game_objects[player_index].team)):
+                        if((x.type == "Tank")):
                             tanks.append(x)
                     bullets = [] #gather all bullets from game_objects
                     for x in game_objects:
                         if(x.type == "Bullet" and x.team != game_objects[player_index].team):
                             bullets.append(x)
-                    potential_bullet = bot_computer.analyse_game(tanks,bullets,arena,arena.TILE_SIZE,all_blocks)
+                    potential_bullet = bot_computer.analyse_game(tanks,bullets,arena,arena.TILE_SIZE,all_blocks, tank_collision_offset=0.5)
                     if(potential_bullet != None): #did the bot shoot?
                         game_objects.append(potential_bullet)
                     
@@ -856,7 +861,9 @@ class BattleEngine():
                 tiles = len(potential_map[0][0]) * len(potential_map[0][0][0]) #get the map's area
                 if(player_ct != 0 and tiles / player_ct >= self.SQUARES_PER_PERSON): #will it host as many players as we want????????
                     #YES!
-                    available_maps.append(potential_map[1]) #just append the map's name, nothing else. We can get the map's data later using import_arena.
+                    if(len(potential_map[0][6]) == len(players)): #we have the right amount of bases for the amount of teams we have?
+                        #YES!
+                        available_maps.append(potential_map[1]) #just append the map's name, nothing else. We can get the map's data later using import_arena.
                 elif(player_ct == 0):
                     return False #we need to put an end to a battle with no players...
                 else:
@@ -876,13 +883,9 @@ class BattleEngine():
         if(rating): #this is for rated/ranked battles only.
             player_stat += self.EXP_WEIGHT * player_account.experience #add player exp to predicted performance
         player_stat += self.CASH_WEIGHT * player_account.cash #add player cash to predicted performance
-        # - Find the player's average upgrade level -
-        avg_player_upgrade = 0
+        # - Find the player's individual upgrade levels, and add player rating from them -
         for b in range(0,len(player_account.upgrades)):
-            avg_player_upgrade += player_account.upgrades[b]
-        avg_player_upgrade /= len(player_account.upgrades)
-        # - Add the player's average upgrade level to the player's predicted performance -
-        player_stat += self.UPGRADE_WEIGHT * avg_player_upgrade
+            player_stat += pow(player_account.upgrades[b], self.UPGRADE_WEIGHT) - 1
         # - Add the player's number of shells of each type to the player's predicted performance -
         for x in range(0,len(player_account.shells)):
             player_stat += player_account.shells[x] * self.SHELLS_WEIGHT[x]
@@ -891,7 +894,7 @@ class BattleEngine():
             if(player_account.powerups[x] == True):
                 player_stat += self.POWERUP_WEIGHT
         # - Add the player's specialization number to the player's predicted performance -
-        player_stat += self.SPECIALIZATION_WEIGHT * abs(player_account.specialization)
+        player_stat += pow(self.SPECIALIZATION_WEIGHT, abs(player_account.specialization)) - 1
         return player_stat
 
     def create_account(self,rating,player_name="Bot Player"): #creates an account with upgrades which correspond roughly to the rating value you input.

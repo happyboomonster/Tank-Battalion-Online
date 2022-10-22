@@ -1,4 +1,4 @@
-##"account.py" library ---VERSION 0.25---
+##"account.py" library ---VERSION 0.27---
 ## - REQUIRES: "entity.py"
 ## - For managing account data in Tank Battalion Online -
 ##Copyright (C) 2022  Lincoln V.
@@ -91,11 +91,11 @@ class Account():
         self.REFUND_PERCENT = 0.75
 
         # - Experience prices -
-        self.EXP_DEATH_COST = 5.0 #experience
-        self.EXP_KILL_REWARD = 7.5
-        self.EXPERIENCE_DAMAGE_MULTIPLIER = 0.05
-        self.HIT_EXPERIENCE = 1.25
-        self.WHIFF_EXPERIENCE = 1
+        self.EXP_DEATH_COST = 35.0 #experience
+        self.EXP_KILL_REWARD = 15.0
+        self.EXPERIENCE_DAMAGE_MULTIPLIER = 0.1 #for 100 damage, +10 exp
+        self.HIT_EXPERIENCE = 5 #35/5 = 7 shots needed to equal self.EXP_DEATH_COST
+        self.WHIFF_EXPERIENCE = self.HIT_EXPERIENCE * 0.75
 
         #how many upgrades are we allowed to do on each part? How much can we specialize?
         self.upgrade_limit = 6 #6 upgrades/ +/-6 specialization on a tank allowed
@@ -314,6 +314,11 @@ class Account():
             if(rebuy): #if we have this setting on, rebuy all our shells.
                 for buy in range(0,tank.shells_used[x]):
                     self.purchase("shell",x)
+        # - Sell extra shells (e.g. if we got explosive shells during the game and we have 9/7 shells, sell 2) -
+        for x in range(0,len(self.shell_prices)):
+            while(self.shells[x] > self.max_shells[x]):
+                self.refund("shell",x)
+                shell_cost -= self.shell_prices[x] * self.damage_multiplier
         print("[PLAYER " + str(tank.name) + "] Powerup costs: " + str(pu_cost) + " Shell costs: " + str(shell_cost))
         if(bp_to_cash):
             # - Print out how much we earned (before cost of anything like powerups/bullets, and after) -
@@ -396,7 +401,7 @@ class Account():
             price = self.powerup_price * self.REFUND_PERCENT
             if(not view_price and self.powerups[item_index] != False):
                 self.cash += price
-                self.powerups[item_index] = False
+                self.powerups[item_index] = None
                 success = True
         elif(item == "shell"): #ammunition?
             price = self.shell_prices[item_index] * self.REFUND_PERCENT

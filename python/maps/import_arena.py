@@ -14,15 +14,28 @@
 ##You should have received a copy of the GNU General Public License
 ##along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import Arena01
-import Arena02
-import Arena03
+#t2 arenas
+import t2_Arena01
+import t2_Arena02
+
+#t3 arenas
+import t3_Arena01
+import t3_Arena02
+
+#t4 arenas
+import t4_Arena01
+import t4_Arena02
+import t4_Arena03
 
 # - The beginning of the relative path to our images -
 path = ""
 
 #add our arena libraries into a list
-arena_libraries = [Arena01, Arena02, Arena03]
+arena_libraries = [
+    t2_Arena01, t2_Arena02,
+    t3_Arena01, t3_Arena02,
+    t4_Arena01, t4_Arena02, t4_Arena03
+                   ]
 
 def return_arena(arena_name): #returns the arena + tileset with the arena_name specified.
     global path

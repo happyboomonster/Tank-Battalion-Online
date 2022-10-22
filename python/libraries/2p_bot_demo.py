@@ -1,4 +1,4 @@
-##"2p_bot_demo.py" demo ---VERSION 0.02---
+##"2p_bot_demo.py" demo ---VERSION 0.04---
 ##Copyright (C) 2022  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
@@ -14,11 +14,13 @@
 ##You should have received a copy of the GNU General Public License
 ##along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import pygame, arena, entity, GFX, time, random, HUD, menu, battle_client as battle
+import pygame, arena, entity, GFX, time, random, HUD, menu, sys, battle_client as battle
+sys.path.insert(0, "../maps")
+import import_arena
 
 #pygame stuff
 pygame.init()
-screen = pygame.display.set_mode([320, 240], pygame.RESIZABLE) #| pygame.SCALED) #uncomment for a large performance boost at the expense of horrible graphics.
+screen = pygame.display.set_mode([320, 240], pygame.RESIZABLE) # | pygame.SCALED) #uncomment for a large performance boost at the expense of horrible graphics.
 p1_screen = pygame.Surface([screen.get_width() / 2, screen.get_height() / 2])
 p2_screen = pygame.Surface([screen.get_width() / 2, screen.get_height() / 2])
 screens = [p1_screen, p2_screen]
@@ -106,14 +108,37 @@ my_shuffle = [[5,6],
               [7,8],
               [8,5]]
 
+#define our flag tiles
+flag_tiles = [30,31,32,33]
+
+#way in which bricks change to destroyed - listed from least to most destroyed
+bricks = [
+    9, #0 hits
+    10,
+    11,
+    12, #3 hits
+    13 #destroyed
+    ]
+
+# - Import an external map -
+arena_data = import_arena.return_arena("t2_Arena01")
+my_map = arena_data[0]
+my_tiles = arena_data[1]
+my_shuffle = arena_data[2]
+blocks = arena_data[3]
+bricks = arena_data[4]
+bricks.append(arena_data[5]) #add the destroyed tile to the game
+flag_tiles = arena_data[6]
+
 my_arena = arena.Arena(my_map, my_tiles, my_shuffle) #create an arena object
 my_arena.stretch = False
+visible_arena = [10,10] #what viewport size are we aiming for?
 
 #create a battle engine
 battle_engine = battle.BattleEngine("","",False)
 
 #configure the arena flag locations
-my_arena.set_flag_locations([30,31,32,33])
+my_arena.set_flag_locations(flag_tiles)
 
 #create an HUD system object for P1 + menu handler
 hud = HUD.HUD()
@@ -129,7 +154,8 @@ p2_mh.default_display_size = [p2_screen.get_width(), p2_screen.get_height()]
 
 #create our tank object
 #tank = entity.Tank(T1U, "Player Team")
-p1_acct = battle_engine.create_account(5.1,"Player 1")
+p1_acct = battle_engine.create_account(25.0,"Player 1")
+p1_acct.specialization = random.randint(-p1_acct.upgrade_limit,p1_acct.upgrade_limit)
 tank = p1_acct.create_tank(T1U, "Player Team")
 #increase the tank's RPM
 #tank.RPM = 25.0
@@ -138,7 +164,7 @@ tank = p1_acct.create_tank(T1U, "Player Team")
 #tank.speed = 1.25
 #set its location onscreen
 tank.screen_location = [screen.get_width() / 4, screen.get_height() / 4]
-tank.map_location = [-1.5, 0]
+tank.goto(my_arena.flag_locations[0], my_arena.TILE_SIZE, my_arena.get_scale(visible_arena,screen))
 #add an HUD bar to the side of p1's screen so that p1 can see his own HP
 hud.add_HUD_element("vertical bar",[[0,0],[10,p1_screen.get_height()],[[0,255,0],[0,0,0],[0,0,255]],1.0])
 #add a label to p1's HP/armor bar
@@ -188,7 +214,8 @@ powerups = []
 
 #spawn P2...
 #p2_tank = entity.Tank(T1U, "Player Team")
-p2_acct = battle_engine.create_account(5.1,"Player 2")
+p2_acct = battle_engine.create_account(25.0,"Player 2")
+p2_acct.specialization = random.randint(-p2_acct.upgrade_limit,p2_acct.upgrade_limit)
 p2_tank = p2_acct.create_tank(T1U, "Player Team")
 #p2_tank.destroyed = True
 #increase the tank's RPM
@@ -197,7 +224,7 @@ p2_tank = p2_acct.create_tank(T1U, "Player Team")
 #p2_tank.penetration_multiplier = 5.0
 #p2_tank.speed = 1
 #set the tank's map location
-p2_tank.map_location = [0, 3.5]
+p2_tank.goto(my_arena.flag_locations[0], my_arena.TILE_SIZE, my_arena.get_scale(visible_arena,screen))
 #set the tank's screen location
 p2_tank.screen_location = [screen.get_width() / 4, screen.get_height() / 4]
 #add an HUD bar to the side of p2's screen so that p2 can see his own HP
@@ -247,9 +274,11 @@ huds = [hud, p2_hud]
 
 #add some extra bots to the game...LOL
 for x in range(0,2):
-    bot_player_managers.append(entity.Bot(2, x + 2, 1.15)) #create the bot manager
+    bot_player_managers.append(entity.Bot(1, x + 2, 1.15)) #create the bot manager
     #create the bot account, and create a bot tank. Append that to the players list...
-    players.append(battle_engine.create_account(5.1,"Bot Player " + str(x)).create_tank(T2U, "Bot Team"))
+    bot_acct = battle_engine.create_account(25.0,"Bot Player " + str(x))
+    players.append(bot_acct.create_tank(T2U, "Bot Team"))
+    bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
     bot_player_managers[x + 2].start_pos(players,my_arena)
 
 player_bar_hud_start = 17
@@ -269,17 +298,6 @@ powerup_positions = [
     [10,80],
     [10,100]
     ]
-
-#way in which bricks change to destroyed - listed from least to most destroyed
-bricks = [
-    9, #0 hits
-    10,
-    11,
-    12, #3 hits
-    13 #destroyed
-    ]
-
-visible_arena = [8,8]
 
 #list of GFX particles
 particles = []
@@ -381,7 +399,8 @@ while running:
             tank.use_shell(x) #change bullets
     for x in range(0,len(tank_powerups)):
         if(tank_powerups[x] in keypresses):
-            tank.use_powerup(x) #use powerup
+            tank.use_powerup(x, False) #use powerup
+            tank.use_powerup(0,True) #update the powerup state for this player (because entity.py is written with server-client architecture in mind)
     if(tank_shoot in keypresses):
         potential_bullet = tank.shoot(my_arena.TILE_SIZE)
         if(potential_bullet != None): #if we were able to shoot, add the bullet object to our bullet object list
@@ -395,7 +414,8 @@ while running:
             p2_tank.use_shell(x) #change bullets
     for x in range(0,len(p2_tank_powerups)):
         if(p2_tank_powerups[x] in keypresses):
-            p2_tank.use_powerup(x) #use powerup
+            p2_tank.use_powerup(x, False) #use powerup
+            p2_tank.use_powerup(0,True) #update the powerup state for this player (because entity.py is written with server-client architecture in mind)
     if(p2_tank_shoot in keypresses):
         potential_bullet = p2_tank.shoot(my_arena.TILE_SIZE)
         if(potential_bullet != None): #if we were able to shoot, add the bullet object to our bullet object list
@@ -407,6 +427,7 @@ while running:
             continue
         if(bot_player_managers[x] != None):
             potential_bullet = bot_player_managers[x].analyse_game(players,bullets,my_arena,my_arena.TILE_SIZE,blocks)
+            players[x].use_powerup(0,True) #update the powerup state for this player (because entity.py is written with server-client architecture in mind)
             if(potential_bullet != None):
                 bullets.append(potential_bullet)
 

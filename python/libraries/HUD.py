@@ -1,4 +1,4 @@
-##"HUD.py" library ---VERSION 0.05---
+##"HUD.py" library ---VERSION 0.06---
 ##Copyright (C) 2022  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
@@ -37,10 +37,10 @@ class HUD(): #a sort-of simple class which should allow you to design HUDs which
         self.HUD_attribs.append([element_type,element_data[:]])
         self.scaled_HUD_attribs.append(scaling)
 
-    #quick function which scales HUD coordinates to whichever scale is smaller, X or Y.
+    #quick function which scales HUD coordinates to whichever scale is smaller, X or Y AND returns an integer version of them.
     def scale_coords(self,coords,screen_scale):
-        coords[0] = coords[0] * screen_scale[0]
-        coords[1] = coords[1] * screen_scale[1]
+        coords[0] = int(coords[0] * screen_scale[0])
+        coords[1] = int(coords[1] * screen_scale[1])
         return coords
 
     def draw_HUD(self,screen): #draws all the HUD elements we added
@@ -71,9 +71,9 @@ class HUD(): #a sort-of simple class which should allow you to design HUDs which
                 text_scale = element[1][1] / font.SIZE * 1.0 * rectangular_scale
                 text_size = text_scale * font.SIZE
                 if(colors[1] != None): #we actually want a background color?
-                    pygame.draw.rect(screen,colors[1],[unscaled_position[0],unscaled_position[1],text_size * len(list(text)),text_scale * font.SIZE],0) #draw the background color first
+                    pygame.draw.rect(screen,colors[1],[unscaled_position[0],unscaled_position[1],int(text_size * len(list(text))),int(text_scale * font.SIZE)],0) #draw the background color first
                 if(colors[2] != None): #we actually want an outline color?
-                    pygame.draw.rect(screen,colors[2],[unscaled_position[0],unscaled_position[1],text_size * len(list(text)),text_scale * font.SIZE],int(1 * rectangular_scale + 1)) #draw the outline next
+                    pygame.draw.rect(screen,colors[2],[unscaled_position[0],unscaled_position[1],int(text_size * len(list(text))),int(text_scale * font.SIZE)],int(1 * rectangular_scale + 1)) #draw the outline next
                 if(colors[0] != None): #we actually want a text color?
                     font.draw_words(text, [unscaled_position[0],unscaled_position[1]], colors[0], text_scale, screen) #draw the actual words next
             elif(element[0] == "scrolling text"):
@@ -92,9 +92,9 @@ class HUD(): #a sort-of simple class which should allow you to design HUDs which
                 text_scale = element[1][1][0] / font.SIZE * 1.0 * rectangular_scale
                 text_size = text_scale * font.SIZE
                 if(colors[1] != None): #we actually want a background color?
-                    pygame.draw.rect(screen,colors[1],[unscaled_position[0],unscaled_position[1],text_size * text_box_size,text_scale * font.SIZE],0) #draw the background color first
+                    pygame.draw.rect(screen,colors[1],[unscaled_position[0],unscaled_position[1],int(text_size * text_box_size),int(text_scale * font.SIZE)],0) #draw the background color first
                 if(colors[2] != None): #we actually want an outline color?
-                    pygame.draw.rect(screen,colors[2],[unscaled_position[0],unscaled_position[1],text_size * text_box_size,text_scale * font.SIZE],int(1 * rectangular_scale + 1)) #draw the outline next
+                    pygame.draw.rect(screen,colors[2],[unscaled_position[0],unscaled_position[1],int(text_size * text_box_size),int(text_scale * font.SIZE)],int(1 * rectangular_scale + 1)) #draw the outline next
                 if(colors[0] != None): #we actually want a text color?
                     font.draw_words(scrolling_text, [unscaled_position[0],unscaled_position[1]], colors[0], text_scale, screen) #draw the actual words next
             elif(element[0] == "vertical bar"): #print a vertical loading bar (higher value always goes UP, 100 = max)
@@ -109,10 +109,10 @@ class HUD(): #a sort-of simple class which should allow you to design HUDs which
                 value = element[1][3]
                 colors = element[1][2]
                 if(colors[1] != None): #we actually want a background color?
-                    pygame.draw.rect(screen,colors[1],[unscaled_position[0],unscaled_position[1], size[0] * rectangular_scale, size[1] * rectangular_scale],0) #draw the background color first
+                    pygame.draw.rect(screen,colors[1],[unscaled_position[0],unscaled_position[1], int(size[0] * rectangular_scale), int(size[1] * rectangular_scale)],0) #draw the background color first
                 if(colors[2] != None): #we actually want an outline color?
-                    pygame.draw.rect(screen,colors[2],[unscaled_position[0],unscaled_position[1], size[0] * rectangular_scale, size[1] * rectangular_scale],int(1 * rectangular_scale + 1)) #draw the outline next
-                pygame.draw.rect(screen,colors[0],[unscaled_position[0] + (1 * rectangular_scale),unscaled_position[1] + (size[1] + 1 - size[1] * value) * rectangular_scale,(size[0] - 2) * rectangular_scale, (size[1] * value - 2) * rectangular_scale],0) #draw the bar second-last
+                    pygame.draw.rect(screen,colors[2],[unscaled_position[0],unscaled_position[1], int(size[0] * rectangular_scale), int(size[1] * rectangular_scale)],int(1 * rectangular_scale + 1)) #draw the outline next
+                pygame.draw.rect(screen,colors[0],[unscaled_position[0] + int(1 * rectangular_scale),unscaled_position[1] + int((size[1] + 1 - size[1] * value) * rectangular_scale),int((size[0] - 2) * rectangular_scale), int((size[1] * value - 2) * rectangular_scale)],0) #draw the bar second-last
             elif(element[0] == "horizontal bar"): #print a horizontal loading bar (higher value is to the right)
                 #Format: [pos,size,colors,value]
                 #colors[0] = bar color
@@ -125,10 +125,10 @@ class HUD(): #a sort-of simple class which should allow you to design HUDs which
                 value = element[1][3]
                 colors = element[1][2]
                 if(colors[1] != None): #we actually want a background color?
-                    pygame.draw.rect(screen,colors[1],[unscaled_position[0],unscaled_position[1], size[0] * rectangular_scale, size[1] * rectangular_scale],0) #draw the background color first
+                    pygame.draw.rect(screen,colors[1],[unscaled_position[0],unscaled_position[1], int(size[0] * rectangular_scale), int(size[1] * rectangular_scale)],0) #draw the background color first
                 if(colors[2] != None): #we actually want an outline color?
-                    pygame.draw.rect(screen,colors[2],[unscaled_position[0],unscaled_position[1], size[0] * rectangular_scale, size[1] * rectangular_scale],int(1 * rectangular_scale + 1)) #draw the outline next
-                pygame.draw.rect(screen,colors[0],[unscaled_position[0] + (1 * rectangular_scale),unscaled_position[1] + (1 * rectangular_scale),(size[0] * value - 2) * rectangular_scale, (size[1] - 2) * rectangular_scale],0) #draw the bar second-last
+                    pygame.draw.rect(screen,colors[2],[unscaled_position[0],unscaled_position[1], int(size[0] * rectangular_scale), int(size[1] * rectangular_scale)],int(1 * rectangular_scale + 1)) #draw the outline next
+                pygame.draw.rect(screen,colors[0],[unscaled_position[0] + int(1 * rectangular_scale),unscaled_position[1] + int(1 * rectangular_scale),int((size[0] * value - 2) * rectangular_scale), int((size[1] - 2) * rectangular_scale)],0) #draw the bar second-last
             x += 1 #increment our index counter
 
     def update_HUD_element(self,element_index,element_value): #allows you to change the status of an HUD element.
@@ -143,7 +143,7 @@ class HUD(): #a sort-of simple class which should allow you to design HUDs which
     def delete_HUD(self,element_index): #deletes a HUD element of your choice
         del(self.HUD_attribs[element_index])
 
-###example code: Create some HUD elements!
+###Example code: Create some HUD elements!
 ##anhud = HUD()
 ###add an HUD element which is scrolling text. Outline of white, background of grey, green letters of size 15 px on 640x480 screen.
 ##anhud.add_HUD_element("scrolling text",[[10,10],[100,6],[[255,255,255],[100,100,100],[0,255,0]],"Demo text which is scrolling"])

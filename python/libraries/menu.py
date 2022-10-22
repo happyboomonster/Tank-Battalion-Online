@@ -1,4 +1,4 @@
-##"menu.py" library ---VERSION 0.11---
+##"menu.py" library ---VERSION 0.12---
 ##Copyright (C) 2022  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
@@ -134,15 +134,15 @@ class Menu():
             if(acollisionbox[0] < cursorpos[0] and acollisionbox[2] > cursorpos[0]): #our cursorpos is within the collision box on the X axis?
                 if(acollisionbox[1] < cursorpos[1] and acollisionbox[3] > cursorpos[1]): #our cursorpos is within the collision box on the Y axis?
                     #draw the highlight in here...
-                    pygame.draw.line(screen,[0,255,0],[0,acollisionbox[1] - 1],[screen.get_width(),acollisionbox[1] - 1],1)
-                    pygame.draw.line(screen,[0,255,0],[0,acollisionbox[3] - 1],[screen.get_width(),acollisionbox[3] - 1],1)
+                    pygame.draw.line(screen,[0,255,0],[0,int(acollisionbox[1] - 1)],[screen.get_width(),int(acollisionbox[1] - 1)],1)
+                    pygame.draw.line(screen,[0,255,0],[0,int(acollisionbox[3] - 1)],[screen.get_width(),int(acollisionbox[3] - 1)],1)
                     break
         returnedbutton = None #variable used to keep track of button presses
         for x in range(0,len(buttoncollision)): #check our button collision boxes
             acollisionbox = buttoncollision[x]
             if(acollisionbox[0] < cursorpos[0] and acollisionbox[2] > cursorpos[0]): #our cursorpos is within the collision box on the X axis?
                 if(acollisionbox[1] < cursorpos[1] and acollisionbox[3] > cursorpos[1]): #our cursorpos is within the collision box on the Y axis?
-                    pygame.draw.rect(screen,[0,255,0],[acollisionbox[0],acollisionbox[1],acollisionbox[2] - acollisionbox[0],acollisionbox[3] - acollisionbox[1]],1)
+                    pygame.draw.rect(screen,[0,255,0],[int(acollisionbox[0]),int(acollisionbox[1]),int(acollisionbox[2] - acollisionbox[0]),int(acollisionbox[3] - acollisionbox[1])],1)
                     break
 
     def drawmenu(self,coords,dimensions,screen,stretch=True): #dimensions are a list with an X and Y value in it, in pixels Offset: is a variable which displays a different set of options
@@ -168,8 +168,8 @@ class Menu():
         #draw all the buttons now
         if(stretch == True): #does we wants to stretch our assets all out of scale?
             for x in range(0,len(self.buttons)):
-                pos = [self.buttons[x][1][0] * self.buttonscale[0], self.buttons[x][1][1] * self.buttonscale[1]]
-                tmpsurface = pygame.transform.scale(self.buttons[x][0],[self.buttons[x][0].get_width()  * self.buttonscale[0],self.buttons[x][0].get_height() * self.buttonscale[1]])
+                pos = [int(self.buttons[x][1][0] * self.buttonscale[0]), int(self.buttons[x][1][1] * self.buttonscale[1])]
+                tmpsurface = pygame.transform.scale(self.buttons[x][0],[int(self.buttons[x][0].get_width()  * self.buttonscale[0]),int(self.buttons[x][0].get_height() * self.buttonscale[1])])
                 screen.blit(tmpsurface,pos)
         else:
             if(self.buttonscale[0] > self.buttonscale[1]): #are we scaling things farther in the X or Y axis?
@@ -180,8 +180,8 @@ class Menu():
                 #offset = [0,(dimensions[1] / 2.0) - (dimensions[1] / self.buttonscale[1] * usedscale / 2.0)]
             for x in range(0,len(self.buttons)):
                 #pos = [(self.buttons[x][1][0] * usedscale) + offset[0], (self.buttons[x][1][1] * usedscale) + offset[1]]
-                pos = [(self.buttons[x][1][0] * self.buttonscale[0]), (self.buttons[x][1][1] * self.buttonscale[1])]
-                tmpsurface = pygame.transform.scale(self.buttons[x][0],[self.buttons[x][0].get_width()  * usedscale,self.buttons[x][0].get_height() * usedscale])
+                pos = [int(self.buttons[x][1][0] * self.buttonscale[0]), int(self.buttons[x][1][1] * self.buttonscale[1])]
+                tmpsurface = pygame.transform.scale(self.buttons[x][0],[int(self.buttons[x][0].get_width()  * usedscale),int(self.buttons[x][0].get_height() * usedscale)])
                 screen.blit(tmpsurface,pos)
 
     def getmenucollision(self,coords,dimensions,stretch=True): #returns the collision for our menu as this format: [OptionIndex, collisionbox]
@@ -408,10 +408,10 @@ class Menuhandler():
 ###basic menu test
 ##mh = Menuhandler()
 ##mh.create_menu(["Option a","This is a test option"],
-##               [[0,3],["a","b","c"],
+##               [[0,3],["a","b","c"]],
 ##               [],
 ##               [],
-##               "Test Menu"])
+##               "Test Menu")
 ##
 ##screen = pygame.display.set_mode([640,480],pygame.RESIZABLE)
 ##

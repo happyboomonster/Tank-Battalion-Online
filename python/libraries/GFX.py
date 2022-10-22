@@ -1,4 +1,4 @@
-##"GFX.py" library ---VERSION 0.15---
+##"GFX.py" library ---VERSION 0.16---
 ## - REQUIRES: "font.py" library
 ## - For creating basic graphical effects (usually based on particles) in the same scale as your screen in a game -
 ##Copyright (C) 2022  Lincoln V.
@@ -100,15 +100,17 @@ class Particle(): #a square onscreen which can A) change size, B) change color, 
                 self.color[2] += self.calculated_color[2]
 
     def draw(self, TILE_SIZE, screen_scale, offset, screen): #draw the particle onscreen, accounting for a map offset
-        # - First, we check that our color is valid... -
-        self.color = colorsafe(self.color)
-        # - NOW we can draw the particle -
-        if(self.form == 1):
-            pygame.draw.rect(screen, self.color, [self.pos[0] * TILE_SIZE * screen_scale[0] - offset[0] * TILE_SIZE * screen_scale[0], self.pos[1] * TILE_SIZE * screen_scale[1] - offset[1] * TILE_SIZE * screen_scale[1], self.size * TILE_SIZE * screen_scale[0], self.size * TILE_SIZE * screen_scale[1]],0)
-        elif(self.form == 2): #circles will always remain square, even when they should be scaled as rectangular. Scaled by the X axis.
-            pygame.draw.circle(screen, self.color, [self.pos[0] * TILE_SIZE * screen_scale[0] - offset[0] * TILE_SIZE * screen_scale[0], self.pos[1] * TILE_SIZE * screen_scale[1] - offset[1] * TILE_SIZE * screen_scale[1]], self.size * TILE_SIZE * screen_scale[0])
-        else: #we want to draw text?
-            font.draw_words(self.form, [self.pos[0] * TILE_SIZE * screen_scale[0] - offset[0] * TILE_SIZE * screen_scale[0], self.pos[1] * TILE_SIZE * screen_scale[1] - offset[1] * TILE_SIZE * screen_scale[1]], self.color, self.size * screen_scale[0] / font.SIZE * TILE_SIZE, screen)
+        # - Start by checking if this particle is active -
+        if(time.time() - self.start_time >= 0):
+            # - First, we check that our color is valid... -
+            self.color = colorsafe(self.color)
+            # - NOW we can draw the particle -
+            if(self.form == 1):
+                pygame.draw.rect(screen, self.color, [int(self.pos[0] * TILE_SIZE * screen_scale[0] - offset[0] * TILE_SIZE * screen_scale[0]), int(self.pos[1] * TILE_SIZE * screen_scale[1] - offset[1] * TILE_SIZE * screen_scale[1]), int(self.size * TILE_SIZE * screen_scale[0]), int(self.size * TILE_SIZE * screen_scale[1])],0)
+            elif(self.form == 2): #circles will always remain square, even when they should be scaled as rectangular. Scaled by the X axis.
+                pygame.draw.circle(screen, self.color, [int(self.pos[0] * TILE_SIZE * screen_scale[0] - offset[0] * TILE_SIZE * screen_scale[0]), int(self.pos[1] * TILE_SIZE * screen_scale[1] - offset[1] * TILE_SIZE * screen_scale[1])], int(self.size * TILE_SIZE * screen_scale[0]))
+            else: #we want to draw text? (the coordinates are already "intified" within draw_words)
+                font.draw_words(self.form, [self.pos[0] * TILE_SIZE * screen_scale[0] - offset[0] * TILE_SIZE * screen_scale[0], self.pos[1] * TILE_SIZE * screen_scale[1] - offset[1] * TILE_SIZE * screen_scale[1]], self.color, self.size * screen_scale[0] / font.SIZE * TILE_SIZE, screen)
 
     def return_data(self,precision=2): #returns data for netcode transmission
         return [self.pos, #position attributes

@@ -1,4 +1,4 @@
-##"2_player_demo.py" demo ---VERSION 0.01---
+##"2_player_demo.py" demo ---VERSION 0.02---
 ##Copyright (C) 2022  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
@@ -14,7 +14,9 @@
 ##You should have received a copy of the GNU General Public License
 ##along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import pygame, arena, entity, GFX, time, random, HUD, menu
+import pygame, arena, entity, GFX, time, random, HUD, menu, sys
+sys.path.insert(0, "../maps")
+import import_arena
 
 #pygame stuff
 pygame.init()
@@ -89,8 +91,22 @@ my_shuffle = [[5,6],
               [7,8],
               [8,5]]
 
+# - Import an external map -
+arena_data = import_arena.return_arena("t2_Arena01")
+my_map = arena_data[0]
+my_tiles = arena_data[1]
+my_shuffle = arena_data[2]
+blocks = arena_data[3]
+bricks = arena_data[4]
+bricks.append(arena_data[5]) #add the destroyed tile to the game
+flag_tiles = arena_data[6]
+
 my_arena = arena.Arena(my_map, my_tiles, my_shuffle) #create an arena object
 my_arena.stretch = False
+my_arena.set_flag_locations(flag_tiles)
+
+# - Visible area definition -
+visible_arena = [8,8]
 
 #create an HUD system object for P1 + menu handler
 hud = HUD.HUD()
@@ -107,13 +123,13 @@ p2_mh.default_display_size = [p2_screen.get_width(), p2_screen.get_height()]
 #create our tank object
 tank = entity.Tank(T1U, ["P1","The Good Guys"])
 #increase the tank's RPM
-tank.RPM = 25.0
-#tank.damage_multiplier = 9
-#tank.penetration_multiplier = 5.0
-tank.speed = 1.75
+##tank.RPM = 80.0
+##tank.damage_multiplier = 0.75
+##tank.penetration_multiplier = 1.0
+##tank.speed = 1.75
 #set its location onscreen
 tank.screen_location = [screen.get_width() / 4, screen.get_height() / 4]
-tank.map_location = [-1.5, -1.5]
+tank.goto(my_arena.flag_locations[0], my_arena.TILE_SIZE, my_arena.get_scale(visible_arena,screen))
 #add an HUD bar for p2's HP to p1's HUD system
 hud.add_HUD_element("horizontal bar",[[0,0],[20,5],[[0,255,0],[0,0,0],[0,0,255]],1.0],False)
 #add an HUD bar to the side of p1's screen so that p1 can see his own HP
@@ -163,14 +179,14 @@ bullets = []
 #spawn P2...
 p2_tank = entity.Tank(T2U, ["P2","The Enemy Team (in other words The Bad Guys)"])
 #increase the tank's RPM
-p2_tank.RPM = 25.0
-#p2_tank.damage_multiplier = 9
-#p2_tank.penetration_multiplier = 5.0
-p2_tank.speed = 1.75
-#set the tank's map location
-p2_tank.map_location = [3.5, 2.5]
+##p2_tank.RPM = 80.0
+##p2_tank.damage_multiplier = 0.75
+##p2_tank.penetration_multiplier = 1.0
+##p2_tank.speed = 1.75
 #set the tank's screen location
 p2_tank.screen_location = [screen.get_width() / 4, screen.get_height() / 4]
+#set the tank's map location
+p2_tank.goto(my_arena.flag_locations[1], my_arena.TILE_SIZE, my_arena.get_scale(visible_arena,screen))
 #add an HUD bar for p1's HP to p2's HUD system
 p2_hud.add_HUD_element("horizontal bar",[[0,0],[20,5],[[0,255,0],[0,0,0],[0,0,255]],1.0],False)
 #add an HUD bar to the side of p2's screen so that p2 can see his own HP
@@ -232,8 +248,6 @@ bricks = [
     12, #3 hits
     13 #destroyed
     ]
-
-visible_arena = [8,8]
 
 #list of GFX particles
 particles = []
@@ -331,7 +345,8 @@ while running:
             tank.use_shell(x) #change bullets
     for x in range(0,len(tank_powerups)):
         if(tank_powerups[x] in keypresses):
-            tank.use_powerup(x) #use powerup
+            tank.use_powerup(x,False) #use powerup
+            tank.use_powerup(x,True) #update powerup state
     if(tank_shoot in keypresses):
         potential_bullet = tank.shoot(my_arena.TILE_SIZE)
         if(potential_bullet != None): #if we were able to shoot, add the bullet object to our bullet object list
@@ -345,7 +360,8 @@ while running:
             p2_tank.use_shell(x) #change bullets
     for x in range(0,len(p2_tank_powerups)):
         if(p2_tank_powerups[x] in keypresses):
-            p2_tank.use_powerup(x) #use powerup
+            p2_tank.use_powerup(x,False) #use powerup
+            p2_tank.use_powerup(x,True) #update powerup state
     if(p2_tank_shoot in keypresses):
         potential_bullet = p2_tank.shoot(my_arena.TILE_SIZE)
         if(potential_bullet != None): #if we were able to shoot, add the bullet object to our bullet object list
