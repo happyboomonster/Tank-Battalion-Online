@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.40---
+##"battle_client.py" library ---VERSION 0.43---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -35,7 +35,12 @@ class BattleEngine():
     def __init__(self,IP,PORT,autostart=True):
         self.buffersize = 10
 
+        # - Screen constants -
         self.PYGAME_FLAGS = pygame.RESIZABLE
+        self.min_screen_size = [75,75]
+
+        # - Needed to check whether we are still connected to the server -
+        self.lobby_connected = True
 
         # - Default key configuration settings -
         self.controls = controller.Controls(4 + 6 + 4 + 1 + 1 + 1,"kb") #4: shells - 6: powerups - 4: movement - 1: shoot  - 1: ESC key - 1: Crosshair modifier
@@ -93,12 +98,12 @@ class BattleEngine():
 
         # - Matchmaker constants -
         self.EXP_WEIGHT = 0.0005 #this defines the overall power of a player (more EXP = more experienced player = more strategic = more dangerous)
-        self.UPGRADE_WEIGHT = 1.25 #this defines the overall power of a player (more upgrades = more powerful tank)
+        self.UPGRADE_WEIGHT = 1.35 #this defines the overall power of a player (more upgrades = more powerful tank)
         self.CASH_WEIGHT = 0.0 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
         self.SHELLS_WEIGHT = [0.025, 0.05, 0.075, 0.15] #this defines the overall power of a player (more powerful shells = more dangerous)
-        self.POWERUP_WEIGHT = 2.5 / 6 #this defines the overall power of a player (more powerups = more dangerous)
+        self.POWERUP_WEIGHT = 4 / 6 #this defines the overall power of a player (more powerups = more dangerous)
         self.SPECIALIZATION_WEIGHT = 1.125 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
-        self.IMBALANCE_LIMIT = 0.30 #the maximum imbalance of rating points a match is allowed to have to be finalized.
+        self.IMBALANCE_LIMIT = 1.00 #the maximum imbalance of rating points a match is allowed to have to be finalized.
 
         # - Battle constants -
         self.EXPLOSION_TIMER = 1.0 #seconds; how long between each explosion when game over occurs?
@@ -119,12 +124,15 @@ class BattleEngine():
         login_menu.create_menu(["login","create account"],[["",""],["",""]],[],[],"Tank Battalion Online Login")
 
         # - Key configuration -
-        directions = self.controls.buttons[10:14]
-        shoot = self.controls.buttons[14]
+        directions = [10,11,12,13]
+        shoot = 14
 
         clock = pygame.time.Clock()
 
         cursorpos = [0,0]
+
+        # - Set the window caption -
+        pygame.display.set_caption("Tank Battalion Online Login")
 
         # - Wait until the player clicks da button -
         running = True
@@ -134,7 +142,12 @@ class BattleEngine():
             event_pack = controller.get_keys()
             running = not event_pack[0]
             if(event_pack[1] != None): #we requested a window resize?
-                self.screen = pygame.display.set_mode(event_pack[1], self.PYGAME_FLAGS)
+                resize_dimensions = list(event_pack[1])
+                if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                    resize_dimensions[0] = self.min_screen_size[0]
+                if(resize_dimensions[1] < self.min_screen_size[1]):
+                    resize_dimensions[1] = self.min_screen_size[1]
+                self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
 
             for x in keys:
                 if(x in directions):
@@ -174,23 +187,30 @@ class BattleEngine():
             pygame.display.flip()
 
         controller.empty_keys()
-        
-        valid = False # - Grab the server's port and IP address from the client user -
+
+        valid = False
+        second_iter = False #This is used to tell whether we need to re-enter the port and IP when we fail to connect to the server.
+        string_username = "Please enter your username" #I need this in order to give an error message if you enter IP or username/password wrong.
+        string_IP = "Please enter the server IP"
+        string_port = "Please enter the server port number"
         while not valid:
-            if(IP != None and PORT != None):
-                valid = True
-            else:
-                if(IP == None): #It's hard to tell whether the IP is a valid one, so I just expect people to type it in right.
-                    IP = menu.get_input(self.screen,"Please enter the server IP")
-                if(PORT == None): #...But I can check whether someone typed in a valid port number...
-                    PORT = menu.get_input(self.screen,"Please enter the server port number")
+            address_valid = False # - Grab the server's port and IP address from the client user -
+            while not address_valid:
+                if(IP == None or second_iter): #It's hard to tell whether the IP is a valid one, so I just expect people to type it in right.
+                    IP = menu.get_input(self.screen,string_IP)
+                    string_IP = "IP Address may have been incorrect. Please re-enter the server IP"
+                if(PORT == None or second_iter): #...But I can check whether someone typed in a valid port number...
+                    PORT = menu.get_input(self.screen,string_port)
+                    string_port = "Server port may have been incorrect. Please re-enter the server port number"
                     try:
                         PORT = int(PORT)
                     except: #we didn't give a number?
                         PORT = None #Psyche! Try again...
-        valid = False # - Next we grab login data -
-        while not valid:
-            login_username_input = menu.get_input(self.screen,"Please enter your username")
+                if(PORT != None and IP != None): #We entered "valid" data?
+                    address_valid = True
+            # - Next we grab login data -
+            login_username_input = menu.get_input(self.screen,string_username)
+            string_username = "Username/Password/IP Address/Port incorrect. Please re-enter username"
             if(login_username_input == None): #player clicked X?
                 return None #finish the function; quit the application
             login_password_input = menu.get_input(self.screen,"Please enter your password")
@@ -198,6 +218,7 @@ class BattleEngine():
                 return None #finish the function; quit the application
             else: #...annnnd see if we can connect.
                 valid = self.connect_server(IP,PORT,login_username_input,login_password_input,login)
+            second_iter = True #This is used to tell whether we need to re-enter the port and IP when we fail to connect to the server.
 
     def connect_server(self,IP,PORT,username,password,login):
         #create a connection to the server
@@ -252,6 +273,8 @@ class BattleEngine():
             with self.response_lock: #recieve data
                 self.response = netcode.recieve_data(self.Cs, self.buffersize) #did the server manage whatever we asked?
 
+            self.lobby_connected = self.response[3] #make sure the other thread knows whether we're still connected
+
             for x in range(0,len(self.response[2])):
                 print(self.response[2][x])
 
@@ -288,6 +311,9 @@ class BattleEngine():
             else: #check if we're getting matchmaking packets. If we are, we start up the matchmaking routine by changing self.request, self.response...to make the lobby_frontend() go into queue.
                 if(netcode.data_verify(self.response, self.MATCH_PACKET)):
                     self.request_pending = True #just toss us into whatever queue we were supposed to enter...
+
+            if(not self.lobby_connected):
+                break #exit if we're not connected to the server
 
         self.Cs.close() #close our socket connection and delete it so the server will save our data
         del(self.Cs)
@@ -363,8 +389,8 @@ class BattleEngine():
         cursorpos = [0,0] #where is our cursor?
 
         # - Key configuration -
-        directions = self.controls.buttons[10:14]
-        shoot = self.controls.buttons[14]
+        directions = [10,11,12,13]
+        shoot = 14
 
         # - This flag is to make sure that we don't get the red X the first thing we get into the lobby -
         first_entry = True
@@ -498,7 +524,12 @@ class BattleEngine():
             with self.running_lock:
                 self.running = not event_pack[0]
             if(event_pack[1] != None): #we requested a window resize?
-                self.screen = pygame.display.set_mode(event_pack[1], self.PYGAME_FLAGS)
+                resize_dimensions = list(event_pack[1])
+                if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                    resize_dimensions[0] = self.min_screen_size[0]
+                if(resize_dimensions[1] < self.min_screen_size[1]):
+                    resize_dimensions[1] = self.min_screen_size[1]
+                self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
             keys = self.controls.get_input()
             for x in directions:
                 if(x in keys):
@@ -611,10 +642,83 @@ class BattleEngine():
                 except Exception as e:
                     print("An exception occurred during lobby_frontend: " + str(e) + " - Nonfatal") #print the exception that occurred (most likely a IndexError)
 
+            if(not self.lobby_connected):
+                break #exit if we're not connected to the server
+
             #get da FPS
             clock.tick(900)
             fps = clock.get_fps()
             pygame.display.set_caption("Tank Battalion Online Lobby - FPS: " + str(int(fps)))
+
+        if(not self.lobby_connected): #Did we disconnect/get kicked from the server?
+            # - Reconfigure lobby_menu -
+            lobby_menu = menu.Menuhandler()
+            lobby_menu.create_menu(["Exit"],[["",""]],[],[],"Disconnected")
+            running = True
+            cursorpos = [0,0]
+            chars_per_line = 25
+            while running:
+                # - Check if we have clicked any buttons -
+                event_pack = controller.get_keys()
+                running = not event_pack[0]
+                if(event_pack[1] != None): #we requested a window resize?
+                    resize_dimensions = list(event_pack[1])
+                    if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                        resize_dimensions[0] = self.min_screen_size[0]
+                    if(resize_dimensions[1] < self.min_screen_size[1]):
+                        resize_dimensions[1] = self.min_screen_size[1]
+                    self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
+                keys = self.controls.get_input()
+                for x in directions:
+                    if(x in keys):
+                        cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * lobby_menu.menu_scale
+                        cursorpos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * lobby_menu.menu_scale
+
+                # - Check if we clicked exit -
+                if(shoot in keys): #shoot?
+                    if(self.special_window == None):
+                        clicked_button = lobby_menu.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height()],cursorpos)
+                        if(clicked_button[0][0] != None):
+                            # - We clicked exit! Time to leave... -
+                            running = False
+
+                # - Update the menu -
+                lobby_menu.update(self.screen)
+
+                # - Grab the message we are trying to blit onto the screen -
+                message = menu.draw_message("An error occurred. Most likely, you entered bad account credentials, or tried to create an account with a name which has already been used. However, there is a chance that the server is down, in which case please try again in a few minutes.",self.screen.get_width(),chars_per_line)
+                if(message.get_height() > self.screen.get_height() - lobby_menu.menu_scale * font.SIZE * 3):
+                    chars_per_line += 1
+                    message = pygame.transform.scale(message,[message.get_width(), self.screen.get_height() - lobby_menu.menu_scale * font.SIZE * 3])
+                elif(message.get_height() < self.screen.get_height() - lobby_menu.menu_scale * font.SIZE * 10):
+                    chars_per_line -= 1
+
+                # - Draw everything onscreen -
+                self.screen.fill([0,0,0]) #fill the screen black
+                # - Draw the menu onscreen -
+                lobby_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,cursorpos)
+                # - Draw the error message onscreen -
+                self.screen.blit(message,[0,font.SIZE * lobby_menu.menu_scale * 3])
+                # - Draw the cursor onscreen -
+                pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] - int(8 * lobby_menu.menu_scale)],[cursorpos[0],cursorpos[1] - int(4 * lobby_menu.menu_scale)],int(3 * lobby_menu.menu_scale))
+                pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] + int(8 * lobby_menu.menu_scale)],[cursorpos[0],cursorpos[1] + int(4 * lobby_menu.menu_scale)],int(3 * lobby_menu.menu_scale))
+                pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] + int(8 * lobby_menu.menu_scale),cursorpos[1]],[cursorpos[0] + int(4 * lobby_menu.menu_scale),cursorpos[1]],int(3 * lobby_menu.menu_scale))
+                pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] - int(8 * lobby_menu.menu_scale),cursorpos[1]],[cursorpos[0] - int(4 * lobby_menu.menu_scale),cursorpos[1]],int(3 * lobby_menu.menu_scale))
+                # - Update the display -
+                pygame.display.flip() #update the display
+
+                # - Make sure our cursor stays onscreen -
+                cursorpos[0] = abs(cursorpos[0]) #no negative locations allowed!
+                cursorpos[1] = abs(cursorpos[1])
+                if(cursorpos[0] > self.screen.get_width()): #can't be offscreen by being too big either!
+                    cursorpos[0] -= self.screen.get_width()
+                if(cursorpos[1] > self.screen.get_height()):
+                    cursorpos[1] -= self.screen.get_height()
+
+                # - Manage FPS -
+                clock.tick(900)
+                fps = clock.get_fps()
+                pygame.display.set_caption("Disconnnected! FPS: " + str(int(fps)))
             
         pygame.quit() #quit pygame when we're out of here...
 
@@ -656,8 +760,8 @@ class BattleEngine():
         fps = 30
 
         # - Key configuration -
-        directions = self.controls.buttons[10:14]
-        shoot = self.controls.buttons[14]
+        directions = [10,11,12,13]
+        shoot = 14
 
         # - Shooting debouncing -
         shoot_timeout = time.time()
@@ -711,7 +815,12 @@ class BattleEngine():
             with self.running_lock:
                 self.running = not event_pack[0]
             if(event_pack[1] != None): #we requested a window resize?
-                self.screen = pygame.display.set_mode(event_pack[1], self.PYGAME_FLAGS)
+                resize_dimensions = list(event_pack[1])
+                if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                    resize_dimensions[0] = self.min_screen_size[0]
+                if(resize_dimensions[1] < self.min_screen_size[1]):
+                    resize_dimensions[1] = self.min_screen_size[1]
+                self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
             keys = self.controls.get_input()
             for x in directions:
                 if(x in keys):
@@ -829,12 +938,12 @@ class BattleEngine():
         BAR_START = 17 #index 17 is where HUD HP bars begin...
 
         # - Key configuration stuff -
-        tank_bullets = self.controls.buttons[0:4] #[pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4]
-        tank_powerups = self.controls.buttons[4:10] #[pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n]
-        directions = self.controls.buttons[10:14] #[pygame.K_w, pygame.K_d, pygame.K_s, pygame.K_a]
-        shoot = self.controls.buttons[14]
-        ESC_KEY = self.controls.buttons[15] #this brings you to the second menu, which lets you continue the match or leave it.
-        CURSOR_MOD = self.controls.buttons[16]
+        tank_bullets = [0,1,2,3] #[pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4]
+        tank_powerups = [4,5,6,7,8,9] #[pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n]
+        directions = [10,11,12,13] #[pygame.K_w, pygame.K_d, pygame.K_s, pygame.K_a]
+        shoot = 14
+        ESC_KEY = 15 #this brings you to the second menu, which lets you continue the match or leave it.
+        CURSOR_MOD = 16
         
         # - Entity/player stuff -
         player_account = account.Account() #your account stats (they get set up properly within battle_client_netcode())
@@ -902,7 +1011,12 @@ class BattleEngine():
             event_pack = controller.get_keys()
             running[0] = not event_pack[0]
             if(event_pack[1] != None): #we requested a window resize?
-                self.screen = pygame.display.set_mode(event_pack[1], self.PYGAME_FLAGS)
+                resize_dimensions = list(event_pack[1])
+                if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                    resize_dimensions[0] = self.min_screen_size[0]
+                if(resize_dimensions[1] < self.min_screen_size[1]):
+                    resize_dimensions[1] = self.min_screen_size[1]
+                self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
             keys = self.controls.get_input()
 
             # - Increment our framecounter -

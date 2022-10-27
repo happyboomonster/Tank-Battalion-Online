@@ -16,7 +16,7 @@
 
 To play the game, simply start the "Tank Battalion Online.py" script!
 Make sure you have the following libraries installed for it to work:
-	Pygame v2.0 or later
+	Pygame v1.9.2 or later
 	Pickle
 	Sys
 	_thread

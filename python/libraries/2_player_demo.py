@@ -123,9 +123,9 @@ p2_mh.default_display_size = [p2_screen.get_width(), p2_screen.get_height()]
 #create our tank object
 tank = entity.Tank(T1U, ["P1","The Good Guys"])
 #increase the tank's RPM
-##tank.RPM = 80.0
-##tank.damage_multiplier = 0.75
-##tank.penetration_multiplier = 1.0
+##tank.RPM = 40.0
+##tank.damage_multiplier = 500.0
+##tank.penetration_multiplier = 0.1
 ##tank.speed = 1.75
 #set its location onscreen
 tank.screen_location = [screen.get_width() / 4, screen.get_height() / 4]
@@ -180,8 +180,8 @@ bullets = []
 p2_tank = entity.Tank(T2U, ["P2","The Enemy Team (in other words The Bad Guys)"])
 #increase the tank's RPM
 ##p2_tank.RPM = 80.0
-##p2_tank.damage_multiplier = 0.75
-##p2_tank.penetration_multiplier = 1.0
+##p2_tank.damage_multiplier = 500.0
+##p2_tank.penetration_multiplier = 0.1
 ##p2_tank.speed = 1.75
 #set the tank's screen location
 p2_tank.screen_location = [screen.get_width() / 4, screen.get_height() / 4]

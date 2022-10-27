@@ -1,4 +1,4 @@
-##"controller.py" library ---VERSION 0.03---
+##"controller.py" library ---VERSION 0.04---
 ## - use this library to easily make a game compatible with both controllers and keyboards!
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -88,7 +88,7 @@ class Controls():
         if(self.kb_ctrl == "kb"): #we're getting input from a keyboard
             for x in range(0,len(self.buttons)): #check if any of our buttons keycodes matches any from keyboard_input
                 if(self.buttons[x] in keyboard_input): #did one of our keycodes match a keyboard press?
-                    buttons_pressed.append(self.buttons[x]) #make sure we add this button to buttons_pressed
+                    buttons_pressed.append(x) #make sure we add this button to buttons_pressed
         elif(self.kb_ctrl == "ctrl"): #we're getting input from a controller
             js_buttons = check_joystick_buttons(self.joystick)
             for x in range(0,len(js_buttons)):

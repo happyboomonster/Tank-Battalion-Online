@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.38---
+##"battle_server.py" library ---VERSION 0.40---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -90,20 +90,63 @@ class BattleEngine():
 
         # - Matchmaker constants -
         self.EXP_WEIGHT = 0.0005 #this defines the overall power of a player (more EXP = more experienced player = more strategic = more dangerous)
-        self.UPGRADE_WEIGHT = 1.25 #this defines the overall power of a player (more upgrades = more powerful tank)
+        self.UPGRADE_WEIGHT = 1.35 #this defines the overall power of a player (more upgrades = more powerful tank)
         self.CASH_WEIGHT = 0.0 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
         self.SHELLS_WEIGHT = [0.025, 0.05, 0.075, 0.15] #this defines the overall power of a player (more powerful shells = more dangerous)
-        self.POWERUP_WEIGHT = 2.5 / 6 #this defines the overall power of a player (more powerups = more dangerous)
+        self.POWERUP_WEIGHT = 4 / 6 #this defines the overall power of a player (more powerups = more dangerous)
         self.SPECIALIZATION_WEIGHT = 1.125 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
-        self.IMBALANCE_LIMIT = 0.30 #the maximum imbalance of rating points a match is allowed to have to be finalized.
+        self.IMBALANCE_LIMIT = 1.00 #the maximum imbalance of rating points a match is allowed to have to be finalized.
         #How many players can be put into a battle? [min, max]
-        self.PLAYER_CT = [1, 50]
-        # - How long should it take before a minimum player match takes place? -
-        self.IMMEDIATE_MATCH = 25 #X/60 minutes = maximum wait time
+        self.PLAYER_CT = [2, 50]
+        #How many teams can a single battle have? -
+        self.TEAM_CT = [2,4]
+        # - How long should it take before a minimum player match attempts to take place?
+        #   - (These matchmaking delays are really just here to reduce server CPU load now that match restrictions are built into the...
+        #   - ...matchmaker)
+        self.IMMEDIATE_MATCH = 15 #X/60 minutes = maximum wait time
+        # - This isn't really the maximum match time, it's the maximum match time during which all matchmaking rules apply.
+        #   - After X number of seconds have passed, the restrictions on matchmaking will begin to slacken to encourage a quick match.
+        self.MAXIMUM_MATCH_TIME = 120 #seconds
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
         self.TIME_SCALING_CONSTANT = self.IMMEDIATE_MATCH * self.PLAYER_CT[0] * 0.7 #how fast should the matchmaker shove players into matches if there are more than minimum players?
         # - This constant defines the minimum player count for an "optimal" match -
-        self.OPTIMAL_MATCH_CT = 16 #X/2 players on each team is really the bare minimum for a *good* battle...
+        self.OPTIMAL_MATCH_CT = 16 #16 players on a maximum of 4 teams is really the bare minimum for a *good* battle...
+        self.OPTIMAL_TEAM_CT = 4 #X players on each team
+
+        # - Matchmaker rules -
+        #   - Usable variables:
+        #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
+        #           - It is used to promote quick(er) matches when there isn't really enough players in the queue.
+        #       - player_counts[] is a list which holds the count of each team's players
+        #       - team_ratings[] is a list which holds the rating of each team
+        #       - max_team_rating is a variable storing the most powerful team rating
+        #       - min_team_rating is a variable storing the least powerful team rating
+        #       - max_team_players is a variable storing the most players on a team
+        #       - min_team_players is a variable storing the least players on a team
+        #       - max_player_rating is a variable storing the most powerful player in the match
+        #       - min_player_rating is a variable storing the least powerful player in the match
+        #       - bot_rating[] is a list: [rating, team index]
+        #       - player_ratings[] is a list of lists: [ [team 0 players: 0.9, 5.5, 6.2], team 1 players: [5.1, 8.9, 9.1]... ]
+        #           - The first player rating is always the weakest player,
+        #           - and the last player rating for each team is always the strongest player.
+        # - Self.rules is a list of strings which the matchmaker has to evaluate to determine whether the match is fair.
+        self.RULES = [ #The rules without urgency implemented in them will remain rigid at all times.
+            "bot_rating[0] < player_ratings[bot_rating[1]][len(player_ratings[bot_rating[1]]) - 1]", #bot player must be weaker than the strongest player on the team
+            "max_team_rating * math.sqrt(urgency) < min_team_rating", #all teams must be within sqrt(urgency%) rating differences
+            "bot_rating[0] >= self.IMBALANCE_LIMIT", #the bot player MUST have at least the rating required to hold a few shells (otherwise useless bot, because bot has no bullets)
+            "min_team_players > max_team_players * 0.75 * urgency", #all teams must have the same amount of players with 0.75*urgency% error.
+            "min_player_rating > max_player_rating * 0.5 * urgency" #all players must be within 0.5*urgency% as powerful as each other.
+            ]
+
+        # - self.PLAYER_RULES is a list of rules which EACH player has to meet to be added to a match -
+        #   - Usable variables:
+        #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
+        #           - It is used to promote quick(er) matches when there isn't really enough players in the queue.
+        #       - first_player is a variable storing the rating of the first player added to the match.
+        #       - player is a list containing this player's data: [rating, [account, socket]]
+        self.PLAYER_RULES = [
+            "player[0] > first_player * urgency and player[0] < first_player * (1/urgency)"
+            ]
 
         # - Map picker constants -
         self.SQUARES_PER_PERSON = 9 #3x3 per person is a decent space I think.
@@ -155,7 +198,12 @@ class BattleEngine():
 
                 # - Create the player's acccount if the player does not have an account already -
                 if(signin == False):
-                    self.accounts.append(account.Account(name, password))
+                    # - First check if the account NAME (not password) already exists. If it DOESN'T, then the new account gets created -
+                    for x in self.accounts: #NOTE: If the account already exists, the server will try to log the player onto it.
+                        if(x.name == name):
+                            signin = True
+                    if(signin == False): #the account hasn't already been created?
+                        self.accounts.append(account.Account(name, password))
 
                 #Next: Get username and password. If they match an account's password and username, we log the user in as that account.
                 for x in range(0,len(self.accounts)):
@@ -286,7 +334,10 @@ class BattleEngine():
                         team = None #clear our team queue variable
                         first_iter = False #make sure that the loop above knows that we are no longer on our first iteration next time the condition above gets checked! (...or first_iter)
                         if(making_matches[x] == True):
-                            team = self.matchmake(self.player_queue[x], odd_allowed=(not self.experience_battles[x]), rating=self.experience_battles[x])
+                            match_urgency = self.MAXIMUM_MATCH_TIME / time.time()
+                            if(match_urgency > 1):
+                                match_urgency = 1
+                            team = self.matchmake(self.player_queue[x], odd_allowed=(not self.experience_battles[x]), rating=self.experience_battles[x], urgency=match_urgency)
                             #did we get a match? Let's send them off to the battlefield, and reset our time counter!
                             matchmaking_time[x] = time.time()
                             making_matches[x] = False #reset making_matches to its original state
@@ -372,7 +423,7 @@ class BattleEngine():
         game_objects = []
         game_objects_lock = _thread.allocate_lock()
         # - Which map are we playing on? -
-        map_name = self.pick_map(players[0])
+        map_name = self.pick_map(players)
         if(map_name == False): #we didn't get a map? (0 players in match)
             return None #exit this battle!
         # - This is for holding all particle effects. This lets people know where gunfights are happening easily because everyone gets to see them -
@@ -389,19 +440,19 @@ class BattleEngine():
         # - Create a GFX manager to reduce netcode load -
         gfx = GFX.GFX_Manager()
         # - Set players in the right position -
-        for teams in range(0,len(players[0])):
-            for player in range(0,len(players[0][teams][0])):
+        for teams in range(0,len(players)):
+            for player in range(0,len(players[teams][0])):
                 if(player == 0): #add the team bookmark to the eliminated[] list.
                     eliminated.append(["Team " + str(teams), False])
-                #print(players[0][teams][0][player])
-                game_objects.append(players[0][teams][0][player][1][0].create_tank("image replacement", "Team " + str(teams)))
+                #print(players[teams][0][player])
+                game_objects.append(players[teams][0][player][1][0].create_tank("image replacement", "Team " + str(teams)))
                 # - Set the position our player should go to -
                 game_objects[len(game_objects) - 1].goto(arena.flag_locations[teams])
         # - Start child threads to handle netcode -
         player_number = 0
-        for teams in range(0,len(players[0])):
-            for player in range(0,len(players[0][teams][0])):
-                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[0][teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, False, teams, gfx))
+        for teams in range(0,len(players)):
+            for player in range(0,len(players[teams][0])):
+                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, False, teams, gfx))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
         _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx))
@@ -414,7 +465,7 @@ class BattleEngine():
         game_objects = []
         game_objects_lock = _thread.allocate_lock()
         # - Which map are we playing on? -
-        map_name = self.pick_map(players[0])
+        map_name = self.pick_map(players)
         if(map_name == False): #we didn't get a map? (0 players in match)
             return None #exit this battle!
         # - This is for holding all particle effects. This lets people know where gunfights are happening easily because everyone gets to see them -
@@ -431,19 +482,19 @@ class BattleEngine():
         # - Create a GFX manager to reduce netcode load -
         gfx = GFX.GFX_Manager()
         # - Set players in the right position -
-        for teams in range(0,len(players[0])):
-            for player in range(0,len(players[0][teams][0])):
+        for teams in range(0,len(players)):
+            for player in range(0,len(players[teams][0])):
                 if(player == 0): #add the team bookmark to the eliminated[] list.
                     eliminated.append(["Team " + str(teams), False])
-                #print(players[0][teams][0][player])
-                game_objects.append(players[0][teams][0][player][1][0].create_tank("image replacement", "Team " + str(teams)))
+                #print(players[teams][0][player])
+                game_objects.append(players[teams][0][player][1][0].create_tank("image replacement", "Team " + str(teams)))
                 # - Set the position our player should go to -
                 game_objects[len(game_objects) - 1].goto(arena.flag_locations[teams])
         # - Start child threads to handle netcode -
         player_number = 0
-        for teams in range(0,len(players[0])):
-            for player in range(0,len(players[0][teams][0])): #the True at the end is to let all threads know that this battle is for more stakes then just cash!
-                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[0][teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, True, teams, gfx))
+        for teams in range(0,len(players)):
+            for player in range(0,len(players[teams][0])): #the True at the end is to let all threads know that this battle is for more stakes then just cash!
+                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, True, teams, gfx))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
         _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx))
@@ -948,71 +999,257 @@ class BattleEngine():
         else:
             return None
 
-    #player_queue is a list: [ [account, client socket], [account, client socket] ... ] ***Player_queue MUST be locked while matchmaking to avoid index errors***
-    def matchmake(self, player_queue, odd_allowed=False, rating=False): #creates a match from the player queue
-        potential_match = self.return_team_ratings(player_queue, odd_allowed, rating) #check: Is this match going to be too unbalanced?
-        bot_added = False #this flag is needed so that we can delete the bot if one is created and matchmaking fails
-        if(potential_match != None): #we have a match?
-            if(potential_match >= self.IMBALANCE_LIMIT and len(player_queue) < self.PLAYER_CT[1]): #this match is too imbalanced? And there's room for another player? (or bot)
-                # Typically, no match would be made. However, I can add a bot to the game...!
-                #We add a bot to the queue which should be powerful enough to make up for its stupidity...ROFL (not happening at the moment due to bugs)
-                player_queue.append([self.create_account(potential_match),"bot"])
-                bot_added = True
-            # - Now, the matchmaker can continue at this point
-        else: #we can't make a match out of our current queue of players. Not enough in queue perhaps? =(
+    #***Player_queue MUST be locked while matchmaking to avoid index errors***
+    #player_queue is a list: [ [account, client socket], [account, client socket] ... ]
+    def matchmake(self, player_queue, odd_allowed=False, rating=False, urgency=1.0): #creates a match from the player queue
+        # - self.PLAYER_RULES is a list of rules which EACH player has to meet to be added to a match -
+        #   - Usable variables:
+        #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
+        #           - It is used to promote quick(er) matches when there isn't really enough players in the queue.
+        #           - It is defined above as a parameter of matchmake().
+        #       - players is a list of all players on the team, in the format [rating, [account, socket]]
+        #       - player is a list containing this player's data: [rating, [account, socket]]
+
+        # - How matches are made -
+        # 1) Sort players according to strength. Strongest are first, weakest are last.
+        # 2) Create a certain amount of teams (between 2 and 4) based on the number of players which could be added to the match.
+        # 3) Add players to the teams as evenly as possible, starting with the strongest player and ending with the weakest player
+
+        # - Start by seeing if there's enough players for a match! -
+        match = []
+        # - We always start by adding the first player in the queue to the match, and then seeing how many other players we can add after him -
+        if(len(player_queue) > 0): #there HAS to be players in the queue for this to work...
+            player_ct = 1
+            #   - Usable variables for individual player rules:
+            #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
+            #           - It is used to promote quick(er) matches when there isn't really enough players in the queue.
+            #       - first_player is a variable storing the rating of the first player added to the match.
+            first_player = self.return_rating(player_queue[0][0], rating)
+            #       - player is a list containing this player's data: [rating, [account, socket]]
+            #           - This will have to be defined within the loop which checks rules.
+            for x in range(1,len(player_queue)): #now we check if anyone else can join the match
+                add = True
+                # - player is a list containing this player's data: [rating, [account, socket]] -
+                player = [self.return_rating(player_queue[x][0],rating),player_queue[x]]
+                for rule in self.PLAYER_RULES:
+                    if(eval(rule)):
+                        pass
+                    else:
+                        add = False
+                    if(not add):
+                        break
+                if(add):
+                    player_ct += 1
+            # - Was there enough players for a match? -
+            if(player_ct >= self.PLAYER_CT[0]):
+                # - How many teams should we create? -
+                team_ct = player_ct / self.OPTIMAL_TEAM_CT
+                if(team_ct < self.TEAM_CT[0]): #not enough teams for a battle to start???
+                    team_ct = self.TEAM_CT[0] #just head for the bare minimum amount of teams
+                # - Start adding players to a new match! -
+                match = []
+                for x in range(0,team_ct): #prepare a match list with space for teams
+                    match.append([[], 0.0])
+                # - Add the first player in the queue to our match -
+                match[0][0].append([self.return_rating(player_queue[0][0], rating),player_queue[0]])
+                match[0][1] += self.return_rating(player_queue[0][0], rating)
+                # - Start adding other players into the match by seeing which team has the least rating, and adding the player there -
+                #   - Usable variables for individual player rules:
+                #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
+                #           - It is used to promote quick(er) matches when there isn't really enough players in the queue.
+                #       - first_player is a variable storing the rating of the first player added to the match.
+                #       - player is a list containing this player's data: [rating, [account, socket]]
+                #           - It usually has to be defined within the player evaluation loop because it needs to be changed for each player.
+                for x in range(1,len(player_queue)): #we don't need to re-add the first player to the queue, which is why I start at 1.
+                    add = True #do we add this player or not??
+                    # - player is a list containing this player's data: [rating, [account, socket]] -
+                    player = [self.return_rating(player_queue[x][0],rating),player_queue[x]]
+                    for rule in self.PLAYER_RULES:
+                        if(eval(rule)):
+                            pass
+                        else:
+                            add = False
+                        if(not add):
+                            break
+                    if(add): #we're adding this player to the match!
+                        # - Now we need to check: Which team do we add this player to?? -
+                        #   - This is done by checking which team is the weakest by rating, and adding the player to that team.
+                        least_powerful_team = 0
+                        least_powerful_team_rating = match[0][1] #set this to the rating of the first team for now
+                        for team in range(0,len(match)):
+                            if(match[team][1] < least_powerful_team_rating): #we found a less powerful team?
+                                least_powerful_team_rating = match[team][1] #make sure we remember this team.
+                                least_powerful_team = team
+                        match[least_powerful_team][0].append([self.return_rating(player_queue[x][0],rating), player_queue[x]])
+                        match[least_powerful_team][1] += self.return_rating(player_queue[x][0],rating)
+            else: #match failed.
+                match = None
+        else: #match failed.
+            match = None
+
+        #Player Format: [[rating, [account, socket]], [rating, [account, socket]]...]
+        #Teams format: [[[[rating, [account, socket]], [rating, [account, socket]]...], rating], [players, rating]...]
+
+        # - Now we take the match we created, and we check if it is valid, starting by defining what the matchmaking variables will be -
+        #   - Matchmaker variables:
+        #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
+        #           - It is used to promote quick(er) matches when there isn't really enough players in the queue.
+        #           - This variable is defined as a parameter of this function.
+        #       - player_counts[] is a list which holds the count of each team's players
+        if(match != None): #we actually got a match?
+            player_counts = []
+            for teams in match:
+                count = 0
+                for players in teams[0]:
+                    count += 1
+                player_counts.append(count)
+            #       - team_ratings[] is a list which holds the rating of each team
+            team_ratings = []
+            for teams in match:
+                team_ratings.append(teams[1])
+            #       - max_team_rating is a variable storing the most powerful team rating
+            max_team_rating = 0
+            for most_powerful in team_ratings:
+                if(most_powerful > max_team_rating):
+                    max_team_rating = most_powerful
+            #       - min_team_rating is a variable storing the least powerful team rating
+            min_team_rating = team_ratings[0]
+            for least_powerful in team_ratings:
+                if(least_powerful < min_team_rating):
+                    min_team_rating = least_powerful
+            #       - max_team_players is a variable storing the most players on a team
+            max_team_players = 0
+            for most_players in player_counts:
+                if(most_players > max_team_players):
+                    max_team_players = most_players
+            #       - min_team_players is a variable storing the least players on a team
+            min_team_players = 0
+            for least_players in player_counts:
+                if(least_players < min_team_players):
+                    min_team_players = least_players
+            #       - max_player_rating is a variable storing the most powerful player in the match
+            max_player_rating = 0
+            for teams in match:
+                for player in teams[0]:
+                    if(player[0] > max_player_rating):
+                        max_player_rating = player[0]
+            #       - min_player_rating is a variable storing the least powerful player in the match
+            min_player_rating = 0
+            for teams in match:
+                for player in teams[0]:
+                    if(player[0] < min_player_rating):
+                        min_player_rating = player[0]
+            #       - bot_rating[] is a list: [rating, team index]
+            bot_rating = [0.01, 0] # - Find the bot! There can only be one, and its name is always "bot", and password is "pwd"
+            team_index = 0
+            found = False
+            for teams in match:
+                for player in teams[0]:
+                    if(player[1][0].name == "bot" and player[1][0].password == "pwd"):
+                        bot_rating[0] = player[0]
+                        bot_rating[1] = team_index
+                        found = True
+                        break
+                if(found):
+                    break
+                team_index += 1
+            #       - player_ratings[] is a list of lists: [ [team 0 players: 0.9, 5.5, 6.2], team 1 players: [5.1, 8.9, 9.1]... ]
+            #           - The first player rating is always the strongest player,
+            #           - and the last player rating for each team is always the weakest player.
+            player_ratings = []
+            for teams in match:
+                player_ratings.append([])
+                for player in teams[0]:
+                    player_ratings[len(player_ratings) - 1].append(player[0])
+            # - Now we evaluate our rules, and if all of them return True, we can continue the match! -
+            match_allowed = True
+            for x in self.RULES:
+                if(eval(x)): #the rule worked?
+                    pass
+                else: #uhoh, our match won't work!
+                    match_allowed = False
+                    break
+        else: #if we didn't even get a match to evaluate, the match DEFINITELY failed.
+            match_allowed = False
+        # - Did the match succeed? -
+        if(match_allowed):
+            # - Delete all the players in the match out of the player_queue[] before the match starts -
+            for team in match:
+                for player in team[0]:
+                    # - Now we compare this player to every player in player_queue[] and delete his player_queue[] instance of himself -
+                    for queue_instance in range(0,len(player_queue)):
+                        if(player_queue[queue_instance][0].name == player[1][0].name and player_queue[queue_instance][0].password == player[1][0].password):
+                            del(player_queue[queue_instance]) #get rid of the player_queue[] instance of the player
+                            break #exit this loop to prevent index errors
+            # - Now we can return the match to the matchmaker, which will start the server code for the battle -
+            return match
+        else: #...no =(
             return None
-        if(len(player_queue) >= self.PLAYER_CT[0]): #we have enough players in queue to start a game?
-            if(len(player_queue) >= self.PLAYER_CT[1]): #we have too many players in queue for one game?
-                #Create a match with the maximum amount of players allowed in one battle!
-                match_players = []
-                for x in range(0,self.PLAYER_CT[1]):
-                    match_players.append(player_queue.pop(0))
-            else: #create a match with an even/odd number of players
-                if(odd_allowed):
-                    match_player_ct = len(player_queue)
-                else:
-                    match_player_ct = (int(len(player_queue) / 2.0) * 2)
-                match_players = []
-                for x in range(0,match_player_ct):
-                    match_players.append(player_queue.pop(0)) #this line is important: It takes players OUT of queue into battle.
-            # - Now we need to balance the "match_players" into two teams -
-            #"match_players_stats" holds numbers: the higher the number, the better the player is predicted to perform.
-            match_players_stats = [] #Holds what I will refer to as "numerical rating" or "predicted performance" numbers
-            for x in range(0,len(match_players)): #find the numerical rating of each player in this match
-                match_players_stats.append([self.return_rating(match_players[x][0],rating), match_players[x]])
-            # - Now that we have attempted to predict how powerful a player will be, we need to arrange teams -
-            teams = [[[], 0], [[], 0]] #this could be changed in the future to allow 3 or 4 teams...
-            while len(match_players_stats) > 0:
-                # - find the most powerful player -
-                power = [0, 0]
-                for x in range(0,len(match_players_stats)):
-                    if(match_players_stats[x][0] > power[0]): #this player is more powerful than any others we have checked?
-                        power = [match_players_stats[x][0], x]
-                powerful_player = match_players_stats[power[1]]
-                #print("Match_players_stats index: " + str(powerful_player[1]) + " match_players_stats len: " + str(len(match_players_stats)))
-                #print("Match_players index: " + str(match_players_stats[powerful_player[1] - sub][1]) + " match_players len: " + str(len(match_players_stats)))
-                powerful_player_full = [powerful_player[0], powerful_player[1]]
-                del(match_players_stats[power[1]])
-                # - Now which team should he go on? Which one is behind in matchmaking points? -
-                if(teams[0][1] > teams[1][1]): #then the player goes on team 1.
-                    teams[1][0].append(powerful_player_full)
-                    teams[1][1] += powerful_player[0] #add the player's numerical rating to the team's overall rating
-                else: #the player goes on team 0.
-                    teams[0][0].append(powerful_player_full)
-                    teams[0][1] += powerful_player[0] #add the player's numerical rating to the team's overall rating
-                #for debugging purposes, and people's pride...how good are you rated by my matchmaker?
-                #print("Most powerful (best to worst): " + str(power))
-            #print out the team ratings
-            #print("Team 0: " + str(teams[0][1]) + " Team 1: " + str(teams[1][1]))
-            #print("Power difference (- = team 1, + = team 0): " + str(teams[0][1] - teams[1][1]))
-            # - Return our final matchmaking output -
-            #Player Format: [[rating, [account, socket]], [rating, [account, socket]]...]
-            #Teams format: [[players, rating], [players, rating]...]
-            return [teams, teams[0][1] - teams[1][1]] #return the matchmaking result (includes player accounts, socket connections), and imbalances.
-        else: #no match could be made... :(
-            if(bot_added): #remove the bot from the player queue
-                del(player_queue[len(player_queue) - 1]) #the bot is always the last player in the queue.
-            return None
+
+## - Old matchmaker code -
+##        potential_match = self.return_team_ratings(player_queue, odd_allowed, rating) #check: Is this match going to be too unbalanced?
+##        bot_added = False #this flag is needed so that we can delete the bot if one is created and matchmaking fails
+##        if(potential_match != None): #we have a match?
+##            if(potential_match >= self.IMBALANCE_LIMIT and len(player_queue) < self.PLAYER_CT[1]): #this match is too imbalanced? And there's room for another player? (or bot)
+##                # Typically, no match would be made. However, I can add a bot to the game...!
+##                #We add a bot to the queue which should be powerful enough to make up for its stupidity...ROFL (not happening at the moment due to bugs)
+##                player_queue.append([self.create_account(potential_match),"bot"])
+##                bot_added = True
+##            # - Now, the matchmaker can continue at this point
+##        else: #we can't make a match out of our current queue of players. Not enough in queue perhaps? =(
+##            return None
+##        if(len(player_queue) >= self.PLAYER_CT[0]): #we have enough players in queue to start a game?
+##            if(len(player_queue) >= self.PLAYER_CT[1]): #we have too many players in queue for one game?
+##                #Create a match with the maximum amount of players allowed in one battle!
+##                match_players = []
+##                for x in range(0,self.PLAYER_CT[1]):
+##                    match_players.append(player_queue.pop(0))
+##            else: #create a match with an even/odd number of players
+##                if(odd_allowed):
+##                    match_player_ct = len(player_queue)
+##                else:
+##                    match_player_ct = (int(len(player_queue) / 2.0) * 2)
+##                match_players = []
+##                for x in range(0,match_player_ct):
+##                    match_players.append(player_queue.pop(0)) #this line is important: It takes players OUT of queue into battle.
+##            # - Now we need to balance the "match_players" into two teams -
+##            #"match_players_stats" holds numbers: the higher the number, the better the player is predicted to perform.
+##            match_players_stats = [] #Holds what I will refer to as "numerical rating" or "predicted performance" numbers
+##            for x in range(0,len(match_players)): #find the numerical rating of each player in this match
+##                match_players_stats.append([self.return_rating(match_players[x][0],rating), match_players[x]])
+##            # - Now that we have attempted to predict how powerful a player will be, we need to arrange teams -
+##            teams = [[[], 0], [[], 0]] #this could be changed in the future to allow 3 or 4 teams...
+##            while len(match_players_stats) > 0:
+##                # - find the most powerful player -
+##                power = [0, 0]
+##                for x in range(0,len(match_players_stats)):
+##                    if(match_players_stats[x][0] > power[0]): #this player is more powerful than any others we have checked?
+##                        power = [match_players_stats[x][0], x]
+##                powerful_player = match_players_stats[power[1]]
+##                #print("Match_players_stats index: " + str(powerful_player[1]) + " match_players_stats len: " + str(len(match_players_stats)))
+##                #print("Match_players index: " + str(match_players_stats[powerful_player[1] - sub][1]) + " match_players len: " + str(len(match_players_stats)))
+##                powerful_player_full = [powerful_player[0], powerful_player[1]]
+##                del(match_players_stats[power[1]])
+##                # - Now which team should he go on? Which one is behind in matchmaking points? -
+##                if(teams[0][1] > teams[1][1]): #then the player goes on team 1.
+##                    teams[1][0].append(powerful_player_full)
+##                    teams[1][1] += powerful_player[0] #add the player's numerical rating to the team's overall rating
+##                else: #the player goes on team 0.
+##                    teams[0][0].append(powerful_player_full)
+##                    teams[0][1] += powerful_player[0] #add the player's numerical rating to the team's overall rating
+##                #for debugging purposes, and people's pride...how good are you rated by my matchmaker?
+##                #print("Most powerful (best to worst): " + str(power))
+##            #print out the team ratings
+##            #print("Team 0: " + str(teams[0][1]) + " Team 1: " + str(teams[1][1]))
+##            #print("Power difference (- = team 1, + = team 0): " + str(teams[0][1] - teams[1][1]))
+##            # - Return our final matchmaking output -
+##            #Player Format: [[rating, [account, socket]], [rating, [account, socket]]...]
+##            #Teams format: [[players, rating], [players, rating]...]
+##            return [teams, teams[0][1] - teams[1][1]] #return the matchmaking result (includes player accounts, socket connections), and imbalances.
+##        else: #no match could be made... :(
+##            if(bot_added): #remove the bot from the player queue
+##                del(player_queue[len(player_queue) - 1]) #the bot is always the last player in the queue.
+##            return None
 
     def anti_cheat(self): #checks old_data list and can see if any players are cheating based on that.
         # - AC needs to check 2 things: -
