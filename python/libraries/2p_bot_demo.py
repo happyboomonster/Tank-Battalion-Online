@@ -121,7 +121,7 @@ bricks = [
     ]
 
 # - Import an external map -
-arena_data = import_arena.return_arena("t2_Arena01")
+arena_data = import_arena.return_arena("t2_Arena02")
 my_map = arena_data[0]
 my_tiles = arena_data[1]
 my_shuffle = arena_data[2]

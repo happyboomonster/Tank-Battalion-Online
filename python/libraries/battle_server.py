@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.40---
+##"battle_server.py" library ---VERSION 0.41---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -24,6 +24,7 @@ import time
 import pickle
 import pygame
 import sys
+import math
 #set up external directories
 sys.path.insert(0, "../maps")
 #My own proprietary librares:
@@ -103,10 +104,10 @@ class BattleEngine():
         # - How long should it take before a minimum player match attempts to take place?
         #   - (These matchmaking delays are really just here to reduce server CPU load now that match restrictions are built into the...
         #   - ...matchmaker)
-        self.IMMEDIATE_MATCH = 15 #X/60 minutes = maximum wait time
+        self.IMMEDIATE_MATCH = 20 #X/60 minutes = maximum wait time
         # - This isn't really the maximum match time, it's the maximum match time during which all matchmaking rules apply.
         #   - After X number of seconds have passed, the restrictions on matchmaking will begin to slacken to encourage a quick match.
-        self.MAXIMUM_MATCH_TIME = 120 #seconds
+        self.MAXIMUM_MATCH_TIME = 40 #seconds
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
         self.TIME_SCALING_CONSTANT = self.IMMEDIATE_MATCH * self.PLAYER_CT[0] * 0.7 #how fast should the matchmaker shove players into matches if there are more than minimum players?
         # - This constant defines the minimum player count for an "optimal" match -
@@ -134,8 +135,8 @@ class BattleEngine():
             "bot_rating[0] < player_ratings[bot_rating[1]][len(player_ratings[bot_rating[1]]) - 1]", #bot player must be weaker than the strongest player on the team
             "max_team_rating * math.sqrt(urgency) < min_team_rating", #all teams must be within sqrt(urgency%) rating differences
             "bot_rating[0] >= self.IMBALANCE_LIMIT", #the bot player MUST have at least the rating required to hold a few shells (otherwise useless bot, because bot has no bullets)
-            "min_team_players > max_team_players * 0.75 * urgency", #all teams must have the same amount of players with 0.75*urgency% error.
-            "min_player_rating > max_player_rating * 0.5 * urgency" #all players must be within 0.5*urgency% as powerful as each other.
+            "min_team_players > max_team_players * urgency", #all teams must have the same amount of players with urgency% error.
+            "min_player_rating > max_player_rating * urgency" #all players must be within urgency% as powerful as each other.
             ]
 
         # - self.PLAYER_RULES is a list of rules which EACH player has to meet to be added to a match -
@@ -1134,13 +1135,13 @@ class BattleEngine():
                     if(player[0] > max_player_rating):
                         max_player_rating = player[0]
             #       - min_player_rating is a variable storing the least powerful player in the match
-            min_player_rating = 0
+            min_player_rating = pow(10,10) #set this to a rating so high nobody could reasonably achieve it
             for teams in match:
                 for player in teams[0]:
                     if(player[0] < min_player_rating):
                         min_player_rating = player[0]
             #       - bot_rating[] is a list: [rating, team index]
-            bot_rating = [0.01, 0] # - Find the bot! There can only be one, and its name is always "bot", and password is "pwd"
+            bot_rating = [0.001, 0] # - Find the bot! There can only be one, and its name is always "bot", and password is "pwd"
             team_index = 0
             found = False
             for teams in match:
@@ -1153,6 +1154,8 @@ class BattleEngine():
                 if(found):
                     break
                 team_index += 1
+            if(not found): #We don't have a bot in the game?
+                bot_rating[0] = self.IMBALANCE_LIMIT #just ensure that the bot rating will pass the requirements
             #       - player_ratings[] is a list of lists: [ [team 0 players: 0.9, 5.5, 6.2], team 1 players: [5.1, 8.9, 9.1]... ]
             #           - The first player rating is always the strongest player,
             #           - and the last player rating for each team is always the weakest player.
@@ -1167,6 +1170,7 @@ class BattleEngine():
                 if(eval(x)): #the rule worked?
                     pass
                 else: #uhoh, our match won't work!
+                    #print("[MATCH] Match failed on rule: " + str(x)) #good debug info on why matches won't start
                     match_allowed = False
                     break
         else: #if we didn't even get a match to evaluate, the match DEFINITELY failed.

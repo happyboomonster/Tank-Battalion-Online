@@ -40,7 +40,7 @@ class BattleEngine():
         self.min_screen_size = [75,75]
 
         # - Needed to check whether we are still connected to the server -
-        self.lobby_connected = True
+        self.lobby_connected = 0
 
         # - Default key configuration settings -
         self.controls = controller.Controls(4 + 6 + 4 + 1 + 1 + 1,"kb") #4: shells - 6: powerups - 4: movement - 1: shoot  - 1: ESC key - 1: Crosshair modifier
@@ -273,7 +273,10 @@ class BattleEngine():
             with self.response_lock: #recieve data
                 self.response = netcode.recieve_data(self.Cs, self.buffersize) #did the server manage whatever we asked?
 
-            self.lobby_connected = self.response[3] #make sure the other thread knows whether we're still connected
+            if(self.response[3]): #make sure the other thread knows whether we're still connected
+                self.lobby_connected = 0
+            else:
+                self.lobby_connected += 1
 
             for x in range(0,len(self.response[2])):
                 print(self.response[2][x])
@@ -312,7 +315,7 @@ class BattleEngine():
                 if(netcode.data_verify(self.response, self.MATCH_PACKET)):
                     self.request_pending = True #just toss us into whatever queue we were supposed to enter...
 
-            if(not self.lobby_connected):
+            if(self.lobby_connected > 4): #5 lost packets in a row?
                 break #exit if we're not connected to the server
 
         self.Cs.close() #close our socket connection and delete it so the server will save our data
@@ -642,7 +645,7 @@ class BattleEngine():
                 except Exception as e:
                     print("An exception occurred during lobby_frontend: " + str(e) + " - Nonfatal") #print the exception that occurred (most likely a IndexError)
 
-            if(not self.lobby_connected):
+            if(self.lobby_connected > 4): #5 lost packets in a row?
                 break #exit if we're not connected to the server
 
             #get da FPS
@@ -650,7 +653,7 @@ class BattleEngine():
             fps = clock.get_fps()
             pygame.display.set_caption("Tank Battalion Online Lobby - FPS: " + str(int(fps)))
 
-        if(not self.lobby_connected): #Did we disconnect/get kicked from the server?
+        if(self.lobby_connected > 4): #Did we disconnect/get kicked from the server?
             # - Reconfigure lobby_menu -
             lobby_menu = menu.Menuhandler()
             lobby_menu.create_menu(["Exit"],[["",""]],[],[],"Disconnected")
