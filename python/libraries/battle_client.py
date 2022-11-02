@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.43---
+##"battle_client.py" library ---VERSION 0.44---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -947,6 +947,9 @@ class BattleEngine():
         shoot = 14
         ESC_KEY = 15 #this brings you to the second menu, which lets you continue the match or leave it.
         CURSOR_MOD = 16
+
+        tank_bullets_pygame_keys = self.controls.buttons[0:4] #[pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4]
+        tank_powerups_pygame_keys = self.controls.buttons[4:10] #[pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n]
         
         # - Entity/player stuff -
         player_account = account.Account() #your account stats (they get set up properly within battle_client_netcode())
@@ -1093,7 +1096,7 @@ class BattleEngine():
                 else: #powerup is ready?
                     key_to_press = None  #check to see if we can display the key to use the powerup...
                     for key in range(0,len(menu.keys)):
-                        if(tank_powerups[x - 3] == menu.keys[key][0]):
+                        if(tank_powerups_pygame_keys[x - 3] == menu.keys[key][0]):
                             key_to_press = menu.keys[key][1]
                             break
                     if(key_to_press == None):
@@ -1116,7 +1119,7 @@ class BattleEngine():
                 #the tank has a shell ready, or we're not loading this type of shell?
                 key_to_press = None  #check to see if we can display the key to use the shell...
                 for key in range(0,len(menu.keys)):
-                    if(tank_bullets[x - 9] == menu.keys[key][0]):
+                    if(tank_bullets_pygame_keys[x - 9] == menu.keys[key][0]):
                         key_to_press = menu.keys[key][1]
                         break
                 if(key_to_press != None):

@@ -1124,7 +1124,7 @@ class BattleEngine():
                 if(most_players > max_team_players):
                     max_team_players = most_players
             #       - min_team_players is a variable storing the least players on a team
-            min_team_players = 0
+            min_team_players = (self.PLAYER_CT[1] * 2)
             for least_players in player_counts:
                 if(least_players < min_team_players):
                     min_team_players = least_players
@@ -1170,7 +1170,7 @@ class BattleEngine():
                 if(eval(x)): #the rule worked?
                     pass
                 else: #uhoh, our match won't work!
-                    #print("[MATCH] Match failed on rule: " + str(x)) #good debug info on why matches won't start
+                    print("[MATCH] Match failed on rule: " + str(x)) #good debug info on why matches won't start
                     match_allowed = False
                     break
         else: #if we didn't even get a match to evaluate, the match DEFINITELY failed.
