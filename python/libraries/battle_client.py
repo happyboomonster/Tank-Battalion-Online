@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.44---
+##"battle_client.py" library ---VERSION 0.46---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -45,6 +45,10 @@ class BattleEngine():
         # - Default key configuration settings -
         self.controls = controller.Controls(4 + 6 + 4 + 1 + 1 + 1,"kb") #4: shells - 6: powerups - 4: movement - 1: shoot  - 1: ESC key - 1: Crosshair modifier
         self.controls.buttons = [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n, pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d, pygame.K_e, pygame.K_ESCAPE, pygame.K_SPACE]
+
+        # - Create a backup controller object in case we mess up our default controller (and it's in JS mode) -
+        self.controls_backup = controller.Controls(4 + 6 + 4 + 1 + 1 + 1,"kb") #4: shells - 6: powerups - 4: movement - 1: shoot  - 1: ESC key - 1: Crosshair modifier
+        self.controls_backup.buttons = [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n, pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d, pygame.K_e, pygame.K_ESCAPE, pygame.K_SPACE]
 
         # - Packet formats (what we recieve from the server) -
         self.LOBBY_PACKETS = [["<class 'bool'>", "<class 'list'>", "<class 'list'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'list'>"], ["<class 'bool'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'bool'>", "<class 'str'>", "<class 'list'>", "<class 'NoneType'>"]]
@@ -333,7 +337,7 @@ class BattleEngine():
         lobby_menu.create_menu(["^ Available","Improved Fuel +35% Speed","Fire Extinguisher -10% Speed","Dangerous Loading +50% RPM -10% HP","Explosive Tip +25% DMG. -5% RPM -5% PN.",
                                 "Amped Gun +25% PN. -10% HP","Extra Armor +50% Armor -50% Speed","Back"],[["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""]],[[7,1]],[],"Tank Battalion Online Store - Powerups")
         lobby_menu.create_menu(["Back","Battle Type","Battle"],[["",""],["Unrated Battle","Experience Battle"],["",""]],[[0,0]],[],"Tank Battalion Online Battle Menu") #this line will need to be changed based on what battle modes are available.
-        lobby_menu.create_menu(["Back","Key config","Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier","GFX Quality"],[["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],[1,30]],[[0,0]],[],"Tank Battalion Online Settings")
+        lobby_menu.create_menu(["Back","Key config","Deadzone","KB/JS","Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier","GFX Quality"],[["",""],["",""],[1,9],["Keyboard","Joystick"],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],[1,30]],[[0,0]],[],"Tank Battalion Online Settings")
 
         # - Define what action clicking a specific button will perform -
         purchase_mode = "buy"
@@ -345,14 +349,14 @@ class BattleEngine():
             [[None],[None],["buy","specialize",1],["buy","specialize",-1],[None]],
             [[None],["buy","powerup",0],["buy","powerup",1],["buy","powerup",2],["buy","powerup",3],["buy","powerup",4],["buy","powerup",5],[None]],
             [[None],[None],["battle","Battle Type"]],
-            [[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None]],
+            [[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None]],
             ]
 
         # - Create a special second menu with a menu depth of 1 (no sub menus) for special stuff like end-game results -
         special_menu = menu.Menuhandler()
 
         # - Last index of key configuration stuff -
-        last_keyconfig = 18
+        last_keyconfig = 20
 
         # - Brief desctiption of what every button does in the game -
         damage_numbers = entity.Bullet(None, "", 0, 0, [1,1,1,1,1], None)
@@ -368,7 +372,7 @@ class BattleEngine():
             ["EXP can be earned by playing rating battles.","This is the current state of your tank   -","Make your tank faster, shoot with more RPM and penetration but with less damage.","Make your tank slower, decrease RPM and penetration, but increase damage significantly.",""],
             ["^ can be earned in battles or purchased.","","","","","","This powerup acts a little strangely - If you have armor left, that armor gets increased by 50% temporarily. If you have no armor left, you will recieve no benefit from using this powerup, because 0 armor times 1.5 equals 0 armor.",""],
             ["Back to the lobby menu   -","Change the type of battle you want to enter   -","Enter the battle queue   -"],
-            ["","","","","","","","","","","","","","","","","","","","Graphical Effects Quality"]
+            ["","","","Are you going to play on a joystick or a keyboard","","","","","","","","","","","","","","","","","","Graphical Effects Quality"]
             ]
 
         # - Create an HUD to display the descriptions of menu items -
@@ -460,13 +464,29 @@ class BattleEngine():
 
                 # - Update our key configuration menu -
                 if(lobby_menu.current_menu == 7):
-                    for x in range(0,len(self.controls.buttons)):
-                        opt_str = "."
-                        for b in range(0,len(menu.keys)):
-                            if(menu.keys[b][0] == self.controls.buttons[x]):
-                                opt_str = menu.keys[b][1]
-                                break
-                        lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,key_configuration_names[x])
+                    # - Get the deadzone value for when we're playing with a joystick -
+                    controller.DEADZONE = int(lobby_menu.grab_settings(["Deadzone"])[0][0]) / 10
+                    # - Find out whether we're planning on using a keyboard or joystick -
+                    keyboard_joystick = lobby_menu.grab_settings(["KB/JS"])[0][0] #get the string format
+                    if(keyboard_joystick == "Joystick"):
+                        success = self.controls.joystick_request(js_num=0) #we ALWAYS use JS 0 for this game since it is only 1-player
+                        if(not success): #if we can't switch to joystick, make sure it doesn't let us.
+                            lobby_menu.reconfigure_setting(["Keyboard","Joystick"],"Keyboard",0,"KB/JS")
+                    else:
+                        self.controls.kb_ctrl = "kb"
+                    # - Update what the menu shows we have configured our keys as -
+                    if(self.controls.kb_ctrl == "kb"): #this works for keyboards only
+                        for x in range(0,len(self.controls.buttons)):
+                            opt_str = "."
+                            for b in range(0,len(menu.keys)):
+                                if(menu.keys[b][0] == self.controls.buttons[x]):
+                                    opt_str = menu.keys[b][1]
+                                    break
+                            lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,key_configuration_names[x])
+                    else: #this works for joysticks only
+                        for x in range(0,len(self.controls.buttons)):
+                            opt_str = "Button " + str(self.controls.buttons[x])
+                            lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,key_configuration_names[x])
                     GFX.gfx_quality = int(lobby_menu.grab_settings(["GFX Quality"])[0][0]) / 20
                     self.WORDS_QTY = int(int(lobby_menu.grab_settings(["GFX Quality"])[0][0]) / 2)
                     
@@ -534,6 +554,12 @@ class BattleEngine():
                     resize_dimensions[1] = self.min_screen_size[1]
                 self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
             keys = self.controls.get_input()
+            # - Check if we need to engage our backup controller -
+            if(self.controls.kb_ctrl == "ctrl"): #we're using a joystick? We may need to help out the player a bit so that he can still use the lobby while configuring his controller.
+                backup_keys = self.controls_backup.get_input()
+                for x in backup_keys:
+                    keys.append(x)
+            # - Move the cursor based on the keys we've pressed -
             for x in directions:
                 if(x in keys):
                     cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * lobby_menu.menu_scale
@@ -542,7 +568,7 @@ class BattleEngine():
             if(shoot in keys and time.time() - debounce > 0.2): #shoot?
                 debounce = time.time()
                 if(self.special_window == None):
-                    clicked_button = lobby_menu.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height()],cursorpos)
+                    clicked_button = lobby_menu.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height() - font.SIZE * 3 * lobby_menu.menu_scale],cursorpos)
                     if(clicked_button[0][0] != None):
                         with self.request_lock:
                             self.request = button_actions[clicked_button[1]][clicked_button[0][0]]
@@ -550,22 +576,29 @@ class BattleEngine():
                             if(self.request != [None]):
                                 self.request_pending = time.time()
                         # - Check if the button we pressed was in menu # 7 (key config) -
-                        if(lobby_menu.current_menu == 7 and clicked_button[1] == 7 and clicked_button[0][0] - 2 >= 0 and clicked_button[0][0] <= last_keyconfig): #we didn't change into this menu?? We were already here when we clicked?
+                        if(lobby_menu.current_menu == 7 and clicked_button[1] == 7 and clicked_button[0][0] - 4 >= 0 and clicked_button[0][0] <= last_keyconfig): #we didn't change into this menu?? We were already here when we clicked?
                             config = True
+                            pygame.time.delay(250) #delay 250ms to ensure that we don't configure our shoot button as whatever this button is going to be
+                            controller.get_keys() #empty the event queue
                             controller.empty_keys() #empty the key list
                             while config: #wait until the client configures the key
-                                controller.get_keys()
-                                config = not self.controls.configure_key(clicked_button[0][0] - 2) #did we get a successful configuration?
+                                config = not controller.get_keys()[0]
+                                if(config):
+                                    config = not self.controls.configure_key(clicked_button[0][0] - 4) #did we get a successful configuration?
                                 # - Draw the "press a key to configure the button" words onscreen
                                 self.screen.fill([0,0,0])
-                                font.draw_words("Press a key to set it as the button you chose", [(self.screen.get_width() / 2 - len("Press a key to set it as the button you chose") * 5),10], [0,0,255], 1.0, self.screen)
+                                word_scale = (self.screen.get_width() / (len("Press a key to set it as the button you chose") * font.SIZE))
+                                font.draw_words("Press a key to set it as the button you chose", [(self.screen.get_width() / 2 - len("Press a key to set it as the button you chose") * font.SIZE * word_scale * 0.5),10], [0,0,255], word_scale, self.screen)
                                 pygame.display.flip()
+                            controller.get_keys() #empty the event queue
+                            controller.empty_keys() #empty the key list, and delay a small amount...
+                            pygame.time.delay(250) #250ms
                         # - Check if the player clicked Exit -
                         if(lobby_menu.current_menu == 0 and clicked_button[1] == 0 and clicked_button[0][0] == 3): #time to go?
                             with self.running_lock:
                                 self.running = False
                 else: #if the first button is clicked in the special window, we need to exit the special window by sending an exit packet to the server.
-                    clicked_button = special_menu.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height()],cursorpos)
+                    clicked_button = special_menu.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height() - font.SIZE * 3 * lobby_menu.menu_scale],cursorpos)
                     if(clicked_button[0][0] == 0): #button 0 was clicked? Send a signal to the _netcode thread to exit this dumb window.
                         with self.request_lock:
                             self.request = ["sw_close"]
@@ -584,6 +617,7 @@ class BattleEngine():
                 self.waiting_for_queue = False
                 with self.request_lock:
                     self.request[0] = None #clear the halt on the packets thread for the lobby client.
+                first_entry = True #this is so we don't get the red X when we leave the battle queue/leave a battle.
             elif(str(type(self.waiting_for_queue)) == "<class 'float'>" and time.time() - self.waiting_for_queue < netcode.DEFAULT_TIMEOUT and self.request_pending == False): #We didn't make it?
                 with self.request_lock:
                     self.request[0] = None
@@ -592,7 +626,7 @@ class BattleEngine():
 
             # - Reconfigure the HUD -
             if(self.special_window == None):
-                hovered_button = lobby_menu.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height()],cursorpos,None,False)
+                hovered_button = lobby_menu.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height() - font.SIZE * 3 * lobby_menu.menu_scale],cursorpos,None,False)
                 if(hovered_button[0][0] != None):
                     hud.update_HUD_element_value(0,button_descriptions[lobby_menu.current_menu][hovered_button[0][0]])
                 else: #here we should display our tank's current stats.
@@ -613,13 +647,13 @@ class BattleEngine():
             self.screen.fill([0,0,0]) #draw our menu stuff onscreen
             if(self.special_window == None):
                 if(self.request_pending != True and self.request_pending != False): #draw the menu, but do not highlight options since we are awaiting a response from the server.
-                    lobby_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,[0,0])
+                    lobby_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height() - font.SIZE * 3 * lobby_menu.menu_scale],self.screen,[0,0])
                 else: #draw the menu as normal
-                    lobby_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,cursorpos)
+                    lobby_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height() - font.SIZE * 3 * lobby_menu.menu_scale],self.screen,cursorpos)
             else: #draw special_menu
                 try:
                     with self.special_window_lock:
-                        special_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,cursorpos)
+                        special_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height() - font.SIZE * 3 * lobby_menu.menu_scale],self.screen,cursorpos)
                 except Exception as e: #we got an error from some sort of threading issue?
                     print("An exception occurred during special_menu.draw_menu: " + str(e) + " - Nonfatal")
             #draw our cursor onscreen (it's a crosshair LOL...I should add a gunshot effect for when you click on the screen...)
