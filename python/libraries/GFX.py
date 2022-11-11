@@ -1,4 +1,4 @@
-##"GFX.py" library ---VERSION 0.16---
+##"GFX.py" library ---VERSION 0.17---
 ## - REQUIRES: "font.py" library
 ## - For creating basic graphical effects (usually based on particles) in the same scale as your screen in a game -
 ##Copyright (C) 2022  Lincoln V.
@@ -232,14 +232,14 @@ gfx_quality = 1.0
 #pretty self explanatory. Give the function the parameters it needs, and it makes a big explosion.
 def create_explosion(particles, position, explosion_radius, particle_sizes, start_colors, end_colors, duration, time_offset=0, optional_words=None, TILE_SIZE=1): #creates an explosion with varying color, choosable size and position.
     global gfx_quality
-    for x in range(0,int(pow(explosion_radius * TILE_SIZE, 2) * gfx_quality)): #create a bunch of square particles next
+    for x in range(0,int(pow(explosion_radius * TILE_SIZE, 2) * 0.25 * gfx_quality)): #create a bunch of square particles next
         random.shuffle(start_colors) #shuffle our color options
         random.shuffle(end_colors)
         random_start_color = start_colors[0] #pick a random color for both ending and starting our effect based on the choices we allow in our parameters above
         random_end_color = end_colors[0]
         #add the finished particle to our collecive list
         particles.append(Particle([position[0], position[1]], [position[0] + random.randint(-explosion_radius * 100, explosion_radius * 100) / 100, position[1] + random.randint(-explosion_radius * 100, explosion_radius * 100) / 100], particle_sizes[0], particle_sizes[1], random_start_color[:], random_end_color[:], time.time() + time_offset, time.time() + duration + time_offset, 1))
-    for x in range(0,5): #create a bunch of circle particles for start
+    for x in range(0,5): #create a bunch of circle particles
         random.shuffle(start_colors) #shuffle our color options
         random.shuffle(end_colors)
         random_start_color = start_colors[0] #pick a random color for both ending and starting our effect based on the choices we allow in our parameters above

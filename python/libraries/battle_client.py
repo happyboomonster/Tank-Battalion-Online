@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.46---
+##"battle_client.py" library ---VERSION 0.47---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -43,12 +43,12 @@ class BattleEngine():
         self.lobby_connected = 0
 
         # - Default key configuration settings -
-        self.controls = controller.Controls(4 + 6 + 4 + 1 + 1 + 1,"kb") #4: shells - 6: powerups - 4: movement - 1: shoot  - 1: ESC key - 1: Crosshair modifier
-        self.controls.buttons = [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n, pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d, pygame.K_e, pygame.K_ESCAPE, pygame.K_SPACE]
+        self.controls = controller.Controls(4 + 6 + 4 + 1 + 1 + 1 + 1,"kb") #4: shells - 6: powerups - 4: movement - 1: shoot  - 1: ESC key - 1: Crosshair modifier - 1: Push-To-Talk (combine with other buttons to make a message onscreen as a particle)
+        self.controls.buttons = [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n, pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d, pygame.K_e, pygame.K_ESCAPE, pygame.K_SPACE, pygame.K_t]
 
         # - Create a backup controller object in case we mess up our default controller (and it's in JS mode) -
-        self.controls_backup = controller.Controls(4 + 6 + 4 + 1 + 1 + 1,"kb") #4: shells - 6: powerups - 4: movement - 1: shoot  - 1: ESC key - 1: Crosshair modifier
-        self.controls_backup.buttons = [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n, pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d, pygame.K_e, pygame.K_ESCAPE, pygame.K_SPACE]
+        self.controls_backup = controller.Controls(4 + 6 + 4 + 1 + 1 + 1 + 1,"kb") #4: shells - 6: powerups - 4: movement - 1: shoot  - 1: ESC key - 1: Crosshair modifier - 1: Push-To-Talk (combine with other buttons to make a message onscreen as a particle)
+        self.controls_backup.buttons = [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n, pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d, pygame.K_e, pygame.K_ESCAPE, pygame.K_SPACE, pygame.K_t]
 
         # - Packet formats (what we recieve from the server) -
         self.LOBBY_PACKETS = [["<class 'bool'>", "<class 'list'>", "<class 'list'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'list'>"], ["<class 'bool'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'bool'>", "<class 'str'>", "<class 'list'>", "<class 'NoneType'>"]]
@@ -337,7 +337,7 @@ class BattleEngine():
         lobby_menu.create_menu(["^ Available","Improved Fuel +35% Speed","Fire Extinguisher -10% Speed","Dangerous Loading +50% RPM -10% HP","Explosive Tip +25% DMG. -5% RPM -5% PN.",
                                 "Amped Gun +25% PN. -10% HP","Extra Armor +50% Armor -50% Speed","Back"],[["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""]],[[7,1]],[],"Tank Battalion Online Store - Powerups")
         lobby_menu.create_menu(["Back","Battle Type","Battle"],[["",""],["Unrated Battle","Experience Battle"],["",""]],[[0,0]],[],"Tank Battalion Online Battle Menu") #this line will need to be changed based on what battle modes are available.
-        lobby_menu.create_menu(["Back","Key config","Deadzone","KB/JS","Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier","GFX Quality"],[["",""],["",""],[1,9],["Keyboard","Joystick"],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],[1,30]],[[0,0]],[],"Tank Battalion Online Settings")
+        lobby_menu.create_menu(["Back","Key config","Deadzone","KB/JS","Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier","PTT Key","GFX Quality"],[["",""],["",""],[1,9],["Keyboard","Joystick"],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],[1,30]],[[0,0]],[],"Tank Battalion Online Settings")
 
         # - Define what action clicking a specific button will perform -
         purchase_mode = "buy"
@@ -349,14 +349,14 @@ class BattleEngine():
             [[None],[None],["buy","specialize",1],["buy","specialize",-1],[None]],
             [[None],["buy","powerup",0],["buy","powerup",1],["buy","powerup",2],["buy","powerup",3],["buy","powerup",4],["buy","powerup",5],[None]],
             [[None],[None],["battle","Battle Type"]],
-            [[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None]],
+            [[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None]],
             ]
 
         # - Create a special second menu with a menu depth of 1 (no sub menus) for special stuff like end-game results -
         special_menu = menu.Menuhandler()
 
         # - Last index of key configuration stuff -
-        last_keyconfig = 20
+        last_keyconfig = 21
 
         # - Brief desctiption of what every button does in the game -
         damage_numbers = entity.Bullet(None, "", 0, 0, [1,1,1,1,1], None)
@@ -372,7 +372,7 @@ class BattleEngine():
             ["EXP can be earned by playing rating battles.","This is the current state of your tank   -","Make your tank faster, shoot with more RPM and penetration but with less damage.","Make your tank slower, decrease RPM and penetration, but increase damage significantly.",""],
             ["^ can be earned in battles or purchased.","","","","","","This powerup acts a little strangely - If you have armor left, that armor gets increased by 50% temporarily. If you have no armor left, you will recieve no benefit from using this powerup, because 0 armor times 1.5 equals 0 armor.",""],
             ["Back to the lobby menu   -","Change the type of battle you want to enter   -","Enter the battle queue   -"],
-            ["","","","Are you going to play on a joystick or a keyboard","","","","","","","","","","","","","","","","","","Graphical Effects Quality"]
+            ["","","","Are you going to play on a joystick or a keyboard","","","","","","","","","","","","","","","","","","","Graphical Effects Quality"]
             ]
 
         # - Create an HUD to display the descriptions of menu items -
@@ -390,7 +390,7 @@ class BattleEngine():
                         "Amped Gun +25% PN. -10% HP","Extra Armor +50% Armor -50% Speed"]
         # - Reference names for key configurations -
         key_configuration_names = [
-            "Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier"
+            "Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier","PTT Key"
             ]
 
         cursorpos = [0,0] #where is our cursor?
@@ -578,6 +578,7 @@ class BattleEngine():
                         # - Check if the button we pressed was in menu # 7 (key config) -
                         if(lobby_menu.current_menu == 7 and clicked_button[1] == 7 and clicked_button[0][0] - 4 >= 0 and clicked_button[0][0] <= last_keyconfig): #we didn't change into this menu?? We were already here when we clicked?
                             config = True
+                            pygame.display.set_caption("Configure key number " + str(clicked_button[0][0] - 4))
                             pygame.time.delay(250) #delay 250ms to ensure that we don't configure our shoot button as whatever this button is going to be
                             controller.get_keys() #empty the event queue
                             controller.empty_keys() #empty the key list
@@ -587,8 +588,8 @@ class BattleEngine():
                                     config = not self.controls.configure_key(clicked_button[0][0] - 4) #did we get a successful configuration?
                                 # - Draw the "press a key to configure the button" words onscreen
                                 self.screen.fill([0,0,0])
-                                word_scale = (self.screen.get_width() / (len("Press a key to set it as the button you chose") * font.SIZE))
-                                font.draw_words("Press a key to set it as the button you chose", [(self.screen.get_width() / 2 - len("Press a key to set it as the button you chose") * font.SIZE * word_scale * 0.5),10], [0,0,255], word_scale, self.screen)
+                                word_scale = (self.screen.get_width() / (len("Press any key...") * font.SIZE))
+                                font.draw_words("Press any key...", [(self.screen.get_width() / 2 - len("Press any key...") * font.SIZE * word_scale * 0.5),10], [0,0,255], word_scale, self.screen)
                                 pygame.display.flip()
                             controller.get_keys() #empty the event queue
                             controller.empty_keys() #empty the key list, and delay a small amount...
@@ -981,6 +982,16 @@ class BattleEngine():
         shoot = 14
         ESC_KEY = 15 #this brings you to the second menu, which lets you continue the match or leave it.
         CURSOR_MOD = 16
+        PTT_KEY = 17 #PTT + Dpad = lets you direct people - "up/down/left/right"
+        # - Note about KEY_TALK: The server does have a copy of this list and will only let through phrases which it has in its list -
+        KEY_TALK = ["yes","no","maybe","understood", #shell keys
+                    "1","2","3","4","5","6", #powerup keys
+                    "up","left","down","right", #dpad/directions
+                    "attack", #shoot
+                    "retreat", #ESC_KEY
+                    "reform", #cursor_mod key
+                    None #PTT key
+                    ]
 
         tank_bullets_pygame_keys = self.controls.buttons[0:4] #[pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4]
         tank_powerups_pygame_keys = self.controls.buttons[4:10] #[pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n]
@@ -1065,40 +1076,49 @@ class BattleEngine():
             else:
                 framecounter += 1
 
-            # - Hnadle the ESC key -
-            if(ESC_KEY in keys): #menu # 1 then...
+            # - Handle the ESC key -
+            if(ESC_KEY in keys and not PTT_KEY in keys): #menu # 1 then...
                 battle_menu.current_menu = 1
 
-            # - Handle constant keypresses (for the moment) -
+            # - Handle keypresses -
             if(not sync):
-                for x in directions:
-                    if(x in keys and not CURSOR_MOD in keys):
+                if(not PTT_KEY in keys):
+                    for x in directions:
+                        if(x in keys and not CURSOR_MOD in keys):
+                            with player_tank.lock:
+                                player_tank.move(directions.index(x) * 90, arena.TILE_SIZE)
+                        elif(x in keys and CURSOR_MOD in keys):
+                            mousepos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 80 * battle_menu.menu_scale
+                            mousepos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 80 * battle_menu.menu_scale
+                    if(shoot in keys and not CURSOR_MOD in keys):
                         with player_tank.lock:
-                            player_tank.move(directions.index(x) * 90, arena.TILE_SIZE)
-                    elif(x in keys and CURSOR_MOD in keys):
-                        mousepos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 80 * battle_menu.menu_scale
-                        mousepos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 80 * battle_menu.menu_scale
-                if(shoot in keys and not CURSOR_MOD in keys):
-                    with player_tank.lock:
-                        player_tank.shoot(arena.TILE_SIZE, server=False)
-                elif(shoot in keys and CURSOR_MOD in keys): #we're shooting a menu item? ...Here we go...menu collision...
-                    collide = battle_menu.menu_collision([0,0],[self.screen.get_width(), self.screen.get_height()],mousepos,inc=None)
-                    if(battle_menu.current_menu == 0 and collide[0][1] != None): #menu index 0?
-                        if(collide[0][1] >= POWERUP_START and collide[0][1] <= SHELL_START - 1): #use powerup?
-                            player_tank.use_powerup(collide[0][1] - POWERUP_START, False)
-                        elif(collide[0][1] >= SHELL_START and collide[0][1] <= SHELL_START + 3): #use shell?
-                            player_tank.use_shell(collide[0][1] - SHELL_START)
-                    elif(battle_menu.current_menu == 1 and collide[0][0] != None): #we clicked a button in the second menu (hit ESC to access)
-                        if(collide[0][0] == 1): #disconnect?
-                            running[0] = False #just make sure we're leaving - this tells the netcode thread that we're leaving, and quits us back to the lobby.
-                # - Check for powerup usage -
-                for x in tank_powerups:
-                    if(x in keys):
-                        player_tank.use_powerup(tank_powerups.index(x), False)
-                # - Check for shell changing -
-                for x in tank_bullets:
-                    if(x in keys):
-                        player_tank.use_shell(tank_bullets.index(x))
+                            player_tank.shoot(arena.TILE_SIZE, server=False)
+                    elif(shoot in keys and CURSOR_MOD in keys): #we're shooting a menu item? ...Here we go...menu collision...
+                        collide = battle_menu.menu_collision([0,0],[self.screen.get_width(), self.screen.get_height()],mousepos,inc=None)
+                        if(battle_menu.current_menu == 0 and collide[0][1] != None): #menu index 0?
+                            if(collide[0][1] >= POWERUP_START and collide[0][1] <= SHELL_START - 1): #use powerup?
+                                player_tank.use_powerup(collide[0][1] - POWERUP_START, False)
+                            elif(collide[0][1] >= SHELL_START and collide[0][1] <= SHELL_START + 3): #use shell?
+                                player_tank.use_shell(collide[0][1] - SHELL_START)
+                        elif(battle_menu.current_menu == 1 and collide[0][0] != None): #we clicked a button in the second menu (hit ESC to access)
+                            if(collide[0][0] == 1): #disconnect?
+                                running[0] = False #just make sure we're leaving - this tells the netcode thread that we're leaving, and quits us back to the lobby.
+                    # - Check for powerup usage -
+                    for x in tank_powerups:
+                        if(x in keys):
+                            player_tank.use_powerup(tank_powerups.index(x), False)
+                    # - Check for shell changing -
+                    for x in tank_bullets:
+                        if(x in keys):
+                            player_tank.use_shell(tank_bullets.index(x))
+                else: #we're trying to speak, are we??
+                    for x in keys:
+                        speak_word = None #find out what on earth we said
+                        if(x != PTT_KEY):
+                            speak_word = KEY_TALK[x]
+                            break
+                    if(speak_word != None):
+                        player_tank.message(speak_word, "dummy particles", server=False) #send the message!
 
             # - Update P1's HUD, starting with P1's HP/Armor bar and the menu update command -
             battle_menu.update(self.screen)
@@ -1130,9 +1150,12 @@ class BattleEngine():
                 else: #powerup is ready?
                     key_to_press = None  #check to see if we can display the key to use the powerup...
                     for key in range(0,len(menu.keys)):
-                        if(tank_powerups_pygame_keys[x - 3] == menu.keys[key][0]):
-                            key_to_press = menu.keys[key][1]
-                            break
+                        if(self.controls.kb_ctrl == "kb"): #we only look for a letter if we're using a keyboard.
+                            if(tank_powerups_pygame_keys[x - 3] == menu.keys[key][0]):
+                                key_to_press = menu.keys[key][1]
+                                break
+                        else: #this is a joystick?
+                            key_to_press = str(x - 3) #just give the button number
                     if(key_to_press == None):
                         hud.update_HUD_element_value(x,"")
                         hud.update_HUD_element_color(x,[[0,255,0],None,None])
@@ -1185,7 +1208,7 @@ class BattleEngine():
                         break
 
             # - Check if it is time to leave (self.BATTLE_TIMER * 0.65 seconds after game over) -
-            #   - NOTE: This MUST be here to avoid the server deleting the player data server-side,
+            #   - NOTE: This might need to be here to avoid the server deleting the player data server-side,
             #       and crashing the client during the results screen.
             if(explosion_counter * self.EXPLOSION_TIMER > self.BATTLE_TIMER * 0.65): #time to exit battle?
                 running[0] = False
@@ -1258,8 +1281,11 @@ class BattleEngine():
                                 if(value > 1.0): #we have more armor/HP then we are technically supposed to?
                                     value = 1.0
                                     color = [255,255,0] #overdrive color; means we have more than we should...
-                                hud.update_HUD_element(BAR_START + bar * 2,[[(x.overall_location[0] - player_tank.map_location[0]) * arena.TILE_SIZE * screen_scale[0],(-0.35 + x.overall_location[1] - player_tank.map_location[1]) * arena.TILE_SIZE * screen_scale[1]],[20,5],[color,[0,0,0],[0,0,255]],value])
-                                hud.update_HUD_element(bar * 2 + BAR_START + 1,[[(x.overall_location[0] - player_tank.map_location[0] + 0.05) * arena.TILE_SIZE * screen_scale[0],(-0.275 + x.overall_location[1] - player_tank.map_location[1]) * arena.TILE_SIZE * screen_scale[1]],3,[[150,150,150],None,None],label])
+                                hud.update_HUD_element(BAR_START + bar * 3,[[(x.overall_location[0] - player_tank.map_location[0]) * arena.TILE_SIZE * screen_scale[0],(-0.35 + x.overall_location[1] - player_tank.map_location[1]) * arena.TILE_SIZE * screen_scale[1]],[20,5],[color,[0,0,0],[0,0,255]],value])
+                                hud.update_HUD_element(bar * 3 + BAR_START + 1,[[(x.overall_location[0] - player_tank.map_location[0] + 0.05) * arena.TILE_SIZE * screen_scale[0],(-0.275 + x.overall_location[1] - player_tank.map_location[1]) * arena.TILE_SIZE * screen_scale[1]],3,[[150,150,150],None,None],label])
+                                # - The font is size 7 for this. x_offset is a value which should always equal half of the name's length in pixels -
+                                x_offset = len(x.name) * 7 * hud.rectangular_scale * 0.25
+                                hud.update_HUD_element(bar * 3 + BAR_START + 2,[[(0.5 + x.overall_location[0] - player_tank.map_location[0]) * arena.TILE_SIZE * screen_scale[0] - x_offset,(0.125 + x.overall_location[1] - player_tank.map_location[1]) * arena.TILE_SIZE * screen_scale[1]],3,[[150,150,150],None,None],x.name])
                         except Exception as e:
                             print("Exception occurred at battle_client(): " + str(e) + " - Nonfatal")
                         bar += 1 #increment the HP bar counter
@@ -1359,8 +1385,9 @@ class BattleEngine():
                             blocks.append(x)
                     # - Set up the HUD a bit (HP bars for all players other than ourselves) -
                     for x in range(0,data[3]):
-                        hud.add_HUD_element("horizontal bar",[[0,-50],[20,5],[[0,255,0],[0,0,0],[0,0,255]],1.0],False)
-                        hud.add_HUD_element("text",[[0,-50],7,[[255,0,0],False,False],"100 HP"],False)
+                        hud.add_HUD_element("horizontal bar",[[0,-100],[20,5],[[0,255,0],[0,0,0],[0,0,255]],1.0],False)
+                        hud.add_HUD_element("text",[[0,-100],7,[[255,0,0],False,False],"100 HP"],False)
+                        hud.add_HUD_element("text",[[0,-100],7,[[255,0,0],False,False],"Player Name"],False)
                     setup = False
                 elif(data[0] == "sync"): #we're moving a bit funny, and the server doesn't like it...we can't move for a bit here =(
                     with player_tank.lock:
@@ -1484,7 +1511,7 @@ class BattleEngine():
         player_stat += self.CASH_WEIGHT * player_account.cash #add player cash to predicted performance
         # - Find the player's individual upgrade levels, and add player rating from them -
         for b in range(0,len(player_account.upgrades)):
-            player_stat += pow(player_account.upgrades[b], self.UPGRADE_WEIGHT) - 1
+            player_stat += pow(self.UPGRADE_WEIGHT, player_account.upgrades[b]) - 1
         # - Add the player's number of shells of each type to the player's predicted performance -
         for x in range(0,len(player_account.shells)):
             player_stat += player_account.shells[x] * self.SHELLS_WEIGHT[x]

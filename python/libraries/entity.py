@@ -1,4 +1,4 @@
-##"entity.py" library ---VERSION 0.56---
+##"entity.py" library ---VERSION 0.58---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -332,6 +332,14 @@ class Tank():
         self.shot_pending = False
         # - Set this flag to a number if you want to use a powerup!
         self.powerup_request = None
+        # - Set this flag to a string to request the server to spawn a message in the form of a powerup! -
+        self.message_request = None #None = no message
+        # - I can censor messages server-side! -
+        self.MESSAGE_WHITELIST = ["yes","no","maybe","understood",
+                    "1","2","3","4","5","6",
+                    "up","left","down","right",
+                    "attack","retreat","reform",
+                    ]
 
         # - Powerup timing constants -
         self.POWERUP_COOLDOWN = 15.0 #seconds
@@ -367,6 +375,8 @@ class Tank():
         # - Timing stuff -
         self.old_time = time.time() #time variable
         self.time_difference = 0 #how long between each call of "clock()"?
+        self.last_message = time.time() #when did the player send a message last?
+        self.MESSAGE_COOLDOWN = 1.5 #seconds; How long does the player have to wait in between each message he sends?
 
         # - Rotation threshold constant - how close to desired direction must be achieved? -
         self.ROTATION_THRESHOLD = 10
@@ -691,6 +701,17 @@ class Tank():
             self.shot_pending = True
         return None #you can't shoot yet...
 
+    def message(self, message, particles, server=True): #lets a player send a message to EVERYONE by spawning a word particle
+        if(server): #this is what happens server-side
+            if(self.message_request != None and time.time() - self.last_message > self.MESSAGE_COOLDOWN): #we got a message from the client and the client is allowed to speak?
+                self.last_message = time.time() #reset the time counter for message cooldown
+                if(self.message_request in self.MESSAGE_WHITELIST): #we only make the message public IF it passes our censoring!!
+                    message_particle = GFX.Particle([self.overall_location[0] - (len(self.message_request) * 0.25),self.overall_location[1]], [self.overall_location[0] + random.randint(-2,2), self.overall_location[1] + random.randint(-2,2)], 0.65, 0.15, [random.randint(150,255),random.randint(150,255),random.randint(150,255)], [50,50,50], time.time(), time.time() + 5.0, self.message_request)
+                    particles.append(message_particle) #add the new message particle to our particles list
+                self.message_request = None #clear the message_request flag
+        else: #this is what happens client-side
+            self.message_request = message #set the message_request flag
+
     def return_data(self, precision=2, clear_flags=True): #returns tank data to be sent over netcode
         return_list = [
             self.type,
@@ -716,11 +737,13 @@ class Tank():
             self.powerup_request,
             self.shells,
             self.powerups,
-            round(self.RPM,precision)
+            round(self.RPM,precision),
+            self.message_request
             ]
         if(clear_flags):
             self.powerup_request = None #clear the powerup_request flag
             self.shot_pending = False #clear the shot_pending flag after we grab our data; This is just a good place to do it...
+            self.message_request = None #clear the message_request flag
         return return_list
 
     def enter_data(self, data, TILE_SIZE=20, screen_scale=[1,1], server=False): #enters the data from Tank.return_data()
@@ -757,6 +780,8 @@ class Tank():
             self.shells = data[21]
             self.powerups = data[22]
             self.RPM = data[23]
+        if(server):
+            self.message_request = data[24]
 
 class Bot(): #AI player which can fill a player queue if there is not enough players.
     def __init__(self,team_number=0,player_number=0,player_rating=0.85):

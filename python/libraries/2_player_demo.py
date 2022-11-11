@@ -20,7 +20,7 @@ import import_arena
 
 #pygame stuff
 pygame.init()
-screen = pygame.display.set_mode([320, 240], pygame.RESIZABLE)
+screen = pygame.display.set_mode([320, 240], pygame.RESIZABLE | pygame.SCALED)
 p1_screen = pygame.Surface([screen.get_width() / 2, screen.get_height() / 2])
 p2_screen = pygame.Surface([screen.get_width() / 2, screen.get_height() / 2])
 
@@ -179,7 +179,7 @@ bullets = []
 #spawn P2...
 p2_tank = entity.Tank(T2U, ["P2","The Enemy Team (in other words The Bad Guys)"])
 #increase the tank's RPM
-##p2_tank.RPM = 80.0
+p2_tank.RPM = 500.0
 ##p2_tank.damage_multiplier = 500.0
 ##p2_tank.penetration_multiplier = 0.1
 ##p2_tank.speed = 1.75

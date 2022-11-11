@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.41---
+##"battle_server.py" library ---VERSION 0.43---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -135,8 +135,8 @@ class BattleEngine():
             "bot_rating[0] < player_ratings[bot_rating[1]][len(player_ratings[bot_rating[1]]) - 1]", #bot player must be weaker than the strongest player on the team
             "max_team_rating * math.sqrt(urgency) < min_team_rating", #all teams must be within sqrt(urgency%) rating differences
             "bot_rating[0] >= self.IMBALANCE_LIMIT", #the bot player MUST have at least the rating required to hold a few shells (otherwise useless bot, because bot has no bullets)
-            "min_team_players > max_team_players * urgency", #all teams must have the same amount of players with urgency% error.
-            "min_player_rating > max_player_rating * urgency" #all players must be within urgency% as powerful as each other.
+            "min_team_players > max_team_players * urgency" #all teams must have the same amount of players with urgency% error.
+            #"min_player_rating > max_player_rating * urgency" #all players must be within urgency% as powerful as each other. [DEPRECATED] Now using PLAYER_RULES to account for deprecating this rule.
             ]
 
         # - self.PLAYER_RULES is a list of rules which EACH player has to meet to be added to a match -
@@ -146,7 +146,7 @@ class BattleEngine():
         #       - first_player is a variable storing the rating of the first player added to the match.
         #       - player is a list containing this player's data: [rating, [account, socket]]
         self.PLAYER_RULES = [
-            "player[0] > first_player * urgency and player[0] < first_player * (1/urgency)"
+            "player[0] > first_player * math.sqrt(urgency) and player[0] < first_player * (1/math.sqrt(urgency))"
             ]
 
         # - Map picker constants -
@@ -334,20 +334,23 @@ class BattleEngine():
                     while making_matches[x] == True or first_iter: #prevent new players from joining queue while the matchmaker arranges things properly (this could create problems if player ping gets too high)
                         team = None #clear our team queue variable
                         first_iter = False #make sure that the loop above knows that we are no longer on our first iteration next time the condition above gets checked! (...or first_iter)
-                        if(making_matches[x] == True):
-                            match_urgency = self.MAXIMUM_MATCH_TIME / time.time()
-                            if(match_urgency > 1):
-                                match_urgency = 1
-                            team = self.matchmake(self.player_queue[x], odd_allowed=(not self.experience_battles[x]), rating=self.experience_battles[x], urgency=match_urgency)
-                            #did we get a match? Let's send them off to the battlefield, and reset our time counter!
-                            matchmaking_time[x] = time.time()
-                            making_matches[x] = False #reset making_matches to its original state
                         if(making_matches[x] == False): #only check if we need to make a match if we're not already planning on one!
                             if(time.time() - matchmaking_time[x] > self.IMMEDIATE_MATCH and len(self.player_queue[x]) >= self.PLAYER_CT[0]): #time for an immediate match?
                                 making_matches[x] = True
                             #Enough time has passed + enough players to warrant a game start?
                             elif(len(self.player_queue[x]) >= self.OPTIMAL_MATCH_CT and time.time() - matchmaking_time[x] > self.TIME_SCALING_CONSTANT / len(self.player_queue[x])):
                                 making_matches[x] = True
+                        if(making_matches[x] == True):
+                            match_urgency = self.MAXIMUM_MATCH_TIME / (time.time() - matchmaking_time[x])
+                            if(match_urgency > 1):
+                                match_urgency = 1
+                            elif(match_urgency < 0.5):
+                                match_urgency = 0.5
+                            #print("[MATCHMAKER] Current urgency: " + str(round(match_urgency,3)))
+                            team = self.matchmake(self.player_queue[x], odd_allowed=(not self.experience_battles[x]), rating=self.experience_battles[x], urgency=match_urgency)
+                            #did we get a match? Let's send them off to the battlefield, and reset our time counter!
+                            #If the match failed, then we just wait a while for the matchmaker to try again...
+                            making_matches[x] = False #reset making_matches to its original state
                         # - Did we get a match? -
                         if(team != None):
                             matchmaking_time[x] = time.time() #reset the matchmaking timer
@@ -545,6 +548,7 @@ class BattleEngine():
                             if(potential_bullet != None): #if our gunshot was successful, we add the bullet object to our game objects list.
                                 game_objects.append(potential_bullet)
                             game_objects[x - decrement].clock(TILE_SIZE, [1, 1], particles, framecounter, gfx) #update all tank objects
+                            game_objects[x - decrement].message("This is server-side...", particles)
                         else: #now we need to check if we exploded the tank yet....
                             if(game_objects[x - decrement].explosion_done == False): #we haven't done the explosion yet?
                                 #Create a nice big explosion
@@ -937,7 +941,7 @@ class BattleEngine():
         player_stat += self.CASH_WEIGHT * player_account.cash #add player cash to predicted performance
         # - Find the player's individual upgrade levels, and add player rating from them -
         for b in range(0,len(player_account.upgrades)):
-            player_stat += pow(player_account.upgrades[b], self.UPGRADE_WEIGHT) - 1
+            player_stat += pow(self.UPGRADE_WEIGHT, player_account.upgrades[b]) - 1
         # - Add the player's number of shells of each type to the player's predicted performance -
         for x in range(0,len(player_account.shells)):
             player_stat += player_account.shells[x] * self.SHELLS_WEIGHT[x]
@@ -1020,6 +1024,7 @@ class BattleEngine():
         match = []
         # - We always start by adding the first player in the queue to the match, and then seeing how many other players we can add after him -
         if(len(player_queue) > 0): #there HAS to be players in the queue for this to work...
+            #print("[MATCH] Phase I begin! Find enough players!") #debug
             player_ct = 1
             #   - Usable variables for individual player rules:
             #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
@@ -1043,8 +1048,9 @@ class BattleEngine():
                     player_ct += 1
             # - Was there enough players for a match? -
             if(player_ct >= self.PLAYER_CT[0]):
+                #print("[MATCH] Phase I Complete: Found " + str(player_ct) + " players...Beginning Phase II: Add players to teams.") #debug
                 # - How many teams should we create? -
-                team_ct = player_ct / self.OPTIMAL_TEAM_CT
+                team_ct = int(player_ct / self.OPTIMAL_TEAM_CT)
                 if(team_ct < self.TEAM_CT[0]): #not enough teams for a battle to start???
                     team_ct = self.TEAM_CT[0] #just head for the bare minimum amount of teams
                 # - Start adding players to a new match! -
@@ -1267,6 +1273,8 @@ engine = BattleEngine()
 ##engine = BattleEngine(False)
 ##power_differences = []
 ##
+##urgency = 0.65 #change this value lower (lowest=0.5) to make matches sloppier, or raise it (max=1) to make the match more strict.
+##
 ##for x in range(0,500):
 ##    accounts = []
 ##    for x in range(0,random.randint(8,50)): #prepare (random # of) random accounts
@@ -1278,14 +1286,20 @@ engine = BattleEngine()
 ##        player_queue.append([accounts[x], "client socket"])
 ##
 ##    #Although we can matchmake with an odd amount of players, generally odd matches are less balanced then ones with even numbers of players.
-##    power_differences.append(engine.matchmake(player_queue, _thread.allocate_lock(), True))
+##    power_differences.append(engine.matchmake(player_queue, odd_allowed=True, rating=False, urgency))
 ##
 ### - Find the average power difference in matches, as well as how many matches were rejected due to imbalance -
 ##avg_power_differences = 0
 ##failed_matches = 0
 ##for x in range(0,len(power_differences)):
 ##    if(power_differences[x] != None): #this was an actual match?
-##        avg_power_differences += abs(power_differences[x][1])
+##        #find what the imbalance for this match actually was
+##        greatest_imbalance = 0.0
+##        for y in range(0,len(power_differences[x])):
+##            for b in range(0,len(power_differences[x])):
+##                if(power_differences[x][y][1] - power_differences[x][b][1] > greatest_imbalance):
+##                    greatest_imbalance = power_differences[x][y][1] - power_differences[x][b][1]
+##        avg_power_differences += abs(greatest_imbalance)
 ##    else: #I also want to see how many matches got rejected...
 ##        failed_matches += 1
 ##        print("Failed match!")
@@ -1297,42 +1311,45 @@ engine = BattleEngine()
 ##power = 0
 ##for x in range(0,len(power_differences)):
 ##    if(power_differences[x] != None):
-##        if(power < power_differences[x][1]):
-##            power = power_differences[x][1]
+##        #find what the imbalance for this match actually was
+##        greatest_imbalance = 0.0
+##        for y in range(0,len(power_differences[x])):
+##            for b in range(0,len(power_differences[x])):
+##                if(power_differences[x][y][1] - power_differences[x][b][1] > greatest_imbalance):
+##                    greatest_imbalance = power_differences[x][y][1] - power_differences[x][b][1]
+##        if(power < greatest_imbalance):
+##            power = greatest_imbalance
 ##            imbalance_index = x #needed to print out team specs
-##print("Greatest in favor of Team 0: " + str(power))
-##print("Teams: \n - Team 0:") #print out the teams for the specific match in which the inbalance occurred.
-##for x in range(0,len(power_differences[imbalance_index][0][0][0])): #iterate through team 0's players
-##    print("Player " + str(x) + ": ", end="")
-##    print(power_differences[imbalance_index][0][0][0][x][0]) #print out the player's rating
-##    print(power_differences[imbalance_index][0][0][0][x][1][0]) #print out the player's account stats
-##    print("\n")
-##print("\n\n\n - Team 1:")
-##for x in range(0,len(power_differences[imbalance_index][0][1][0])): #iterate through team 1's players
-##    print("Player " + str(x) + ": ", end="")
-##    print(power_differences[imbalance_index][0][1][0][x][0]) #print out the player's rating
-##    print(power_differences[imbalance_index][0][1][0][x][1][0]) #print out the player's account stats
-##    print("\n")
+##print("Greatest imbalance: " + str(power))
+###print out the teams for the specific match in which the inbalance occurred.
+##for team in range(0,len(power_differences[imbalance_index])):
+##    print("\n\n\n - Team " + str(team) + ":")
+##    for x in range(0,len(power_differences[imbalance_index][team][0])): #iterate through team 0's players
+##        print("Player " + str(x) + ": ", end="")
+##        print(power_differences[imbalance_index][team][0][x][0]) #print out the player's rating
+##        print(power_differences[imbalance_index][team][0][x][1][0]) #print out the player's account stats
+##        print("\n")
 ##print("\n\n\n")
 ##
 ### - Find the battle which is most in favor of Team 1 -
-##power = 0
+##power = pow(10,10)
 ##for x in range(0,len(power_differences)):
 ##    if(power_differences[x] != None):
-##        if(power > power_differences[x][1]):
-##            power = power_differences[x][1]
+##        #find what the imbalance for this match actually was
+##        greatest_imbalance = 0.0
+##        for y in range(0,len(power_differences[x])):
+##            for b in range(0,len(power_differences[x])):
+##                if(power_differences[x][y][1] - power_differences[x][b][1] > greatest_imbalance):
+##                    greatest_imbalance = power_differences[x][y][1] - power_differences[x][b][1]
+##        if(power > greatest_imbalance):
+##            power = greatest_imbalance
 ##            imbalance_index = x #needed to print out team specs
-##print("Greatest in favor of Team 1: " + str(power))
-##print("Teams: \n - Team 0:") #print out the teams for the specific match in which the inbalance occurred.
-##for x in range(0,len(power_differences[imbalance_index][0][0][0])): #iterate through team 0's players
-##    print("Player " + str(x) + ": ", end="")
-##    print(power_differences[imbalance_index][0][0][0][x][0]) #print out the player's rating
-##    print(power_differences[imbalance_index][0][0][0][x][1][0]) #print out the player's account stats
-##    print("\n")
-##print("\n\n\n - Team 1:")
-##for x in range(0,len(power_differences[imbalance_index][0][1][0])): #iterate through team 1's players
-##    print("Player " + str(x) + ": ", end="")
-##    print(power_differences[imbalance_index][0][1][0][x][0]) #print out the player's rating
-##    print(power_differences[imbalance_index][0][1][0][x][1][0]) #print out the player's account stats
-##    print("\n")
-##print("\n\n\n")
+##print("Least imbalance: " + str(power))
+###print out the teams for the specific match in which the inbalance occurred.
+##for team in range(0,len(power_differences[imbalance_index])):
+##    print("\n\n\n - Team " + str(team) + ":")
+##    for x in range(0,len(power_differences[imbalance_index][team][0])): #iterate through team 0's players
+##        print("Player " + str(x) + ": ", end="")
+##        print(power_differences[imbalance_index][team][0][x][0]) #print out the player's rating
+##        print(power_differences[imbalance_index][team][0][x][1][0]) #print out the player's account stats
+##        print("\n")

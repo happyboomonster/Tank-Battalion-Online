@@ -1,4 +1,4 @@
-##"HUD.py" library ---VERSION 0.06---
+##"HUD.py" library ---VERSION 0.07---
 ##Copyright (C) 2022  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
@@ -32,6 +32,9 @@ class HUD(): #a sort-of simple class which should allow you to design HUDs which
         self.tick_speed = 8 #how many "ticks" of HUD activity happen per second?
         self.tickcounter = 0
 
+        #This is a variable which simply keeps track of the current scale of our HUD elements.
+        self.rectangular_scale = 1.0
+
     #a (hopefully) easier way to create an HUD element than using append()
     def add_HUD_element(self,element_type,element_data,scaling=True):
         self.HUD_attribs.append([element_type,element_data[:]])
@@ -52,6 +55,7 @@ class HUD(): #a sort-of simple class which should allow you to design HUDs which
             rectangular_scale = screen_scale[1]
         else:
             rectangular_scale = screen_scale[0]
+        self.rectangular_scale = rectangular_scale
 
         #update our HUD tick variables
         if(self.timecounter + (1 / self.tick_speed) < time.time()): #has (1 / tickspeed) seconds elapsed?
@@ -68,7 +72,7 @@ class HUD(): #a sort-of simple class which should allow you to design HUDs which
                     unscaled_position = self.scale_coords(unscaled_position,screen_scale) #attempt to scale our coordinates
                 colors = element[1][2]
                 text = element[1][3]
-                text_scale = element[1][1] / font.SIZE * 1.0 * rectangular_scale
+                text_scale = element[1][1] / font.SIZE * rectangular_scale
                 text_size = text_scale * font.SIZE
                 if(colors[1] != None): #we actually want a background color?
                     pygame.draw.rect(screen,colors[1],[unscaled_position[0],unscaled_position[1],int(text_size * len(list(text))),int(text_scale * font.SIZE)],0) #draw the background color first
@@ -89,7 +93,7 @@ class HUD(): #a sort-of simple class which should allow you to design HUDs which
                     scrolling_text = text
                 else: #now we have to scroll
                     scrolling_text = (text + (" " * 3) + text)[scroll_pos:text_box_size + scroll_pos] #complexicated line of code which scrolls the text...
-                text_scale = element[1][1][0] / font.SIZE * 1.0 * rectangular_scale
+                text_scale = element[1][1][0] / font.SIZE * rectangular_scale
                 text_size = text_scale * font.SIZE
                 if(colors[1] != None): #we actually want a background color?
                     pygame.draw.rect(screen,colors[1],[unscaled_position[0],unscaled_position[1],int(text_size * text_box_size),int(text_scale * font.SIZE)],0) #draw the background color first
