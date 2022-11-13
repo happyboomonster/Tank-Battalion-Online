@@ -33,11 +33,19 @@ import entity
 import import_arena
 import arena as arena_lib
 import GFX #(yes, we're using particles on the server lol)
+import SFX #(yes, sound effects too)
 
 class BattleEngine():
     def __init__(self, autostart=True):
         # - Netcode constants -
         self.buffersize = 10
+
+        # - Sound reference constants -
+        self.GUNSHOT = 0
+        self.DRIVING = 1
+        self.THUMP = 2
+        self.EXPLOSION = 3
+        self.CRACK = 4
 
         # - Formats for netcode packets (being recieved from the client) -
         #   - Format: [None], OR if we want to buy/return something, ["buy"/"return","item type",###], enter battle ["battle","battle type"]
@@ -443,6 +451,14 @@ class BattleEngine():
         arena_lock = _thread.allocate_lock()
         # - Create a GFX manager to reduce netcode load -
         gfx = GFX.GFX_Manager()
+        # - Create a SFX_Manager() so that the client has sound effects occurring at the right times -
+        sfx = SFX.SFX_Manager()
+        sfx.server = True
+        sfx.add_sound("../../sfx/gunshot_01.ogg")
+        sfx.add_sound("../../sfx/driving.ogg")
+        sfx.add_sound("../../sfx/thump.ogg")
+        sfx.add_sound("../../sfx/explosion_large.ogg")
+        sfx.add_sound("../../sfx/crack.ogg")
         # - Set players in the right position -
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])):
@@ -456,10 +472,10 @@ class BattleEngine():
         player_number = 0
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])):
-                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, False, teams, gfx))
+                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, False, teams, gfx, sfx))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
-        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx))
+        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx))
 
     # - This battle mode allows you to lose experience, which is needed to unlock new tanks -
     def ranked_battle_server(self, players):
@@ -485,6 +501,14 @@ class BattleEngine():
         arena_lock = _thread.allocate_lock()
         # - Create a GFX manager to reduce netcode load -
         gfx = GFX.GFX_Manager()
+        # - Create a SFX_Manager() so that the client has sound effects occurring at the right times -
+        sfx = SFX.SFX_Manager()
+        sfx.server = True
+        sfx.add_sound("../../sfx/gunshot_01.ogg")
+        sfx.add_sound("../../sfx/driving.ogg")
+        sfx.add_sound("../../sfx/thump.ogg")
+        sfx.add_sound("../../sfx/explosion_large.ogg")
+        sfx.add_sound("../../sfx/crack.ogg")
         # - Set players in the right position -
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])):
@@ -498,13 +522,13 @@ class BattleEngine():
         player_number = 0
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])): #the True at the end is to let all threads know that this battle is for more stakes then just cash!
-                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, True, teams, gfx))
+                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, True, teams, gfx, sfx))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
-        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx))
+        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx))
 
     # - Handles most of the computation for battles, excluding packet exchanging -
-    def battle_server_compute(self, game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx):
+    def battle_server_compute(self, game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx):
         battle = True #this goes false when the battle is finished.
         TILE_SIZE = 20 #this is a constant which we don't *really* need...
         framecounter = 0 #we need a framecounter for handling particle generation
@@ -524,6 +548,9 @@ class BattleEngine():
                 framecounter = 0
             else:
                 framecounter += 1
+
+            # - Update the state of the SFX_Manager() -
+            sfx.clock([0,0])
 
             with particles_lock:
                 # - Update all particles in the game -
@@ -547,6 +574,8 @@ class BattleEngine():
                             potential_bullet = game_objects[x - decrement].shoot(20, server=True) #did the client try to shoot? And, were we able to let them shoot?
                             if(potential_bullet != None): #if our gunshot was successful, we add the bullet object to our game objects list.
                                 game_objects.append(potential_bullet)
+                                # - Create a gunshot sound effect -
+                                sfx.play_sound(self.GUNSHOT, game_objects[x - decrement].overall_location[:], [0,0])
                             game_objects[x - decrement].clock(TILE_SIZE, [1, 1], particles, framecounter, gfx) #update all tank objects
                             game_objects[x - decrement].message("This is server-side...", particles)
                         else: #now we need to check if we exploded the tank yet....
@@ -556,6 +585,8 @@ class BattleEngine():
                                     gfx.create_explosion([game_objects[x - decrement].overall_location[0] + 0.5,game_objects[x - decrement].overall_location[1] + 0.5], 2.25, [0.1, 2.0], [[255,0,0],[255,255,0],[100,100,0]], [[0,0,0],[50,50,50],[100,100,100]], 1.0, 0, "BOOM")
                                 # - Set the tank's explosion_done flag to False (I know, it's backwards, but it would break 2p_bot_demo otherwise) -
                                 game_objects[x - decrement].explosion_done = True
+                                # - Create some SFX -
+                                sfx.play_sound(self.EXPLOSION, game_objects[x - decrement].overall_location, [0,0]) #the tank just blew up, so it needs to sound like it did...
                     elif(game_objects[x - decrement].type == "Bullet"): #Are we updating a bullet object?
                         if(game_objects[x - decrement].destroyed == True): #Is the bullet destroyed already?
                             del(game_objects[x - decrement])
@@ -590,12 +621,14 @@ class BattleEngine():
                                 #Bullet stuff: self.shell_explosion_colors, self.shell_type
                                 with gfx.lock:
                                     gfx.create_explosion([game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, None)
+                                sfx.play_sound(self.CRACK, game_objects[x - decrement].map_location[:], [0,0]) #play the crack sound when the bullet hits...
                         # - A wall? -
                         if(game_objects[x - decrement].destroyed != True): #the bullet isn't destroyed yet, is it?
                             for t in collided_tiles:
                                 if(t[0] in blocks):
                                     #bullet destroyed!
                                     game_objects[x - decrement].destroyed = True
+                                    sfx.play_sound(self.CRACK, game_objects[x - decrement].map_location[:], [0,0]) #play this sound when the bullet hits...
                                     break
                         # - Tanks? Or another bullet? -
                         if(game_objects[x - decrement].destroyed != True):
@@ -611,6 +644,7 @@ class BattleEngine():
                                                 #Bullet stuff: self.shell_explosion_colors, self.shell_type
                                                 with gfx.lock:
                                                     gfx.create_explosion([game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, "bang")
+                                                sfx.play_sound(self.THUMP, game_objects[x - decrement].map_location[:], [0,0]) #play the thump sound when the bullet hits...
                                 elif(game_objects[y].type == "Bullet"): #collided with a bullet? Don't need to check if it's destroyed, 'cause they don't last the whole match...
                                     collision = entity.check_collision(game_objects[x - decrement], game_objects[y], TILE_SIZE)
                                     if(collision[0]): #The bullet hit another bullet?
@@ -623,6 +657,7 @@ class BattleEngine():
                                             with gfx.lock:
                                                 gfx.create_explosion([game_objects[x - decrement].map_location[0] + 0.5, game_objects[x - decrement].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[x - decrement].shell_explosion_colors[game_objects[x - decrement].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, "pow")
                                                 gfx.create_explosion([game_objects[y].map_location[0] + 0.5, game_objects[y].map_location[1] + 0.5], 0.65, [0.025, 0.5], game_objects[y].shell_explosion_colors[game_objects[y].shell_type], [[0,0,0],[50,50,50],[100,100,100]], 0.75, 0, "pop")
+                                            sfx.play_sound(self.CRACK, game_objects[x - decrement].map_location[:], [0,0]) #play the crack sound when the bullet hits...
 
                     elif(game_objects[x - decrement].type == "Powerup"): #Are we managing a powerup?
                         # - Check if the powerup has been collected -
@@ -678,7 +713,7 @@ class BattleEngine():
 
     # - Player_data is a list of [account, socket].
     # - This function exchanges packets between client and server, AND stuffs the client's data into the game_objects list. It can also function as a dummy client, with a bot controlling the tank. -
-    def battle_server(self, game_objects, game_objects_lock, player_data, player_index, map_name, particles, particles_lock, arena, eliminated, experience=False, team_num=0, gfx=None):
+    def battle_server(self, game_objects, game_objects_lock, player_data, player_index, map_name, particles, particles_lock, arena, eliminated, experience=False, team_num=0, gfx=None, sfx=None):
         #Send packet description: All packets start with a "prefix", a small string describing what the packet does and the format corresponding to it.
         # - Type A) Setup packet. Very long packet, used to setup the client's game state. (Not entity related stuff; Account data, arena data, etc.)
         #       Format: ["setup", account.return_data(), map_name]
@@ -764,6 +799,9 @@ class BattleEngine():
                         packet_data.append(None)
                     # - Send the state of all teams to the client -
                     packet_data.append(eliminated)
+                    # - Send sound data to the client -
+                    sfx_data = sfx.return_data()
+                    packet_data.append(sfx_data)
                 netcode.send_data(player_data[1], self.buffersize, packet_data) #send the battle data
 
                 # - Recieve data from the client -

@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.47---
+##"battle_client.py" library ---VERSION 0.50---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -19,8 +19,8 @@
 import _thread, socket, pygame, time, sys, random, math
 #set up external directories
 sys.path.insert(0, "../maps")
-#My own proprietary libraries:
-import account, menu, HUD, netcode, font, arena, GFX, import_arena, entity, arena as arena_lib, controller
+#My own proprietary libraries (I just realized that there's a lot of them):
+import account, menu, HUD, netcode, font, arena, GFX, SFX, import_arena, entity, arena as arena_lib, controller
 
 # - This is a global which tells us the path to find the directory battle_client is stored in -
 path = ""
@@ -33,7 +33,39 @@ def init(path_str=""):
 
 class BattleEngine():
     def __init__(self,IP,PORT,autostart=True):
+        global path
+        
+        # - What is our netcode buffersize? This is very important to ensure that netcode actually gets through, and should not be changed. -
         self.buffersize = 10
+
+        # - List of all music files for lobby, queue, and ingame -
+        self.music_files = [
+            [ #lobby
+                path + "../../sfx/music/lobby/Airship Serenity.mp3",
+                path + "../../sfx/music/lobby/Mellowtron.mp3",
+                path + "../../sfx/music/lobby/Newer Wave.mp3",
+                path + "../../sfx/music/lobby/Voxel Revolution.mp3"
+                ],
+            [ #queue
+                path + "../../sfx/music/queue/Bit Quest.mp3",
+                path + "../../sfx/music/queue/Bit Shift.mp3",
+                path + "../../sfx/music/queue/Bleeping Demo.mp3",
+                path + "../../sfx/music/queue/Blip Stream.mp3",
+                path + "../../sfx/music/queue/Blippy Trance.mp3",
+                path + "../../sfx/music/queue/Digital Lemonade.mp3",
+                path + "../../sfx/music/queue/Shadowlands-CK4.ogg",
+                path + "../../sfx/music/queue/Unwritten Return.mp3"
+                ],
+            [ #ingame
+                path + "../../sfx/music/ingame/Furious Freak.mp3",
+                path + "../../sfx/music/ingame/Oasis-CK4.ogg",
+                path + "../../sfx/music/ingame/Overworld.mp3",
+                path + "../../sfx/music/ingame/Pixelland.mp3",
+                path + "../../sfx/music/ingame/Salty Ditty.mp3",
+                path + "../../sfx/music/ingame/Tank Force March.mp3",
+                path + "../../sfx/music/ingame/Vegetables-CK4.ogg",
+                ]
+            ]
 
         # - Screen constants -
         self.PYGAME_FLAGS = pygame.RESIZABLE
@@ -53,7 +85,7 @@ class BattleEngine():
         # - Packet formats (what we recieve from the server) -
         self.LOBBY_PACKETS = [["<class 'bool'>", "<class 'list'>", "<class 'list'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'list'>"], ["<class 'bool'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'bool'>", "<class 'str'>", "<class 'list'>", "<class 'NoneType'>"]]
         self.MATCH_PACKET = ["<class 'bool'>", "<class 'list'>", "<class 'int'>"] #[in_battle(True/False), viewing_players data list, player_count]
-        self.GAME_PACKET = ["<class 'str'>", "...", "...", "...", "...", "..."] #the last sublists of the game_packet do not get transmitted every packet...and the data isn't a consistent type either =(
+        self.GAME_PACKET = ["<class 'str'>", "...", "...", "...", "...", "...", "..."] #the last sublists of the game_packet do not get transmitted every packet...and the data isn't a consistent type either =(
 
         # - Constants for properly displaying player rating in matchmaking -
         self.battle_types = ["Unrated Battle","Experience Battle"]
@@ -82,6 +114,18 @@ class BattleEngine():
         # - Global Game-round necessary stuff -
         self.running = True #when this goes False, the whole GAME is going down...
         self.running_lock = _thread.allocate_lock()
+        self.music = SFX.Music() #this is our music controller (handled client-side)
+        self.sfx = SFX.SFX_Manager() #this is our SFX controller (handled mostly server-side)
+        self.sfx.add_sound(path + "../../sfx/gunshot_01.ogg")
+        self.sfx.add_sound(path + "../../sfx/driving.ogg")
+        self.sfx.add_sound(path + "../../sfx/thump.ogg")
+        self.sfx.add_sound(path + "../../sfx/explosion_large.ogg")
+        self.sfx.add_sound(path + "../../sfx/crack.ogg")
+        self.GUNSHOT = 0 #constants which correspond to SFX_Manager() sounds
+        self.DRIVING = 1
+        self.THUMP = 2
+        self.EXPLOSION = 3
+        self.CRACK = 4
 
         # - Create a mapping list which converts the specialization number into meaningful words -
         self.specialization_offset = 6
@@ -138,6 +182,9 @@ class BattleEngine():
         # - Set the window caption -
         pygame.display.set_caption("Tank Battalion Online Login")
 
+        # - We may not shoot that fast (clicking) -
+        shoot_cooldown = time.time()
+
         # - Wait until the player clicks da button -
         running = True
         login = True
@@ -158,7 +205,9 @@ class BattleEngine():
                      cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * login_menu.menu_scale
                      cursorpos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * login_menu.menu_scale
                 
-            if(shoot in keys): #click?
+            if(shoot in keys and time.time() - shoot_cooldown > 0.35): #click?
+                shoot_cooldown = time.time() #reset our shooting cooldown
+                self.sfx.play_sound(self.GUNSHOT, [0,0],[0,0]) #play the gunshot sound effect
                 clicked_button = login_menu.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height()],cursorpos)
                 if(clicked_button[0][0] != None):
                     if(clicked_button[0][0] == 0): #login
@@ -417,6 +466,9 @@ class BattleEngine():
         #get da fps
         clock = pygame.time.Clock()
 
+        # - Start the MUSIC! -
+        self.music.transition_track(self.music_files[0][random.randint(0,len(self.music_files[0]) - 1)])
+
         while self.running:
             if(self.special_window == None): #this stuff only needs to happen if we're not currently utilizing the special menu.
                 # - Update bullet damage strings -
@@ -534,6 +586,11 @@ class BattleEngine():
                     special_menu.create_menu(self.special_window[:len(self.special_window) - 1],options_settings,[],[],self.special_window[len(self.special_window) - 1])
                 special_menu.update(self.screen)
 
+            # - Update our Music() manager, and check if we need to queue more tracks -
+            queue = not self.music.clock() #returns False if we need to queue more tracks
+            if(queue): #queue a new random track
+                self.music.queue_track(self.music_files[0][random.randint(0,len(self.music_files[0]) - 1)])
+
             # - Make sure our cursor stays onscreen -
             cursorpos[0] = abs(cursorpos[0]) #no negative locations allowed!
             cursorpos[1] = abs(cursorpos[1])
@@ -567,6 +624,7 @@ class BattleEngine():
 
             if(shoot in keys and time.time() - debounce > 0.2): #shoot?
                 debounce = time.time()
+                self.sfx.play_sound(self.GUNSHOT, [0,0],[0,0]) #play the gunshot sound effect
                 if(self.special_window == None):
                     clicked_button = lobby_menu.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height() - font.SIZE * 3 * lobby_menu.menu_scale],cursorpos)
                     if(clicked_button[0][0] != None):
@@ -619,6 +677,7 @@ class BattleEngine():
                 with self.request_lock:
                     self.request[0] = None #clear the halt on the packets thread for the lobby client.
                 first_entry = True #this is so we don't get the red X when we leave the battle queue/leave a battle.
+                self.music.transition_track(self.music_files[0][random.randint(0,len(self.music_files[0]) - 1)]) #start the music up again...
             elif(str(type(self.waiting_for_queue)) == "<class 'float'>" and time.time() - self.waiting_for_queue < netcode.DEFAULT_TIMEOUT and self.request_pending == False): #We didn't make it?
                 with self.request_lock:
                     self.request[0] = None
@@ -804,6 +863,9 @@ class BattleEngine():
         # - Shooting debouncing -
         shoot_timeout = time.time()
 
+        # - Start the music! -
+        self.music.transition_track(self.music_files[1][random.randint(0,len(self.music_files[1]) - 1)]) #start the music up again...
+
         #...queuing is taking a long time, eh?
         queueing = True
         while queueing and self.running:
@@ -840,6 +902,11 @@ class BattleEngine():
                 # - Set our last_packet timer -
                 last_packet = time.time()
 
+            # - Update our Music() manager, and check if we need to queue more tracks -
+            queue = not self.music.clock() #returns False if we need to queue more tracks
+            if(queue): #queue a new random track
+                self.music.queue_track(self.music_files[1][random.randint(0,len(self.music_files[1]) - 1)])
+
             # - Make sure our cursor stays onscreen -
             cursorpos[0] = abs(cursorpos[0]) #no negative locations allowed!
             cursorpos[1] = abs(cursorpos[1])
@@ -867,6 +934,7 @@ class BattleEngine():
 
             if(shoot in keys and str(type(self.request_pending)) == "<class 'bool'>" and time.time() - shoot_timeout > 0.20): #we shot?
                 shoot_timeout = time.time()
+                self.sfx.play_sound(self.GUNSHOT, [0,0],[0,0]) #play the gunshot sound effect
                 clicked_button = queue_menu.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height()],cursorpos)
                 if(clicked_button[0][0] != None): #a button was clicked?
                     if(clicked_button[0][0] == 1): #view players farther up
@@ -1035,6 +1103,9 @@ class BattleEngine():
         explosion_counter = 0
         fps = 30 #this is needed for moving the cursor around at a reasonable rate
         framecounter = 0
+
+        # - Start the music! -
+        self.music.transition_track(self.music_files[2][random.randint(0,len(self.music_files[2]) - 1)]) #start the music up again...
         
         # - These flags are for netcode operation which also involves the client frontend -
         game_end = False #this flag helps me end the game smoothly.
@@ -1069,6 +1140,11 @@ class BattleEngine():
                     resize_dimensions[1] = self.min_screen_size[1]
                 self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
             keys = self.controls.get_input()
+
+            # - Update our Music() manager, and check if we need to queue more tracks -
+            queue = not self.music.clock() #returns False if we need to queue more tracks
+            if(queue): #queue a new random track
+                self.music.queue_track(self.music_files[2][random.randint(0,len(self.music_files[2]) - 1)])
 
             # - Increment our framecounter -
             if(framecounter >= 65535):
@@ -1254,6 +1330,9 @@ class BattleEngine():
                 gfx.draw(gfx_particles, framecounter, arena.TILE_SIZE)
                 gfx.purge() #delete old particles
 
+            # - Update SFX_Manager() -
+            self.sfx.clock(player_tank.overall_location[:])
+
             # - Draw everything -
             self.screen.fill([0,0,0]) #start with black...every good game starts with a black screen.
             arena.draw_arena(tile_viewport, player_tank.map_location[:], self.screen) #draw the arena
@@ -1438,6 +1517,8 @@ class BattleEngine():
                                     eliminated.append(["",False])
                         for x in range(0,len(data[5])): #this is the order teams were eliminated in.
                             eliminated[x] = data[5][x]
+                        # - Update SFX_Manager() -
+                        self.sfx.enter_data(data[6], player_tank.overall_location[:])
                                 
                 elif(data[0] == "end"): #game over?
                     # - Update eliminated list -
