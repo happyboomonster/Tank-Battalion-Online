@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.50---
+##"battle_client.py" library ---VERSION 0.51---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -386,7 +386,7 @@ class BattleEngine():
         lobby_menu.create_menu(["^ Available","Improved Fuel +35% Speed","Fire Extinguisher -10% Speed","Dangerous Loading +50% RPM -10% HP","Explosive Tip +25% DMG. -5% RPM -5% PN.",
                                 "Amped Gun +25% PN. -10% HP","Extra Armor +50% Armor -50% Speed","Back"],[["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""]],[[7,1]],[],"Tank Battalion Online Store - Powerups")
         lobby_menu.create_menu(["Back","Battle Type","Battle"],[["",""],["Unrated Battle","Experience Battle"],["",""]],[[0,0]],[],"Tank Battalion Online Battle Menu") #this line will need to be changed based on what battle modes are available.
-        lobby_menu.create_menu(["Back","Key config","Deadzone","KB/JS","Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier","PTT Key","GFX Quality"],[["",""],["",""],[1,9],["Keyboard","Joystick"],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],[1,30]],[[0,0]],[],"Tank Battalion Online Settings")
+        lobby_menu.create_menu(["Back","Key config","Deadzone","KB/JS","Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier","PTT Key","GFX Quality","Music Volume","SFX Volume"],[["",""],["",""],[1,9],["Keyboard","Joystick"],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],[1,30],[0,10],[0,10]],[[0,0]],[],"Tank Battalion Online Settings")
 
         # - Define what action clicking a specific button will perform -
         purchase_mode = "buy"
@@ -398,7 +398,7 @@ class BattleEngine():
             [[None],[None],["buy","specialize",1],["buy","specialize",-1],[None]],
             [[None],["buy","powerup",0],["buy","powerup",1],["buy","powerup",2],["buy","powerup",3],["buy","powerup",4],["buy","powerup",5],[None]],
             [[None],[None],["battle","Battle Type"]],
-            [[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None]],
+            [[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None],[None]],
             ]
 
         # - Create a special second menu with a menu depth of 1 (no sub menus) for special stuff like end-game results -
@@ -421,7 +421,7 @@ class BattleEngine():
             ["EXP can be earned by playing rating battles.","This is the current state of your tank   -","Make your tank faster, shoot with more RPM and penetration but with less damage.","Make your tank slower, decrease RPM and penetration, but increase damage significantly.",""],
             ["^ can be earned in battles or purchased.","","","","","","This powerup acts a little strangely - If you have armor left, that armor gets increased by 50% temporarily. If you have no armor left, you will recieve no benefit from using this powerup, because 0 armor times 1.5 equals 0 armor.",""],
             ["Back to the lobby menu   -","Change the type of battle you want to enter   -","Enter the battle queue   -"],
-            ["","","","Are you going to play on a joystick or a keyboard","","","","","","","","","","","","","","","","","","","Graphical Effects Quality"]
+            ["","","","Are you going to play on a joystick or a keyboard","","","","","","","","","","","","","","","","","","","Graphical Effects Quality","",""]
             ]
 
         # - Create an HUD to display the descriptions of menu items -
@@ -541,6 +541,8 @@ class BattleEngine():
                             lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,key_configuration_names[x])
                     GFX.gfx_quality = int(lobby_menu.grab_settings(["GFX Quality"])[0][0]) / 20
                     self.WORDS_QTY = int(int(lobby_menu.grab_settings(["GFX Quality"])[0][0]) / 2)
+                    self.music.set_volume(int(lobby_menu.grab_settings(["Music Volume"])[0][0]) / 10)
+                    self.sfx.sound_volume = int(lobby_menu.grab_settings(["SFX Volume"])[0][0]) / 10
                     
                 #update our menu's scale
                 lobby_menu.update(self.screen)
@@ -1009,7 +1011,7 @@ class BattleEngine():
                         [path + "../../pix/ammunition/disk_shell_button.png",[100,0]]
                         ],
                        [],buttonindexes=[],name="")
-        battle_menu.create_menu(["Continue","Leave Match"], [["",""],["",""]], [[0,0]], buttonindexes=[], name="Ingame Options")
+        battle_menu.create_menu(["Continue","Leave Match","Music Volume","SFX Volume"], [["",""],["",""],[0,10],[0,10]], [[0,0]], buttonindexes=[], name="Ingame Options")
         SHELL_START = 6 #index 6-9 are shells
         POWERUP_START = 0 #index 0-5 are powerups
 
@@ -1140,6 +1142,11 @@ class BattleEngine():
                     resize_dimensions[1] = self.min_screen_size[1]
                 self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
             keys = self.controls.get_input()
+
+            # - Update audio volume -
+            if(battle_menu.current_menu == 1):
+                self.music.set_volume(int(battle_menu.grab_settings(["Music Volume"])[0][0]) / 10)
+                self.sfx.sound_volume = int(battle_menu.grab_settings(["SFX Volume"])[0][0]) / 10
 
             # - Update our Music() manager, and check if we need to queue more tracks -
             queue = not self.music.clock() #returns False if we need to queue more tracks
