@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.51---
+##"battle_client.py" library ---VERSION 0.52---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -41,20 +41,16 @@ class BattleEngine():
         # - List of all music files for lobby, queue, and ingame -
         self.music_files = [
             [ #lobby
-                path + "../../sfx/music/lobby/Airship Serenity.mp3",
-                path + "../../sfx/music/lobby/Mellowtron.mp3",
-                path + "../../sfx/music/lobby/Newer Wave.mp3",
-                path + "../../sfx/music/lobby/Voxel Revolution.mp3"
+                path + "../../sfx/music/lobby/Bit Quest.mp3",
+                path + "../../sfx/music/lobby/Bleeping Demo.mp3",
+                path + "../../sfx/music/lobby/Blippy Trance.mp3",
+                path + "../../sfx/music/lobby/Unwritten Return.mp3"
                 ],
             [ #queue
-                path + "../../sfx/music/queue/Bit Quest.mp3",
                 path + "../../sfx/music/queue/Bit Shift.mp3",
-                path + "../../sfx/music/queue/Bleeping Demo.mp3",
                 path + "../../sfx/music/queue/Blip Stream.mp3",
-                path + "../../sfx/music/queue/Blippy Trance.mp3",
                 path + "../../sfx/music/queue/Digital Lemonade.mp3",
                 path + "../../sfx/music/queue/Shadowlands-CK4.ogg",
-                path + "../../sfx/music/queue/Unwritten Return.mp3"
                 ],
             [ #ingame
                 path + "../../sfx/music/ingame/Furious Freak.mp3",
@@ -192,6 +188,8 @@ class BattleEngine():
             keys = self.controls.get_input()
             event_pack = controller.get_keys()
             running = not event_pack[0]
+            if(running == False): #we CLICKED the X?
+                login = None #we're not logging in OR signing in!
             if(event_pack[1] != None): #we requested a window resize?
                 resize_dimensions = list(event_pack[1])
                 if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
@@ -246,9 +244,11 @@ class BattleEngine():
         string_username = "Please enter your username" #I need this in order to give an error message if you enter IP or username/password wrong.
         string_IP = "Please enter the server IP"
         string_port = "Please enter the server port number"
+        if(login == None): #we wanted to exit, not try log in?
+            valid = True #this will entirely bypass the login script
         while not valid:
             address_valid = False # - Grab the server's port and IP address from the client user -
-            while not address_valid:
+            while not address_valid and address_valid != None:
                 if(IP == None or second_iter): #It's hard to tell whether the IP is a valid one, so I just expect people to type it in right.
                     IP = menu.get_input(self.screen,string_IP)
                     string_IP = "IP Address may have been incorrect. Please re-enter the server IP"
@@ -261,17 +261,23 @@ class BattleEngine():
                         PORT = None #Psyche! Try again...
                 if(PORT != None and IP != None): #We entered "valid" data?
                     address_valid = True
-            # - Next we grab login data -
-            login_username_input = menu.get_input(self.screen,string_username)
-            string_username = "Username/Password/IP Address/Port incorrect. Please re-enter username"
-            if(login_username_input == None): #player clicked X?
-                return None #finish the function; quit the application
-            login_password_input = menu.get_input(self.screen,"Please enter your password")
-            if(login_username_input == None or login_password_input == None): #player clicked X?
-                return None #finish the function; quit the application
-            else: #...annnnd see if we can connect.
-                valid = self.connect_server(IP,PORT,login_username_input,login_password_input,login)
-            second_iter = True #This is used to tell whether we need to re-enter the port and IP when we fail to connect to the server.
+                else:
+                    # - Someone probably clicked X to make the input windows return None -
+                    address_valid = None
+            if(address_valid != None): #we only try to log in IF someone did not X out any windows...
+                # - Next we grab login data -
+                login_username_input = menu.get_input(self.screen,string_username)
+                string_username = "Username/Password/IP Address/Port incorrect. Please re-enter username"
+                if(login_username_input == None): #player clicked X?
+                    return None #finish the function; quit the application
+                login_password_input = menu.get_input(self.screen,"Please enter your password")
+                if(login_username_input == None or login_password_input == None): #player clicked X?
+                    return None #finish the function; quit the application
+                else: #...annnnd see if we can connect.
+                    valid = self.connect_server(IP,PORT,login_username_input,login_password_input,login)
+                second_iter = True #This is used to tell whether we need to re-enter the port and IP when we fail to connect to the server.
+            else: #exit this loop...
+                break
 
     def connect_server(self,IP,PORT,username,password,login):
         #create a connection to the server
@@ -353,8 +359,8 @@ class BattleEngine():
                         if(self.request_pending == True and str(type(self.waiting_for_queue)) == "<class 'float'>" and time.time() - self.waiting_for_queue < netcode.DEFAULT_TIMEOUT): #entering battle queue was successful?
                             self.request = [False]
 
-                with self.special_window_lock: #update the special window
-                    if(self.response[0][len(self.response[0]) - 1] != None):
+                with self.special_window_lock: #update the special window IF it needs updating
+                    if(self.response[0][len(self.response[0]) - 1] != None and self.response[0][len(self.response[0]) - 1] != self.special_window):
                         if(self.special_window != None):
                             for x in range(0,len(self.special_window)):
                                 del(self.special_window[0])
@@ -362,7 +368,7 @@ class BattleEngine():
                             self.special_window = []
                         for x in range(0,len(self.response[0][len(self.response[0]) - 1])):
                             self.special_window.append(self.response[0][len(self.response[0]) - 1][x])
-                    else:
+                    elif(self.response[0][len(self.response[0]) - 1] == None):
                         self.special_window = None
             else: #check if we're getting matchmaking packets. If we are, we start up the matchmaking routine by changing self.request, self.response...to make the lobby_frontend() go into queue.
                 if(netcode.data_verify(self.response, self.MATCH_PACKET)):
@@ -417,7 +423,7 @@ class BattleEngine():
                  "Regular shell - Deals " + str(damage_numbers[1][0]) + " damage at " + str(damage_numbers[1][1]) + " penetration",
                  "Explosive shell - Deals " + str(damage_numbers[2][0]) + " damage at " + str(damage_numbers[2][1]) + " penetration",
                  "Disk shell - Deals " + str(damage_numbers[3][0]) + " damage at " + str(damage_numbers[3][1]) + " penetration",""],
-            ["^ can be earned in battles or purchased.","","","","",""],
+            ["^ can be earned in battles or purchased.","Increases damage multiplier and penetration multiplier.","Increases tank RPM.","Increases total armor.","Increases tank speed.",""],
             ["EXP can be earned by playing rating battles.","This is the current state of your tank   -","Make your tank faster, shoot with more RPM and penetration but with less damage.","Make your tank slower, decrease RPM and penetration, but increase damage significantly.",""],
             ["^ can be earned in battles or purchased.","","","","","","This powerup acts a little strangely - If you have armor left, that armor gets increased by 50% temporarily. If you have no armor left, you will recieve no benefit from using this powerup, because 0 armor times 1.5 equals 0 armor.",""],
             ["Back to the lobby menu   -","Change the type of battle you want to enter   -","Enter the battle queue   -"],
@@ -462,6 +468,9 @@ class BattleEngine():
         # - Timing stuff for keypress/cursor management and shooting -
         debounce = time.time()
         fps = 30
+
+        # - Special window backup to see if we need to update special_menu -
+        special_window_backup = []
 
         #get da fps
         clock = pygame.time.Clock()
@@ -509,9 +518,9 @@ class BattleEngine():
                         if(self.acct.powerups[x] == True):
                             owned = 1
                         if(purchase_mode == "buy"):
-                            opt_str = str(owned) + "/1 " + str(round(self.acct.purchase("powerup",x,True),2))
+                            opt_str = str(owned) + "/1 " + str(round(self.acct.purchase("powerup",x,True)[0],2))
                         else:
-                            opt_str = str(owned) + "/1 " + str(round(self.acct.refund("powerup",x,True),2))
+                            opt_str = str(owned) + "/1 " + str(round(self.acct.refund("powerup",x,True)[0],2))
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,powerup_names[x])
 
                 # - Update our key configuration menu -
@@ -554,8 +563,8 @@ class BattleEngine():
                     opt_str = self.specialization_mapper[self.acct.specialization + self.specialization_offset] #specialization settings
                     lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"Current Specialization")
                     # - Update the costs for specializing heavy/light -
-                    light = str(self.acct.purchase("specialize",1,True)) + " EXP"
-                    heavy = str(self.acct.purchase("specialize",-1,True)) + " EXP"
+                    light = str(self.acct.purchase("specialize",1,True)[0]) + " EXP"
+                    heavy = str(self.acct.purchase("specialize",-1,True)[0]) + " EXP"
                     lobby_menu.reconfigure_setting([light,light],light,0,"Specialize Light")
                     lobby_menu.reconfigure_setting([heavy,heavy],heavy,0,"Specialize Heavy")
 
@@ -565,9 +574,9 @@ class BattleEngine():
                     lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"^ Available")
                     for x in range(0,len(self.acct.upgrades)): #configure the upgrades counter
                         if(purchase_mode == "buy"):
-                            opt_str = str(self.acct.upgrades[x]) + "/" + str(self.acct.upgrade_limit) + " " + str(round(self.acct.purchase("upgrade",x,True),2)) + "^"
+                            opt_str = str(self.acct.upgrades[x]) + "/" + str(self.acct.upgrade_limit) + ", " + self.acct.purchase("upgrade",x,True)[1] + ", " + str(round(self.acct.purchase("upgrade",x,True)[0],2)) + "^"
                         else:
-                            opt_str = str(self.acct.upgrades[x]) + "/" + str(self.acct.upgrade_limit) + " " + str(round(self.acct.refund("upgrade",x,True),2)) + "^"
+                            opt_str = str(self.acct.upgrades[x]) + "/" + str(self.acct.upgrade_limit) + ", " + self.acct.refund("upgrade",x,True)[1] + ", " + str(round(self.acct.refund("upgrade",x,True)[0],2)) + "^"
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,upgrade_names[x])
 
                 # - Update the value of shells + ^ counter -
@@ -576,16 +585,18 @@ class BattleEngine():
                     lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"^ Available")
                     for x in range(0,len(self.acct.shells)): #configure the shells counter
                         if(purchase_mode == "buy"):
-                            opt_str = str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + " " + str(round(self.acct.purchase("shell",x,True),2)) + "^"
+                            opt_str = str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + ", " + self.acct.purchase("shell",x,True)[1] + ", " + str(round(self.acct.purchase("shell",x,True)[0],2)) + "^"
                         else:
-                            opt_str = str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + " " + str(round(self.acct.refund("shell",x,True),2)) + "^"
+                            opt_str = str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + ", " + self.acct.refund("shell",x,True)[1] + ", " + str(round(self.acct.refund("shell",x,True)[0],2)) + "^"
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,shell_names[x])
             else: #we need to configure our special window/menu...which is always just a set of strings, with no settings you can change lol
-                with self.special_window_lock:
-                    options_settings = []
-                    for x in range(0,len(self.special_window) - 1):
-                        options_settings.append(["",""])
-                    special_menu.create_menu(self.special_window[:len(self.special_window) - 1],options_settings,[],[],self.special_window[len(self.special_window) - 1])
+                if(self.special_window != special_window_backup):
+                    special_window_backup = self.special_window[:]
+                    with self.special_window_lock:
+                        options_settings = []
+                        for x in range(0,len(self.special_window) - 1):
+                            options_settings.append(["",""])
+                        special_menu.create_menu(self.special_window[:len(self.special_window) - 1],options_settings,[],[],self.special_window[len(self.special_window) - 1])
                 special_menu.update(self.screen)
 
             # - Update our Music() manager, and check if we need to queue more tracks -
@@ -692,7 +703,7 @@ class BattleEngine():
                 if(hovered_button[0][0] != None):
                     hud.update_HUD_element_value(0,button_descriptions[lobby_menu.current_menu][hovered_button[0][0]])
                 else: #here we should display our tank's current stats.
-                    dummy_tank = self.acct.create_tank("img", "team_name")
+                    dummy_tank = self.acct.create_tank("img", "team_name",[0,0,0,0],True)
                     armor = round(dummy_tank.armor,2)
                     speed = round(dummy_tank.speed,2)
                     damage = round(dummy_tank.damage_multiplier,2)
@@ -704,6 +715,9 @@ class BattleEngine():
             if(first_entry == True and self.special_window == None and self.request_pending == False):
                 self.request_pending = True
                 first_entry = False
+
+            # - Update our SFX_Manager() -
+            self.sfx.clock([0,0])
                 
             #draw everything
             self.screen.fill([0,0,0]) #draw our menu stuff onscreen
@@ -726,20 +740,13 @@ class BattleEngine():
                 pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] + int(8 * lobby_menu.menu_scale),cursorpos[1]],[cursorpos[0] + int(4 * lobby_menu.menu_scale),cursorpos[1]],int(3 * lobby_menu.menu_scale))
                 pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] - int(8 * lobby_menu.menu_scale),cursorpos[1]],[cursorpos[0] - int(4 * lobby_menu.menu_scale),cursorpos[1]],int(3 * lobby_menu.menu_scale))
             elif(str(type(self.request_pending)) == "<class 'float'>"): #make the words "loading..." follow your mouse pointer around lol.
-                font.draw_words("Loading...", [cursorpos[0] - 37.5, cursorpos[1] - 3.75], [255,255,255], 0.75 * lobby_menu.menu_scale, self.screen)
+                font.draw_words("Loading...", [cursorpos[0] - font.SIZE * lobby_menu.menu_scale * len("Loading...") / 2, cursorpos[1] - font.SIZE * lobby_menu.menu_scale / 2.0], [255,255,255], lobby_menu.menu_scale, self.screen)
             elif(self.request_pending == False): #draw an X instead of a + crosshair.
                 pygame.draw.line(self.screen,[255,0,0],[cursorpos[0] - int(8 * lobby_menu.menu_scale),cursorpos[1] - int(8 * lobby_menu.menu_scale)],[cursorpos[0] + int(8 * lobby_menu.menu_scale),cursorpos[1] + int(8 * lobby_menu.menu_scale)],int(3 * lobby_menu.menu_scale))
                 pygame.draw.line(self.screen,[255,0,0],[cursorpos[0] - int(8 * lobby_menu.menu_scale),cursorpos[1] + int(8 * lobby_menu.menu_scale)],[cursorpos[0] + int(8 * lobby_menu.menu_scale),cursorpos[1] - int(8 * lobby_menu.menu_scale)],int(3 * lobby_menu.menu_scale))
             #draw the HUD
             hud.draw_HUD(self.screen)
             pygame.display.flip() #update the display
-
-            # - Delete our menu in our special menu if we created one -
-            if(self.special_window != None): #this can sometimes raise an exception if we're unlucky, so I need to catch it if it happens! I just *really* don't want to have to lock self.special_menu for basically this whole loop =(
-                try:
-                    special_menu.delete_menu(0)
-                except Exception as e:
-                    print("An exception occurred during lobby_frontend: " + str(e) + " - Nonfatal") #print the exception that occurred (most likely a IndexError)
 
             if(self.lobby_connected > 4): #5 lost packets in a row?
                 break #exit if we're not connected to the server
@@ -965,6 +972,9 @@ class BattleEngine():
                     opt_str = ""
                 queue_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"Player " + str(x + 1))
 
+            # - Update our SFX_Manager() -
+            self.sfx.clock([0,0])
+
             #update queue_menu's scaling
             queue_menu.update(self.screen)
 
@@ -1105,6 +1115,7 @@ class BattleEngine():
         explosion_counter = 0
         fps = 30 #this is needed for moving the cursor around at a reasonable rate
         framecounter = 0
+        shot_cooldown = time.time() #this is so that we don't end up clicking 250 times a second on our volume control...imagine!
 
         # - Start the music! -
         self.music.transition_track(self.music_files[2][random.randint(0,len(self.music_files[2]) - 1)]) #start the music up again...
@@ -1113,6 +1124,8 @@ class BattleEngine():
         game_end = False #this flag helps me end the game smoothly.
         sync = False #this flag prevents us from moving when the server syncs us.
         eliminated = [] #this only gets filled with data once it is game over.
+
+        pending_position = None #this flag gets set to your player position when you resize your screen to avoid teleportation from screen resize.
         
         _thread.start_new_thread(self.battle_client_netcode,(player_tank, player_account, entities, entities_lock, particles, particles_lock, arena, blocks, screen_scale, running, sync, game_end, eliminated, hud, hud_lock, gfx)) #start up the netcode
 
@@ -1131,10 +1144,16 @@ class BattleEngine():
             if(mousepos[1] > self.screen.get_height()):
                 mousepos[1] -= self.screen.get_height()
 
+            # - Check if we need to reposition to avoid teleportation upon window resize -
+            if(pending_position != None):
+                player_tank.goto(pending_position[:], TILE_SIZE=20, screen_scale=screen_scale)
+                pending_position = None
+
             # - Get controller input -
             event_pack = controller.get_keys()
             running[0] = not event_pack[0]
             if(event_pack[1] != None): #we requested a window resize?
+                pending_position = player_tank.overall_location[:]
                 resize_dimensions = list(event_pack[1])
                 if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
                     resize_dimensions[0] = self.min_screen_size[0]
@@ -1163,6 +1182,12 @@ class BattleEngine():
             if(ESC_KEY in keys and not PTT_KEY in keys): #menu # 1 then...
                 battle_menu.current_menu = 1
 
+            # - Make sure that our menu scales properly when we are in menu 1 instead of 0 -
+            if(battle_menu.current_menu == 1):
+                battle_menu.default_display_size = [320,240]
+            else: #our game menu coordinates are in 160x120 res...
+                battle_menu.default_display_size = [160,120]
+
             # - Handle keypresses -
             if(not sync):
                 if(not PTT_KEY in keys):
@@ -1176,7 +1201,8 @@ class BattleEngine():
                     if(shoot in keys and not CURSOR_MOD in keys):
                         with player_tank.lock:
                             player_tank.shoot(arena.TILE_SIZE, server=False)
-                    elif(shoot in keys and CURSOR_MOD in keys): #we're shooting a menu item? ...Here we go...menu collision...
+                    elif(shoot in keys and CURSOR_MOD in keys and time.time() - shot_cooldown > 0.2): #we're shooting a menu item? ...Here we go...menu collision...
+                        shot_cooldown = time.time()
                         collide = battle_menu.menu_collision([0,0],[self.screen.get_width(), self.screen.get_height()],mousepos,inc=None)
                         if(battle_menu.current_menu == 0 and collide[0][1] != None): #menu index 0?
                             if(collide[0][1] >= POWERUP_START and collide[0][1] <= SHELL_START - 1): #use powerup?
@@ -1337,7 +1363,7 @@ class BattleEngine():
                 gfx.draw(gfx_particles, framecounter, arena.TILE_SIZE)
                 gfx.purge() #delete old particles
 
-            # - Update SFX_Manager() -
+            # - Update our SFX_Manager() -
             self.sfx.clock(player_tank.overall_location[:])
 
             # - Draw everything -
@@ -1418,6 +1444,7 @@ class BattleEngine():
         setup = True #do we still need to set up the game?
         packets = True #are we going to stop exchanging packets yet?
         clock = pygame.time.Clock() #I like to see my PPS
+        SFX.ID_NUM = 0 #Reset our SFX sound counter, so that we don't lose any sounds at the beginning of the battle
 
         #define our list of powerup images
         powerup_images = [
@@ -1462,13 +1489,15 @@ class BattleEngine():
                     # - Set up the arena -
                     with arena.lock:
                         arena_name = data[2] #the server sent us the name of the arena we're playing on
-                        print(arena_name)
                         arena_data = import_arena.return_arena(arena_name, True) #get our arena data from the name the server sent us (and convert the images to faster formats for blitting)
                         arena.arena = arena_data[0] #input the arena data into our arena object
                         arena.tiles = arena_data[1]
+                        arena.scaled_tiles = arena_data[1]
                         arena.shuffle_patterns = arena_data[2]
                         for x in arena_data[3]:
                             blocks.append(x)
+                        # - Now we update our arena tile scale -
+                        arena.last_screen_size = [-1,-1] #changing this value WILL make the game update the scale.
                     # - Set up the HUD a bit (HP bars for all players other than ourselves) -
                     for x in range(0,data[3]):
                         hud.add_HUD_element("horizontal bar",[[0,-100],[20,5],[[0,255,0],[0,0,0],[0,0,255]],1.0],False)

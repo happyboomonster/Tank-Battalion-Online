@@ -1,4 +1,4 @@
-##"SFX.py" library ---VERSION 0.03---
+##"SFX.py" library ---VERSION 0.04---
 ## - For creating basic audio effects with volume-based positional sound -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -18,6 +18,7 @@
 import math
 import pygame
 import time
+import _thread
 
 pygame.init()
 pygame.mixer.init()
@@ -73,6 +74,10 @@ class Sound(): # - A sound playing class which takes into account position to ma
             # - Check if the sound is still playing -
             if(time.time() - self.track_start >= self.track_length):
                 self.playing = False #the sound itself will end of its own accord.
+
+            # - Return the volume this sound was set to -
+            return volume
+        return 0 #no volume if we're not playing!
 
     def return_data(self, server=False):
         return [
@@ -131,6 +136,7 @@ class Music(): # - A basic music player which can queue tracks and play them in 
 
 class SFX_Manager(): # - A manager for keeping track of multiple Sound() objects at once and transmitting sound states over netcode -
     def __init__(self):
+        self.lock = _thread.allocate_lock()
         self.sounds = [] #holds the paths of all the sounds we've loaded
         self.sound_instances = [] #holds all the Sound() instances of all the self.sounds[] we're playing at the moment
         self.sound_volume = 1.0
@@ -152,10 +158,11 @@ class SFX_Manager(): # - A manager for keeping track of multiple Sound() objects
                 del(self.sound_instances[x - decrement])
                 decrement += 1
 
-    def return_data(self):
+    def return_data(self,player_pos=[0,0]): #player_pos is to make sure we only transmit audible sounds.
         instance_data = []
         for x in range(0,len(self.sound_instances)):
-            instance_data.append(self.sound_instances[x].return_data())
+            if(self.sound_instances[x].clock(player_pos) > 0):
+                instance_data.append(self.sound_instances[x].return_data())
         return [
             instance_data
             ]
@@ -181,6 +188,7 @@ class SFX_Manager(): # - A manager for keeping track of multiple Sound() objects
                         sound_file = pygame.mixer.Sound(self.sounds[data[0][x][4]])
                         identification = Sound(sound_file, [0,0], 1.0)
                         identification.enter_data(data[0][x])
+                        identification.initial_volume *= self.sound_volume #account for the client's sound volume
                         # - Add it to our SFX_Manager() -
                         self.sound_instances.append(identification)
                         self.sound_instances[len(self.sound_instances) - 1].play(player_pos)
@@ -197,6 +205,7 @@ class SFX_Manager(): # - A manager for keeping track of multiple Sound() objects
                     sound_file = pygame.mixer.Sound(self.sounds[data[0][x][4]])
                     identification = Sound(sound_file, [0,0], 1.0)
                     identification.enter_data(data[0][x])
+                    identification.initial_volume *= self.sound_volume #account for the client's sound volume
                     # - Add it to SFX_Manager() -
                     self.sound_instances.append(identification)
                     self.sound_instances[len(self.sound_instances) - 1].play(player_pos)

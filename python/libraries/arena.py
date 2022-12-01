@@ -1,4 +1,4 @@
-##"arena.py" library ---VERSION 0.19---
+##"arena.py" library ---VERSION 0.20---
 ## - For drawing (and manipulating) maps within Tank Battalion Online -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -33,6 +33,10 @@ class Arena():
         self.tiles = tiles[:] #the tiles which make the arena
         self.stretch = True #should we stretch the arena to draw it on our screen without any clipping?
 
+        #    --- Tile SCALING stuff ---
+        self.scaled_tiles = self.tiles[:]
+        self.last_screen_size = [-1,-1] #whenever the screen size does not equal this, the tiles need to be rescaled.
+
         #    --- Tile Shuffling stuff ---
         self.shuffle_speed = 4 #times per second we shuffle tiles (will not be quite exact)
         self.old_time = 0 #when we last shuffled tiles
@@ -61,6 +65,13 @@ class Arena():
                         break
             if(flag_found == False):
                 self.flag_locations.append(None)
+
+    def update_tile_scale(self, screen_dimensions, scale_x, scale_y): #updates the scaled tiles we use to draw our screen more quickly than scaling EVERY frame
+        if(screen_dimensions[0] != self.last_screen_size[0] or screen_dimensions[1] != self.last_screen_size[1]):
+            self.last_screen_size = screen_dimensions[:] #update our last_screen_size to reflect the fact that we updated our texture scale
+            for x in range(0,len(self.tiles)):
+                scaled_tile = pygame.transform.scale(self.tiles[x],[int(self.TILE_SIZE * scale_x), int(self.TILE_SIZE * scale_y)])
+                self.scaled_tiles[x] = scaled_tile
 
     def shuffle_tiles(self): #if we set any tiles to be shuffled, let's do it here...
         if(self.old_time + 1 / self.shuffle_speed < time.time()): #have we hit another time to shuffle tiles?
@@ -166,6 +177,8 @@ class Arena():
                 scale_y = scale_x
             else:
                 scale_x = scale_y
+        #    --- Update our tile scale ---
+        self.update_tile_scale(screen_dimensions, scale_x, scale_y)
         #    --- change our offset to between -/+1 rather than ranging anywhere ---
         final_offset = [-(offset[0] - int(offset[0])), -(offset[1] - int(offset[1]))]
         # - Draw our partial map -
@@ -181,10 +194,9 @@ class Arena():
                     continue #skip drawing this because it will be offscreen on the Y axis
                 else:
                     try:
-                        if(self.arena[pre_y][pre_x] == None): #is there no arena data for this index?
+                        if(self.arena[pre_y][pre_x] == None or pre_y < 0 or pre_x < 0): #is there no arena data for this index? (negative indexes give mirror images of the map, which annoys me a lot)
                             continue #just skip it...
-                        scaled_tile = pygame.transform.scale(self.tiles[self.arena[pre_y][pre_x]],[int(self.TILE_SIZE * scale_x), int(self.TILE_SIZE * scale_y)])
-                        screen.blit(scaled_tile, [int(x * self.TILE_SIZE * scale_x + (final_offset[0] * self.TILE_SIZE * scale_x)), int(y * self.TILE_SIZE * scale_y + (final_offset[1] * self.TILE_SIZE * scale_y))])
+                        screen.blit(self.scaled_tiles[self.arena[pre_y][pre_x]], [int(x * self.TILE_SIZE * scale_x + (final_offset[0] * self.TILE_SIZE * scale_x)), int(y * self.TILE_SIZE * scale_y + (final_offset[1] * self.TILE_SIZE * scale_y))])
                     except IndexError: #sometimes we try to draw beyond our arena boundaries. If so, we just don't try to draw that tile.
                         pass
 

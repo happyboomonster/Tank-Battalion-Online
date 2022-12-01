@@ -1,3 +1,9 @@
+#To do:
+#P1 - Only spotted/audible players get transmitted to teams
+#P1   - Players which are not spotted get left in their last spotted position
+#P1   - Does not apply in "simple" game modes? (unrated, but NOT ranked)
+#P2 - Make 3D arenas?
+
 ##Tank Battalion Online ---VERSION 1.0---
 ##Copyright (C) 2022  Lincoln V.
 ##

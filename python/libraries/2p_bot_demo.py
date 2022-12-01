@@ -273,7 +273,7 @@ bot_player_managers = [None, None]
 huds = [hud, p2_hud]
 
 #add some extra bots to the game...LOL
-for x in range(0,2):
+for x in range(0,1):
     bot_player_managers.append(entity.Bot(1, x + 2, 1.15)) #create the bot manager
     #create the bot account, and create a bot tank. Append that to the players list...
     bot_acct = battle_engine.create_account(25.0,"Bot Player " + str(x))
@@ -421,15 +421,7 @@ while running:
         if(potential_bullet != None): #if we were able to shoot, add the bullet object to our bullet object list
             bullets.append(potential_bullet)
 
-    #run the bot game analysis script for each bot
-    for x in range(0,len(bot_player_managers)):
-        if(players[x].destroyed == True):
-            continue
-        if(bot_player_managers[x] != None):
-            potential_bullet = bot_player_managers[x].analyse_game(players,bullets,my_arena,my_arena.TILE_SIZE,blocks)
-            players[x].use_powerup(0,True) #update the powerup state for this player (because entity.py is written with server-client architecture in mind)
-            if(potential_bullet != None):
-                bullets.append(potential_bullet)
+    # - Bot analysis SHOULD go here -
 
     #check if any bullets have hit eachother
     exit_loop = False
@@ -762,6 +754,16 @@ while running:
     #draw P2's menu system
     p2_mh.draw_menu([0,0],[p2_screen.get_width(),p2_screen.get_height()],p2_screen,[mousepos[0] - p1_screen.get_width(),mousepos[1] - p1_screen.get_height()])
     p2_hud.draw_HUD(p2_screen) #draw P2's HUD
+
+    #run the bot game analysis script for each bot
+    for x in range(0,len(bot_player_managers)):
+        if(players[x].destroyed == True):
+            continue
+        if(bot_player_managers[x] != None):
+            potential_bullet = bot_player_managers[x].analyse_game(players,bullets,my_arena,my_arena.TILE_SIZE,blocks,screen_scale,2,p1_screen)
+            players[x].use_powerup(0,True) #update the powerup state for this player (because entity.py is written with server-client architecture in mind)
+            if(potential_bullet != None):
+                bullets.append(potential_bullet)
 
     #Update the display
     screen.blit(p1_screen,[0,0])

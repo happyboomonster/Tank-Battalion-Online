@@ -1,4 +1,4 @@
-##"account.py" library ---VERSION 0.28---
+##"account.py" library ---VERSION 0.29---
 ## - REQUIRES: "entity.py"
 ## - For managing account data in Tank Battalion Online -
 ##Copyright (C) 2022  Lincoln V.
@@ -64,6 +64,21 @@ class Account():
         self.damage_multiplier = 1.00
         self.penetration_multiplier = 1.00 #this isn't used in calculating bullet costs, but I figured I'd add it since I use it later on in battle_client.py.
 
+        # - Constants for purchase DETAILS -
+        # - What are the stats of the various bullets? -
+        self.shell_specs = [ #Format: [damage, penetration]
+            [7, 7], #hollow
+            [12, 12], #regular
+            [20, 7], #explosive
+            [18, 14] #disk
+            ]
+        self.upgrade_details = [
+            "D.M./P.M. ",
+            "RPM ",
+            "Armor ",
+            "Speed "
+            ]
+
         # - How many of each shell may you own?? I can't just let people run around with disk shells all day because they saved their ^ -
         self.max_shells = [
             30,
@@ -75,12 +90,12 @@ class Account():
         # - The price of all things in the store -
         self.shell_prices = [
             1.0, #hollow: 1.0^
-            3.5,
+            4.0,
             20.0,
             25.0 #disk: 25.0^
             ]
-        self.powerup_price = 5.0 #X^ per powerup
-        self.upgrade_start_price = 5.0 #first upgrade starts at 2^. Next upgrades: pow(5^, upgrade#)
+        self.powerup_price = 10.0 #X^ per powerup
+        self.upgrade_start_price = 5.0 #first upgrade starts at X^. Next upgrades: pow(X^, upgrade#)
 
         # - The price of all things battle related -
         self.DEATH_COST = 25.0 #^
@@ -224,19 +239,15 @@ class Account():
         self.cash = 0
         self.experience = 0
 
-    def create_tank(self, image, team_name): #returns a tank object with all the account's tank stats taken into account.
-        tank = entity.Tank(image, [self.name,team_name]) #create a generic tank object
+    def create_tank(self, image, team_name, upgrade_offsets=[0,0,0,0], skip_image_load=False): #returns a tank object with all the account's tank stats taken into account.
+        tank = entity.Tank(image, [self.name,team_name], skip_image_load) #create a generic tank object
 
         #Take into account upgrades:
-        #if(self.upgrades[0] > 0):
-        tank.damage_multiplier = pow(1.12, self.upgrades[0]) #gun
-        tank.penetration_multiplier = pow(1.09, self.upgrades[0]) #gun
-        #if(self.upgrades[1] > 0):
-        tank.RPM *= pow(1.10, self.upgrades[1]) #loading mechanism
-        #if(self.upgrades[2] > 0):
-        tank.armor *= pow(1.14, self.upgrades[2]) #armor
-        #if(self.upgrades[3] > 0):
-        tank.speed *= pow(1.10, self.upgrades[3]) #engine speed
+        tank.damage_multiplier = pow(1.12, self.upgrades[0] + upgrade_offsets[0]) #gun
+        tank.penetration_multiplier = pow(1.09, self.upgrades[0] + upgrade_offsets[0]) #gun
+        tank.RPM *= pow(1.10, self.upgrades[1] + upgrade_offsets[1]) #loading mechanism
+        tank.armor *= pow(1.14, self.upgrades[2] + upgrade_offsets[2]) #armor
+        tank.speed *= pow(1.10, self.upgrades[3] + upgrade_offsets[3]) #engine speed
 
         # - Handle tank specialization -
         tank.damage_multiplier *= pow(1.07, -self.specialization)
@@ -255,6 +266,9 @@ class Account():
         #Update the tank's "start HP and armor" variables
         tank.start_HP = tank.HP
         tank.start_armor = tank.armor
+
+        #Update the tank's upgrade statistics
+        tank.update_acct_stats()
 
         #return the tank now that it is characterized as heavy, light or medium, as well as stocked with ammunition,
         #powerups, and its upgrade stats.
@@ -332,8 +346,10 @@ class Account():
             return [earned, shell_cost, pu_cost, earned - shell_cost - pu_cost, self.experience - old_experience]
 
     def purchase(self, item, item_index, view_price=False): #if your account balance permits, purchase the item selected.
+        details = None #this variable allows this function to return details on EXACTLY what you're planning on purchasing if view_price == True.
         if(item == "powerup"): #powerups?
             price = self.powerup_price
+            details = None #no details on powerup
             #Check if account has powerup_price availible. If so, deduct powerup_price from account's balance.
             #Give the account the powerup.
             if(not view_price):
@@ -346,6 +362,7 @@ class Account():
                     return False #we couldn't get item
         elif(item == "shell"): #ammunition?
             price = self.shell_prices[item_index] * self.damage_multiplier
+            details = "D/P - " + str(round(self.shell_specs[item_index][0],1)) + "/" + str(round(self.shell_specs[item_index][1],1))
             if(not view_price):
                 if(self.cash >= price): #we has the money?
                     if(self.max_shells[item_index] > self.shells[item_index]): #we're not at our max?
@@ -357,14 +374,41 @@ class Account():
                     return False #we couldn't buy the item
         elif(item == "upgrade"): #an upgrade?
             price = pow(self.upgrade_start_price, self.upgrades[item_index] + 1)
+            # - Calculate the purchase details, which is basically how much of an upgrade this purchase will be -
+            if(view_price):
+                old_tank = self.create_tank("image","dummy team",[0,0,0,0],True)
+                upgrade_offset = []
+                for x in self.upgrades:
+                    upgrade_offset.append(0)
+                upgrade_offset[item_index] += 1
+                detailed_diffs = self.create_tank("image","dummy team",upgrade_offset,True)
+                diffs_list = []
+                difference = None
+                for x in range(0,len(self.upgrades)): #calculate what's different from our current stats
+                    diffs_list.append([])
+                    for y in range(0,len(detailed_diffs.account_stats[x])):
+                        diffs_list[x].append(0)
+                        diffs_list[x][y] = detailed_diffs.account_stats[x][y] - old_tank.account_stats[x][y]
+                    if(0 not in diffs_list[x]):
+                        difference = diffs_list[x]
+                        break #we've found the purchase difference!
+                variables_str = "" #Move our purchase difference stats into a string which we can return later
+                if(difference != None): #this if statement is here to prevent trying to iterate through a NoneType variable.
+                    for b in difference:
+                        variables_str += str(round(b,1)) + "/"
+                    variables_str = variables_str[0:len(variables_str) - 1]
+                    details = self.upgrade_details[x] + variables_str
+                else:
+                    details = ""
+            # - Now the purchase can begin -
             if(not view_price):
                 if(self.upgrades[item_index] < self.upgrade_limit): #we haven't reached the upgrade cap yet?
                     if(self.cash >= pow(self.upgrade_start_price, self.upgrades[item_index] + 1)): #we has da money?
                         self.cash -= pow(self.upgrade_start_price, self.upgrades[item_index] + 1)
                         self.upgrades[item_index] += 1
                         # - Update the damage multiplier for your tank -
-                        self.damage_multiplier = self.create_tank("image","dummy team").damage_multiplier
-                        self.penetration_multiplier = self.create_tank("image","dummy team").penetration_multiplier
+                        self.damage_multiplier = self.create_tank("image","dummy team",[0,0,0,0],True).damage_multiplier
+                        self.penetration_multiplier = self.create_tank("image","dummy team",[0,0,0,0],True).penetration_multiplier
                     else: #we didn't have the cash... =(
                         return False
                 else: #already upgraded to the max!
@@ -383,8 +427,8 @@ class Account():
                         if(self.experience >= price):
                             self.specialization += item_index
                             # - Update the damage multiplier for your tank -
-                            self.damage_multiplier = self.create_tank("image","dummy team").damage_multiplier
-                            self.penetration_multiplier = self.create_tank("image","dummy team").penetration_multiplier
+                            self.damage_multiplier = self.create_tank("image","dummy team",[0,0,0,0],True).damage_multiplier
+                            self.penetration_multiplier = self.create_tank("image","dummy team",[0,0,0,0],True).penetration_multiplier
                         else: #not enough experience...
                             return False
                     else: #no specialization allowed...
@@ -392,11 +436,12 @@ class Account():
                 else:
                     return False
         if(view_price):
-            return price
+            return [price, details]
         return True #we were able to buy item!
 
     def refund(self, item, item_index, view_price=False): #return the item selected if you own it.
         success = False
+        details = None
         if(item == "powerup"): #powerups?
             price = self.powerup_price * self.REFUND_PERCENT
             if(not view_price and self.powerups[item_index] != False):
@@ -411,15 +456,42 @@ class Account():
                 success = True
         elif(item == "upgrade"): #an upgrade?
             price = pow(self.upgrade_start_price, self.upgrades[item_index]) * self.REFUND_PERCENT
+            # - Calculate the purchase details, starting with HOW much of a downgrade this refund will be -
+            if(view_price):
+                old_tank = self.create_tank("image","dummy team",[0,0,0,0],True)
+                upgrade_offset = []
+                for x in self.upgrades:
+                    upgrade_offset.append(0)
+                upgrade_offset[item_index] -= 1
+                detailed_diffs = self.create_tank("image","dummy team",upgrade_offset,True)
+                diffs_list = []
+                difference = None
+                for x in range(0,len(self.upgrades)): #calculate what's different from our current stats
+                    diffs_list.append([])
+                    for y in range(0,len(detailed_diffs.account_stats[x])):
+                        diffs_list[x].append(0)
+                        diffs_list[x][y] = detailed_diffs.account_stats[x][y] - old_tank.account_stats[x][y]
+                    if(0 not in diffs_list[x]):
+                        difference = diffs_list[x]
+                        break #we've found the purchase difference!
+                variables_str = "" #Move our purchase difference stats into a string which we can return later
+                if(difference != None): #this if statement is here to prevent trying to iterate through a NoneType variable.
+                    for b in difference:
+                        variables_str += str(round(b,1)) + "/"
+                    variables_str = variables_str[0:len(variables_str) - 1]
+                    details = self.upgrade_details[x] + variables_str
+                else:
+                    details = ""
+            # - Now we try refund -
             if(not view_price and self.upgrades[item_index] > 0):
                 self.cash += price
                 self.upgrades[item_index] -= 1
                 success = True
                 # - Update the damage multiplier for your tank -
-                self.damage_multiplier = self.create_tank("image","dummy team").damage_multiplier
-                self.penetration_multiplier = self.create_tank("image","dummy team").penetration_multiplier
+                self.damage_multiplier = self.create_tank("image","dummy team",[0,0,0,0],True).damage_multiplier
+                self.penetration_multiplier = self.create_tank("image","dummy team",[0,0,0,0],True).penetration_multiplier
         if(view_price): #just lookin' around right now?
-            return price
+            return [price, details]
         elif(not success):
             return False
         return True #else we actually bought something.
@@ -427,6 +499,6 @@ class Account():
 ###quick test to see whether the currency/purchasing system worked. It does!
 ##account = Account()
 ##account.experience = 10000000
-##account.purchase("specialize",6)
+##print(account.purchase("upgrade",3,True))
 ##tank = account.create_tank("armor","team")
 ##print(tank)

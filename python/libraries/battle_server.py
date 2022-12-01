@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.43---
+##"battle_server.py" library ---VERSION 0.45---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -134,17 +134,19 @@ class BattleEngine():
         #       - min_team_players is a variable storing the least players on a team
         #       - max_player_rating is a variable storing the most powerful player in the match
         #       - min_player_rating is a variable storing the least powerful player in the match
-        #       - bot_rating[] is a list: [rating, team index]
+        #       - bot_rating[] is a list: [rating, team index] It only applies to the weakest bot in the match, since there CAN be multiple.
         #       - player_ratings[] is a list of lists: [ [team 0 players: 0.9, 5.5, 6.2], team 1 players: [5.1, 8.9, 9.1]... ]
         #           - The first player rating is always the weakest player,
         #           - and the last player rating for each team is always the strongest player.
         # - Self.rules is a list of strings which the matchmaker has to evaluate to determine whether the match is fair.
         self.RULES = [ #The rules without urgency implemented in them will remain rigid at all times.
-            "bot_rating[0] < player_ratings[bot_rating[1]][len(player_ratings[bot_rating[1]]) - 1]", #bot player must be weaker than the strongest player on the team
+            #"bot_rating[0] < player_ratings[bot_rating[1]][len(player_ratings[bot_rating[1]]) - 1]", #bot player must be weaker than the strongest player on the team
+            #The rule above is redundant because the match will not let players within a certain skill gap enter the match. Even without the bot, the team's players will be at least comparable to the other players without the bot.
             "max_team_rating * math.sqrt(urgency) < min_team_rating", #all teams must be within sqrt(urgency%) rating differences
             "bot_rating[0] >= self.IMBALANCE_LIMIT", #the bot player MUST have at least the rating required to hold a few shells (otherwise useless bot, because bot has no bullets)
             "min_team_players > max_team_players * urgency" #all teams must have the same amount of players with urgency% error.
             #"min_player_rating > max_player_rating * urgency" #all players must be within urgency% as powerful as each other. [DEPRECATED] Now using PLAYER_RULES to account for deprecating this rule.
+            #The above rule is useless because a rule in self.PLAYER_RULES basically performs the same task.
             ]
 
         # - self.PLAYER_RULES is a list of rules which EACH player has to meet to be added to a match -
@@ -205,23 +207,25 @@ class BattleEngine():
 
                 print("[CONNECT] Recieved login/create account data - Username: " + str(name) + " Password: " + str(password) + " - ", end="")
 
-                # - Create the player's acccount if the player does not have an account already -
-                if(signin == False):
-                    # - First check if the account NAME (not password) already exists. If it DOESN'T, then the new account gets created -
-                    for x in self.accounts: #NOTE: If the account already exists, the server will try to log the player onto it.
-                        if(x.name == name):
-                            signin = True
-                    if(signin == False): #the account hasn't already been created?
-                        self.accounts.append(account.Account(name, password))
+                # - First check if the player's name is equivalent to the name all bots are assigned: "Bot Player" -
+                if(name != "Bot Player"): #if the player name IS "Bot Player", the player has NO CHANCE of creating a new account/signing in.
+                    # - Create the player's acccount if the player does not have an account already -
+                    if(signin == False):
+                        # - First check if the account NAME (not password) already exists. If it DOESN'T, then the new account gets created -
+                        for x in self.accounts: #NOTE: If the account already exists, the server will try to log the player onto it.
+                            if(x.name == name):
+                                signin = True
+                        if(signin == False): #the account hasn't already been created?
+                            self.accounts.append(account.Account(name, password))
 
-                #Next: Get username and password. If they match an account's password and username, we log the user in as that account.
-                for x in range(0,len(self.accounts)):
-                    if(name == self.accounts[x].name and password == self.accounts[x].password and (not [self.accounts[x].name, self.accounts[x].password] in self.logged_in)): #someone has NOT already logged in as us?
-                        logged_in = True
-                        # - Add the player to our "logged in" list
-                        with self.logged_in_lock:
-                            self.logged_in.append([self.accounts[x].name, self.accounts[x].password])
-                        break
+                    #Next: Get username and password. If they match an account's password and username, we log the user in as that account.
+                    for x in range(0,len(self.accounts)):
+                        if(name == self.accounts[x].name and password == self.accounts[x].password and (not [self.accounts[x].name, self.accounts[x].password] in self.logged_in)): #someone has NOT already logged in as us?
+                            logged_in = True
+                            # - Add the player to our "logged in" list
+                            with self.logged_in_lock:
+                                self.logged_in.append([self.accounts[x].name, self.accounts[x].password])
+                            break
             if(logged_in == False): #the person failed to log in because they got the wrong username/password?
                 Cs.close() #disconnect the client. They can reconnect to the server and try again if they like.
                 print("[CONNECT] Bad login data or player was already logged in with another system")
@@ -586,7 +590,7 @@ class BattleEngine():
                                 # - Set the tank's explosion_done flag to False (I know, it's backwards, but it would break 2p_bot_demo otherwise) -
                                 game_objects[x - decrement].explosion_done = True
                                 # - Create some SFX -
-                                sfx.play_sound(self.EXPLOSION, game_objects[x - decrement].overall_location, [0,0]) #the tank just blew up, so it needs to sound like it did...
+                                sfx.play_sound(self.EXPLOSION, game_objects[x - decrement].overall_location[:], [0,0]) #the tank just blew up, so it needs to sound like it did...
                     elif(game_objects[x - decrement].type == "Bullet"): #Are we updating a bullet object?
                         if(game_objects[x - decrement].destroyed == True): #Is the bullet destroyed already?
                             del(game_objects[x - decrement])
@@ -596,7 +600,7 @@ class BattleEngine():
                         game_objects[x - decrement].move() #move the bullet
                         # - Check: Has the bullet hit anything? -
                         bullet_collision = game_objects[x - decrement].return_collision(TILE_SIZE)
-                        collided_tiles = arena.check_collision([2,2],game_objects[x - decrement].map_location,bullet_collision)
+                        collided_tiles = arena.check_collision([2,2],game_objects[x - decrement].map_location[:],bullet_collision)
                         # - A brick? -
                         for t in collided_tiles: #Format: [ [block#, collision direction, position], [block#, collision direction, position]... ]
                             if(t[0] in bricks): #we hit a brick?
@@ -800,7 +804,8 @@ class BattleEngine():
                     # - Send the state of all teams to the client -
                     packet_data.append(eliminated)
                     # - Send sound data to the client -
-                    sfx_data = sfx.return_data()
+                    with sfx.lock:
+                        sfx_data = sfx.return_data(game_objects[player_index].overall_location[:])
                     packet_data.append(sfx_data)
                 netcode.send_data(player_data[1], self.buffersize, packet_data) #send the battle data
 
@@ -835,7 +840,7 @@ class BattleEngine():
                                 if(packet_phase != "end"): #we only punish the player for leaving if the battle's not over AND he's not already dead (you can't die twice)
                                     game_objects[player_index].destroyed = True
                                 outcome = player_data[0].return_tank(game_objects[player_index],rebuy=True,bp_to_cash=True,experience=experience, verbose=True)
-                            special_window_str = self.generate_outcome_menu(outcome, "- Battle Complete -")
+                            special_window_str = self.generate_outcome_menu(outcome, game_objects[player_index], "- Battle Complete -")
                             _thread.start_new_thread(self.lobby_server,(player_data, special_window_str))
                             del(player_data)
                             packets = False
@@ -861,7 +866,7 @@ class BattleEngine():
                                         if(packet_phase != "end"): #we only punish the player for leaving if the battle's not over AND he's not already dead (you can't die twice)
                                             game_objects[player_index].destroyed = True
                                         outcome = player_data[0].return_tank(game_objects[player_index],rebuy=True,bp_to_cash=True,experience=experience, verbose=True)
-                                    special_window_str = self.generate_outcome_menu(outcome, "- Battle Complete -")
+                                    special_window_str = self.generate_outcome_menu(outcome,  game_objects[player_index], "- Battle Complete -")
                                     _thread.start_new_thread(self.lobby_server, (player_data[1], special_window_str)) #back to the lobby...
                                     print("[BATTLE] Removed player " + str(player_data[1].name) + " from the battle successfully")
                                     del(player_data)
@@ -919,20 +924,44 @@ class BattleEngine():
                     for x in game_objects:
                         if(x.type == "Bullet" and x.team != game_objects[player_index].team):
                             bullets.append(x)
-                    potential_bullet = bot_computer.analyse_game(tanks,bullets,arena,arena.TILE_SIZE,all_blocks, tank_collision_offset=0.5)
+                    potential_bullet = bot_computer.analyse_game(tanks,bullets,arena,arena.TILE_SIZE,all_blocks,screen_scale=[1,1],tank_collision_offset=2)
                     if(potential_bullet != None): #did the bot shoot?
                         game_objects.append(potential_bullet)
                     
             clock.tick(20) #limit PPS to 20
 
-    def generate_outcome_menu(self, data, title): #generates the menu string which needs to be transmitted to the client to form a "special menu/window".
-        return [ #format: [earned, shell_cost, pu_cost, net earnings, net experience]
+    def generate_outcome_menu(self, rebuy_data, tank, title): #generates the menu string which needs to be transmitted to the client to form a "special menu/window".
+        # - Calculate some statistics about player performance -
+        total_shots = 0
+        for x in tank.shells_used:
+            total_shots += x
+        if(total_shots == 0): #make sure we don't get div0 errors when calculating accuracy...
+            total_shots += 1
+        total_powerups = 0
+        for x in tank.powerups_used:
+            total_powerups += x
+        # - Generate the outcome menu -
+        return [ #rebuy_data format: [earned, shell_cost, pu_cost, net earnings, net experience]
             "Back",
-            "^ before rebuy - " + str(round(data[0],2)),
-            "Shell costs - " + str(round(data[1],2)),
-            "Powerup costs - " + str(round(data[2],2)),
-            "Net ^ - " + str(round(data[3],2)),
-            "Net experience - " + str(round(data[4],2)),
+            "",
+            "Earnings",
+            "^ before rebuy - " + str(round(rebuy_data[0],2)),
+            "Shell costs - " + str(round(rebuy_data[1],2)),
+            "Powerup costs - " + str(round(rebuy_data[2],2)),
+            "Net ^ - " + str(round(rebuy_data[3],2)),
+            "Net experience - " + str(round(rebuy_data[4],2)),
+            "Hollow shells used - " + str(tank.shells_used[0]),
+            "Regular shells used - " + str(tank.shells_used[1]),
+            "Explosive shells used - " + str(tank.shells_used[2]),
+            "Disk shells used -  " + str(tank.shells_used[3]),
+            "Powerups used: " + str(total_powerups),
+            "",
+            "Performance Stats",
+            "Total damage - " + str(round(tank.total_damage,2)),
+            "Kills - " + str(tank.kills),
+            "Shots fired - " + str(total_shots),
+            "Shots missed - " + str(tank.missed_shots),
+            "Shooting accuracy - " + str(round(100 * (total_shots - tank.missed_shots) / total_shots, 2)) + "%",
             title
             ]
 
@@ -1159,9 +1188,19 @@ class BattleEngine():
                     max_team_rating = most_powerful
             #       - min_team_rating is a variable storing the least powerful team rating
             min_team_rating = team_ratings[0]
+            min_team_rating_index = 0 #this is required so that I know which team gets a bot.
+            counter = 0
             for least_powerful in team_ratings:
                 if(least_powerful < min_team_rating):
                     min_team_rating = least_powerful
+                    min_team_rating_index = counter
+                counter += 1
+            # - BREAK from defining rules temporarily: Now that we have the player ratings of all teams, it is a good time to add bots! -
+            #   - The teams other than the strongest always gets a bot to help them out, provided that the bot can be created greater than self.IMBALANCE_LIMIT.
+            for team in match:
+                if(max_team_rating - team[1] > self.IMBALANCE_LIMIT):
+                    # - Index 1 of the bot player data MUST be equal to "bot" to make the bot scripts begin in the game's main loop -
+                    team[0].append([max_team_rating - team[1], [self.create_account(max_team_rating - team[1]),"bot"]]) #get the bot in the game
             #       - max_team_players is a variable storing the most players on a team
             max_team_players = 0
             for most_players in player_counts:
@@ -1185,18 +1224,22 @@ class BattleEngine():
                     if(player[0] < min_player_rating):
                         min_player_rating = player[0]
             #       - bot_rating[] is a list: [rating, team index]
-            bot_rating = [0.001, 0] # - Find the bot! There can only be one, and its name is always "bot", and password is "pwd"
+            bot_rating = [0.001, 0] # - Find the bot! There can only be one, and its name is always "Bot Player", and password is "pwd"
             team_index = 0
             found = False
             for teams in match:
                 for player in teams[0]:
-                    if(player[1][0].name == "bot" and player[1][0].password == "pwd"):
-                        bot_rating[0] = player[0]
-                        bot_rating[1] = team_index
-                        found = True
-                        break
-                if(found):
-                    break
+                    if(found == False):
+                        if(player[1][0].name == "Bot Player" and player[1][0].password == "pwd"):
+                            bot_rating[0] = player[0]
+                            bot_rating[1] = team_index
+                            found = True
+                            break
+                    else: #this only applies once we've already found A bot. However, it might not be the lowest rating bot in the match...
+                        if(player[1][0].name == "Bot Player" and player[1][0].password == "pwd"):
+                            if(player[0] < bot_rating[0]): #this bot's rating IS lower than the one we WERE thinking of?
+                                bot_rating[0] = player[0] #well now all eyes are on IT!
+                                bot_rating[1] = team_index
                 team_index += 1
             if(not found): #We don't have a bot in the game?
                 bot_rating[0] = self.IMBALANCE_LIMIT #just ensure that the bot rating will pass the requirements
@@ -1234,71 +1277,6 @@ class BattleEngine():
         else: #...no =(
             return None
 
-## - Old matchmaker code -
-##        potential_match = self.return_team_ratings(player_queue, odd_allowed, rating) #check: Is this match going to be too unbalanced?
-##        bot_added = False #this flag is needed so that we can delete the bot if one is created and matchmaking fails
-##        if(potential_match != None): #we have a match?
-##            if(potential_match >= self.IMBALANCE_LIMIT and len(player_queue) < self.PLAYER_CT[1]): #this match is too imbalanced? And there's room for another player? (or bot)
-##                # Typically, no match would be made. However, I can add a bot to the game...!
-##                #We add a bot to the queue which should be powerful enough to make up for its stupidity...ROFL (not happening at the moment due to bugs)
-##                player_queue.append([self.create_account(potential_match),"bot"])
-##                bot_added = True
-##            # - Now, the matchmaker can continue at this point
-##        else: #we can't make a match out of our current queue of players. Not enough in queue perhaps? =(
-##            return None
-##        if(len(player_queue) >= self.PLAYER_CT[0]): #we have enough players in queue to start a game?
-##            if(len(player_queue) >= self.PLAYER_CT[1]): #we have too many players in queue for one game?
-##                #Create a match with the maximum amount of players allowed in one battle!
-##                match_players = []
-##                for x in range(0,self.PLAYER_CT[1]):
-##                    match_players.append(player_queue.pop(0))
-##            else: #create a match with an even/odd number of players
-##                if(odd_allowed):
-##                    match_player_ct = len(player_queue)
-##                else:
-##                    match_player_ct = (int(len(player_queue) / 2.0) * 2)
-##                match_players = []
-##                for x in range(0,match_player_ct):
-##                    match_players.append(player_queue.pop(0)) #this line is important: It takes players OUT of queue into battle.
-##            # - Now we need to balance the "match_players" into two teams -
-##            #"match_players_stats" holds numbers: the higher the number, the better the player is predicted to perform.
-##            match_players_stats = [] #Holds what I will refer to as "numerical rating" or "predicted performance" numbers
-##            for x in range(0,len(match_players)): #find the numerical rating of each player in this match
-##                match_players_stats.append([self.return_rating(match_players[x][0],rating), match_players[x]])
-##            # - Now that we have attempted to predict how powerful a player will be, we need to arrange teams -
-##            teams = [[[], 0], [[], 0]] #this could be changed in the future to allow 3 or 4 teams...
-##            while len(match_players_stats) > 0:
-##                # - find the most powerful player -
-##                power = [0, 0]
-##                for x in range(0,len(match_players_stats)):
-##                    if(match_players_stats[x][0] > power[0]): #this player is more powerful than any others we have checked?
-##                        power = [match_players_stats[x][0], x]
-##                powerful_player = match_players_stats[power[1]]
-##                #print("Match_players_stats index: " + str(powerful_player[1]) + " match_players_stats len: " + str(len(match_players_stats)))
-##                #print("Match_players index: " + str(match_players_stats[powerful_player[1] - sub][1]) + " match_players len: " + str(len(match_players_stats)))
-##                powerful_player_full = [powerful_player[0], powerful_player[1]]
-##                del(match_players_stats[power[1]])
-##                # - Now which team should he go on? Which one is behind in matchmaking points? -
-##                if(teams[0][1] > teams[1][1]): #then the player goes on team 1.
-##                    teams[1][0].append(powerful_player_full)
-##                    teams[1][1] += powerful_player[0] #add the player's numerical rating to the team's overall rating
-##                else: #the player goes on team 0.
-##                    teams[0][0].append(powerful_player_full)
-##                    teams[0][1] += powerful_player[0] #add the player's numerical rating to the team's overall rating
-##                #for debugging purposes, and people's pride...how good are you rated by my matchmaker?
-##                #print("Most powerful (best to worst): " + str(power))
-##            #print out the team ratings
-##            #print("Team 0: " + str(teams[0][1]) + " Team 1: " + str(teams[1][1]))
-##            #print("Power difference (- = team 1, + = team 0): " + str(teams[0][1] - teams[1][1]))
-##            # - Return our final matchmaking output -
-##            #Player Format: [[rating, [account, socket]], [rating, [account, socket]]...]
-##            #Teams format: [[players, rating], [players, rating]...]
-##            return [teams, teams[0][1] - teams[1][1]] #return the matchmaking result (includes player accounts, socket connections), and imbalances.
-##        else: #no match could be made... :(
-##            if(bot_added): #remove the bot from the player queue
-##                del(player_queue[len(player_queue) - 1]) #the bot is always the last player in the queue.
-##            return None
-
     def anti_cheat(self): #checks old_data list and can see if any players are cheating based on that.
         # - AC needs to check 2 things: -
         # 1) Player speed: Is the player moving faster than allowed?
@@ -1324,7 +1302,7 @@ engine = BattleEngine()
 ##        player_queue.append([accounts[x], "client socket"])
 ##
 ##    #Although we can matchmake with an odd amount of players, generally odd matches are less balanced then ones with even numbers of players.
-##    power_differences.append(engine.matchmake(player_queue, odd_allowed=True, rating=False, urgency))
+##    power_differences.append(engine.matchmake(player_queue, odd_allowed=True, rating=False, urgency=urgency))
 ##
 ### - Find the average power difference in matches, as well as how many matches were rejected due to imbalance -
 ##avg_power_differences = 0

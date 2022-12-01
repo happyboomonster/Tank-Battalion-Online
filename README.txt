@@ -30,9 +30,9 @@ Have fun! (hopefully there are no more bugs left in the game)
 
  --- Music Credits ---
 
-"Airship Serenity","Mellowtron","Newer Wave","Voxel Revolution","Bit Quest",
-"Bit Shift","Bleeping Demo","Blip Stream","Blippy Trance","Digital Lemonade",
-"Unwritten Return","Furious Freak","Overworld","Pixelland",
-"Salty Ditty" Kevin MacLeod (incompetech.com)
+"Bit Quest","Bit Shift","Bleeping Demo","Blip Stream",
+"Blippy Trance","Digital Lemonade","Unwritten Return",
+"Furious Freak","Overworld","Pixelland","Salty Ditty"
+	Kevin MacLeod (incompetech.com)
 Licensed under Creative Commons: By Attribution 4.0 License
 http://creativecommons.org/licenses/by/4.0/
