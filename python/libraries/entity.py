@@ -1,4 +1,4 @@
-##"entity.py" library ---VERSION 0.63---
+##"entity.py" library ---VERSION 0.64---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -812,12 +812,10 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
         #which direction to move? The bot needs something concrete to follow along to, rather than constantly changing its mind about where to turn.
         self.direction = random.randint(0,3) * 90 #this only gets set when the bot is moving towards its destination.
         self.last_directions = [self.direction, self.direction + 90,0] #Important: Index 2 is a counter. Based on what it is, we modify either index 0 or index 1 when we change direction. we always try to move in this direction, or continue moving in self.direction. ALWAYS. (unless no wall)
-        self.last_turn_location = [0,0] #this bookmarks the last place the bot has tried to change its direction (not decimal accurate, rounded).
+        self.current_position = [0,0]
         self.destination_time = None #how long has this bot been trying to reach its destination?
         self.goal_base = None #what base is the bot trying to attack?
         self.available_directions = [] #this bookmark is useful for allowing the bot to change directions at times when it would typically continue in its current direction.
-        self.centered = False #this flag is needed so that the bot can move while attacking an enemy, OR changing position.
-        self.last_entity_check = time.time()
         self.last_compute_frame = time.time()
         self.player_aggro = None #these variables change based on whether the bot is trying to attack something
         self.bullet_aggro = None
@@ -829,26 +827,26 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
             "side 1",
             "side 2"
             ]
-        self.pathfind_overshoot = 0.05 #this threshold is to help calculate pathfinding routines.
-        self.destination_time_limit = 1000.0 #seconds
+        #- This threshold is to help calculate pathfinding routines. It has nothing to do with actual pathfinding,
+        #   - but it helps with pathfinding destination calculations -
+        self.pathfind_overshoot = 0.05
+        self.destination_time_limit = 60.0 #seconds
         #this is a threshold (in blocks) which allows bots to be within (pathfind_error) blocks of their destination for it to be considered completed.
-        self.pathfind_error = 0.1
+        self.pathfind_error = 0.25
         self.bot_vision = 5 #how far (in blocks) the bot can see
         self.DECISION_PRIORITY = ["bullet","player"] #first index is first priority, second index is second priority of focus, etc.
-        self.CENTER_THRESHOLD = 0.10 #how close to the center of a block the bot may be to simply set his position to center.
-        self.CENTER_COOLDOWN = 5.0 #how long does the bot HAVE to wait inbetween each centering session?
+        self.CENTER_THRESHOLD = 0.15 #how close to the center of a block the bot may be to simply set his position to center.
         self.OPPOSITE_DIRECTIONS = [[90,270],[0,180]]
-        self.LAST_ENTITY_CHECK_TIME = 0.0
-        self.COMPUTE_TIME = 0.0
+        self.FORCED_MOVE_TIME = 1.5
 
         # - Powerup selection constants -
-        self.ARMOR_BOOST_THRESHOLD = 15 * (player_rating / 4) #threshold at which the bot still decides that using armor boost is worth it.
+        self.ARMOR_BOOST_THRESHOLD = 20 * math.sqrt(player_rating) #threshold at which the bot still decides that using armor boost is worth it.
         self.POWERUP_AGGRESSION_LIST = [4,2,3] #list of powerups (in order) that a bot uses when its armor starts getting depleted...
         self.HP_DEPENDANT_POWERUPS = [2,3,4] #list of powerups which affect HP
         self.BULLET_DISTANCE_THRESHOLD = 3.0 #maximum number of blocks away a bullet can be to make the AI use powerups to counter the bullet
 
-    def start_pos(self,players,arena): #ez way to get the bot to start on the flag's site.
-        players[self.player_number].map_location = arena.flag_locations[self.team_number][:]
+    def start_pos(self,players,arena,screen_scale): #ez way to get the bot to start on the flag's site.
+        players[self.player_number].goto(arena.flag_locations[self.team_number][:], arena.TILE_SIZE, screen_scale)
 
     def self_center(self,players,TILE_SIZE,screen_scale): #center the bot player over 1 arena tile
         if(abs(players[self.player_number].overall_location[0] - round(players[self.player_number].overall_location[0],0)) > self.CENTER_THRESHOLD):
@@ -871,7 +869,6 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
             players[self.player_number].move(direction, TILE_SIZE)
         else: #we're CLOSE ENOUGH to centered. Let's teleport the rest of the way there...
             centered = True
-            #players[self.player_number].map_location = [round(players[self.player_number].overall_location[0],0), round(players[self.player_number].overall_location[1],0)]
             players[self.player_number].goto([round(players[self.player_number].overall_location[0],0), round(players[self.player_number].overall_location[1],0)],TILE_SIZE,screen_scale)
         return centered
 
@@ -885,13 +882,16 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                 direction += 360
         return direction
 
-    def find_directions(self,players,arena,collideable_tiles,TILE_SIZE,offset=0): #finds which direction the bot can move in.
+    def find_directions(self,players,arena,collideable_tiles,TILE_SIZE,offset=1): #finds which direction the bot can move in.
         #We can go any direction where there is not a block in our way.
         available_directions = [0,180,90,270]
         visible_tiles = [2,2]
+        # - How much further are we trying to go in each direction? -
+        #   - We move a dummy tank this amount from our current position to tell if we can move...
+        increment = offset / TILE_SIZE * 1.025
         #first, we're checking if we can move left.
         dummy_tank = Tank(image='', names=["dt","tn"], skip_image_load=True)
-        dummy_tank.map_location[0] = players[self.player_number].overall_location[0] - 0.05 #round(players[self.player_number].overall_location[0],0) - 1
+        dummy_tank.map_location[0] = players[self.player_number].overall_location[0] - increment #round(players[self.player_number].overall_location[0],0) - 1
         dummy_tank.map_location[1] = players[self.player_number].overall_location[1] #round(players[self.player_number].overall_location[1],0)
         dummy_tank.clock(TILE_SIZE)
         tile_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
@@ -902,7 +902,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                 break
         #next, we're checking if we can move right.
         dummy_tank = Tank(image='', names=["dt","tn"], skip_image_load=True)
-        dummy_tank.map_location[0] = players[self.player_number].overall_location[0] + 0.05 #round(players[self.player_number].overall_location[0],0) + 1
+        dummy_tank.map_location[0] = players[self.player_number].overall_location[0] + increment #round(players[self.player_number].overall_location[0],0) + 1
         dummy_tank.map_location[1] = players[self.player_number].overall_location[1] #round(players[self.player_number].overall_location[1],0)
         dummy_tank.clock(TILE_SIZE)
         tile_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
@@ -914,7 +914,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
         #Now we're checking if we can move up.
         dummy_tank = Tank(image='', names=["dt","tn"], skip_image_load=True)
         dummy_tank.map_location[0] = players[self.player_number].overall_location[0] #round(players[self.player_number].overall_location[0],0)
-        dummy_tank.map_location[1] = players[self.player_number].overall_location[1] - 0.05 #round(players[self.player_number].overall_location[1],0) - 1
+        dummy_tank.map_location[1] = players[self.player_number].overall_location[1] - increment #round(players[self.player_number].overall_location[1],0) - 1
         dummy_tank.clock(TILE_SIZE)
         tile_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
         dummy_collision = arena.check_collision(visible_tiles, tile_offset, dummy_tank.return_collision(TILE_SIZE,offset))
@@ -925,7 +925,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
         #first, we're checking if we can move down.
         dummy_tank = Tank(image='', names=["dt","tn"], skip_image_load=True)
         dummy_tank.map_location[0] = players[self.player_number].overall_location[0] #round(players[self.player_number].overall_location[0],0)
-        dummy_tank.map_location[1] = players[self.player_number].overall_location[1] + 0.05 #round(players[self.player_number].overall_location[1],0) + 1
+        dummy_tank.map_location[1] = players[self.player_number].overall_location[1] + increment #round(players[self.player_number].overall_location[1],0) + 1
         dummy_tank.clock(TILE_SIZE)
         tile_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
         dummy_collision = arena.check_collision(visible_tiles, tile_offset, dummy_tank.return_collision(TILE_SIZE,offset))
@@ -1286,96 +1286,116 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
         #For finding bullet locations: [round(bullets[x].map_location[0],0), round(bullets[x].map_location[1],0)]
         #For finding arena base locations: arena.flag_locations[x]
         potential_bullet = None
-        #if(time.time() - self.last_compute_frame > self.COMPUTE_TIME): #we only need to COMPUTE where to move every few frames.
-            #self.last_compute_frame = time.time()
-        # - This bot has no purpose yet? Or, has this bot had ONE purpose for too long? -
-        if(self.destination == None or (self.destination_time != None and (time.time() - self.destination_time) > self.destination_time_limit)):
-            self.destination_time = time.time()
-            goal_base = random.randint(0,len(arena.flag_locations) - 1)
-            if(goal_base == self.team_number): #we picked to shoot on our own base??????
-                new_goal_base = random.randint(0,1)
-                if(new_goal_base == 0 and goal_base > 0):
-                    goal_base -= 1
-                elif(goal_base < len(arena.flag_locations) - 1):
-                    goal_base += 1
-            goal_base = arena.flag_locations[goal_base] #now we know where the base we're going to target is.
-            self.goal_base = goal_base[:]
-            #Next, we need to decide whether we're going to try circle around the base and target from the side,
-            #perform a direct attack on the enemy's front (not such a good idea), or...
-            #try to flank the enemy (fun!)
-            direction_to_goal = [goal_base[0] - players[self.player_number].overall_location[0], goal_base[1] - players[self.player_number].overall_location[1]]
-            goal_distances = [goal_base[0] - arena.flag_locations[self.team_number][0], goal_base[1] - arena.flag_locations[self.team_number][1]]
-            if(self.tactic == None):
-                self.tactic = self.tactics[random.randint(0,len(self.tactics) - 1)]
-            destination = [0,0]
-            if(self.tactic == "flank"): #we're going to start by heading to the back of the enemy's base...
-                #hopefully *without* going straight into the line of fire.
-                destination[0] = int(goal_base[0] + (goal_distances[0] * self.pathfind_overshoot))
-                destination[1] = int(goal_base[1] + (goal_distances[1] * self.pathfind_overshoot))
-            elif(self.tactic == "front"): #this is a head-on attack...Not necessarily a good idea.
-                destination = goal_base[:]
-            elif(self.tactic == "side 1"): #this is trying to attack on left front. (or, if the map is horizontal, from top front).
-                if(goal_distances[0] > goal_distances[1]): #we're going to be attacking on the top front
-                    destination[0] = goal_base[0]
-                    destination[1] = int(goal_base[1] - abs(goal_distances[1] * self.pathfind_overshoot))
-                else: #we're going to be attacking on the left front.
-                    destination[0] = int(goal_base[0] - abs(goal_distances[0] * self.pathfind_overshoot))
-                    destination[1] = goal_base[1]
-            elif(self.tactic == "side 2"): #this is trying to attack on right front. (or, if the map is horizontal, from bottom front).
-                if(goal_distances[0] > goal_distances[1]): #we're going to be attacking on the bottom front
-                    destination[0] = goal_base[0]
-                    destination[1] = int(goal_base[1] + abs(goal_distances[1] * self.pathfind_overshoot))
-                else: #we're going to be attacking on the right front.
-                    destination[0] = int(goal_base[0] + abs(goal_distances[0] * self.pathfind_overshoot))
-                    destination[1] = goal_base[1]
-            self.destination = destination[:]
-            #print(self.destination) #debug
-        # - Now, we need to check if our bot has REACHED his destination! -
-        if(self.destination[0] < (players[self.player_number].overall_location[0] + 1 + self.pathfind_error) and self.destination[0] > (players[self.player_number].overall_location[0] - self.pathfind_error)):
-           if(self.destination[1] < (players[self.player_number].overall_location[1] + 1 + self.pathfind_error) and self.destination[1] > (players[self.player_number].overall_location[1] - self.pathfind_error)):
-               # - Destination has been reached! -
-               self.destination_time = time.time() #reset our destination timer
-               if(self.destination == self.goal_base): #now we head to the middle of the map.
-                   self.destination = [
-                        len(arena.arena[0]) / 2,
-                        len(arena.arena) / 2
-                                  ]
-               elif(self.destination == [len(arena.arena[0]) / 2,len(arena.arena) / 2]):
-                   self.destination = [random.randint(0,len(arena.arena[0])),random.randint(0,len(arena.arena))]
-                   #mission accomplished! This bot gets to wander.
-               else: #we head to the base!
-                   self.destination = self.goal_base[:]
-               #print(self.destination) #debug
-        # - The bot needs to check if any bullets are heading its way, and if it can respond in time -
-        # - Check on the X and Y axis until a wall/brick is reached to see if we have found a bullet -
-        self.bullet_aggro = self.check_visible_entities(players,bullets,arena,collideable_tiles,TILE_SIZE) #bullets MUST be checked each frame because they can be deleted
-        if(time.time() - self.last_entity_check > self.LAST_ENTITY_CHECK_TIME):
-            #self.last_entity_check = time.time() #reset our cooldown timer - This is here to promote higher performance levels
-            # - Now, the bot gets to check if it sees any enemies nearby -
-            self.player_aggro = self.check_visible_entities(players,players,arena,collideable_tiles,TILE_SIZE)
-        # - Check if we should use any powerups -
-        self.use_powerups(players,bullets,self.player_aggro,self.bullet_aggro) #are we using our powerups at all?
-        # - Next, the bot has to make decisions: Should I move? Should I shoot? Where should I move? -
-        # So the bot knows a few things now: player_aggro is None if there are no players in sight, or the index of the tank the bot is focused on.
-        # - bullet_aggro is None if there are no bullets in sight, and otherwise equals the index of the bullet the bot is focused on.
-        # - The bot will always have a "destination" to reach, which can be worked toward if there is no aggros active.
-        #Now, regardless of what we do (provided it doesn't involve our destination), we need to center ourselves in a block.
-        if(self.player_aggro != None or self.bullet_aggro != None):
-            self.find_shell(players) #we need to make sure we're using the right type of shells
-            if(self.player_aggro != None): #we just have a player in focus? (this IF statement comes first, because damaging players is more important than destroying bullets)
-                self.destination = [round(players[self.player_aggro].overall_location[0],0),round(players[self.player_aggro].overall_location[1],0)] #try and find the player if we lose sight of him
+        move = False
+        centering = False #this flag is important; It tells us whether to move at the bottom of analyse_game() or not.
+        if(time.time() - self.last_compute_frame > self.FORCED_MOVE_TIME): #we need to move again?
+            # - We need to center ourselves. Once we're centered, we can reset last_compute_frame -
+            centered = self.self_center(players,TILE_SIZE,screen_scale)
+            centering = True
+            if(centered): #we've centered ourselves?
+                # - Now we can set move to True, and reset last_compute_frame -
+                self.last_compute_frame = time.time()
+                move = True
+                centering = False
+        elif(self.current_position[0] + 1 <= players[self.player_number].overall_location[0] or self.current_position[0] - 1 >= players[self.player_number].overall_location[0]):
+            move = True
+            # - Set self.current_position to our new location -
+            self.current_position[0] = round(players[self.player_number].overall_location[0],0)
+        elif(self.current_position[1] + 1 <= players[self.player_number].overall_location[1] or self.current_position[1] - 1 >= players[self.player_number].overall_location[1]):
+            move = True
+            # - Set self.current_position to our new location -
+            self.current_position[1] = round(players[self.player_number].overall_location[1],0)
+        if(move): # - We only need to check for destinations and movement corrections each time we move one block -
+            # - Reset self.last_compute_frame -
+            self.last_compute_frame = time.time()
+            # - This bot has no purpose yet? Or, has this bot had ONE purpose for too long? -
+            if(self.destination == None or (self.destination_time != None and (time.time() - self.destination_time) > self.destination_time_limit)):
                 self.destination_time = time.time()
-                tracked = self.entity_alligned(players,players[self.player_aggro],TILE_SIZE)
-                if(tracked == True): #we're in line?
-                    potential_bullet = players[self.player_number].shoot(TILE_SIZE)
-            elif(self.bullet_aggro != None): #we just have a bullet in focus?
-                tracked = self.entity_alligned(players,bullets[self.bullet_aggro],TILE_SIZE)
-                if(tracked == True): #we're in line?
-                    potential_bullet = players[self.player_number].shoot(TILE_SIZE)
-        # - Continuing towards our destination...which might be a bullet which we need to shoot! -
-        self.track_location(players,arena,TILE_SIZE,collideable_tiles,tank_collision_offset,screen)
-##        else: #just keep moving the same direction we have been to reduce CPU load
-##            players[self.player_number].move(self.direction, TILE_SIZE)
+                goal_base = random.randint(0,len(arena.flag_locations) - 1)
+                if(goal_base == self.team_number): #we picked to shoot on our own base??????
+                    new_goal_base = random.randint(0,1)
+                    if(new_goal_base == 0 and goal_base > 0):
+                        goal_base -= 1
+                    elif(goal_base < len(arena.flag_locations) - 1):
+                        goal_base += 1
+                goal_base = arena.flag_locations[goal_base] #now we know where the base we're going to target is.
+                self.goal_base = goal_base[:]
+                #Next, we need to decide whether we're going to try circle around the base and target from the side,
+                #perform a direct attack on the enemy's front (not such a good idea), or...
+                #try to flank the enemy (fun!)
+                direction_to_goal = [goal_base[0] - players[self.player_number].overall_location[0], goal_base[1] - players[self.player_number].overall_location[1]]
+                goal_distances = [goal_base[0] - arena.flag_locations[self.team_number][0], goal_base[1] - arena.flag_locations[self.team_number][1]]
+                if(self.tactic == None):
+                    self.tactic = self.tactics[random.randint(0,len(self.tactics) - 1)]
+                destination = [0,0]
+                if(self.tactic == "flank"): #we're going to start by heading to the back of the enemy's base...
+                    #hopefully *without* going straight into the line of fire.
+                    destination[0] = int(goal_base[0] + (goal_distances[0] * self.pathfind_overshoot))
+                    destination[1] = int(goal_base[1] + (goal_distances[1] * self.pathfind_overshoot))
+                elif(self.tactic == "front"): #this is a head-on attack...Not necessarily a good idea.
+                    destination = goal_base[:]
+                elif(self.tactic == "side 1"): #this is trying to attack on left front. (or, if the map is horizontal, from top front).
+                    if(goal_distances[0] > goal_distances[1]): #we're going to be attacking on the top front
+                        destination[0] = goal_base[0]
+                        destination[1] = int(goal_base[1] - abs(goal_distances[1] * self.pathfind_overshoot))
+                    else: #we're going to be attacking on the left front.
+                        destination[0] = int(goal_base[0] - abs(goal_distances[0] * self.pathfind_overshoot))
+                        destination[1] = goal_base[1]
+                elif(self.tactic == "side 2"): #this is trying to attack on right front. (or, if the map is horizontal, from bottom front).
+                    if(goal_distances[0] > goal_distances[1]): #we're going to be attacking on the bottom front
+                        destination[0] = goal_base[0]
+                        destination[1] = int(goal_base[1] + abs(goal_distances[1] * self.pathfind_overshoot))
+                    else: #we're going to be attacking on the right front.
+                        destination[0] = int(goal_base[0] + abs(goal_distances[0] * self.pathfind_overshoot))
+                        destination[1] = goal_base[1]
+                self.destination = destination[:]
+                #print(self.destination) #debug
+            # - Now, we need to check if our bot has REACHED his destination! -
+            if(self.destination[0] < (players[self.player_number].overall_location[0] + 1 + self.pathfind_error) and self.destination[0] > (players[self.player_number].overall_location[0] - self.pathfind_error)):
+               if(self.destination[1] < (players[self.player_number].overall_location[1] + 1 + self.pathfind_error) and self.destination[1] > (players[self.player_number].overall_location[1] - self.pathfind_error)):
+                   # - Destination has been reached! -
+                   self.destination_time = time.time() #reset our destination timer
+                   if(self.destination == self.goal_base): #now we head to the middle of the map.
+                       self.destination = [
+                            len(arena.arena[0]) / 2,
+                            len(arena.arena) / 2
+                                      ]
+                   elif(self.destination == [len(arena.arena[0]) / 2,len(arena.arena) / 2]):
+                       self.destination = [random.randint(0,len(arena.arena[0])),random.randint(0,len(arena.arena))]
+                       #mission accomplished! This bot gets to wander.
+                   else: #we head to the base!
+                       self.destination = self.goal_base[:]
+                   #print(self.destination) #debug
+            # - The bot needs to check if any bullets are heading its way, and if it can respond in time -
+            # - Check on the X and Y axis until a wall/brick is reached to see if we have found a bullet -
+            self.bullet_aggro = self.check_visible_entities(players,bullets,arena,collideable_tiles,TILE_SIZE) #bullets MUST be checked each frame because they can be deleted
+            #if(time.time() - self.last_entity_check > self.LAST_ENTITY_CHECK_TIME):
+                #self.last_entity_check = time.time() #reset our cooldown timer - This is here to promote higher performance levels
+                # - Now, the bot gets to check if it sees any enemies nearby -
+            self.player_aggro = self.check_visible_entities(players,players,arena,collideable_tiles,TILE_SIZE)
+            # - Check if we should use any powerups -
+            self.use_powerups(players,bullets,self.player_aggro,self.bullet_aggro) #are we using our powerups at all?
+            # - Next, the bot has to make decisions: Should I move? Should I shoot? Where should I move? -
+            # So the bot knows a few things now: player_aggro is None if there are no players in sight, or the index of the tank the bot is focused on.
+            # - bullet_aggro is None if there are no bullets in sight, and otherwise equals the index of the bullet the bot is focused on.
+            # - The bot will always have a "destination" to reach, which can be worked toward if there is no aggros active.
+            #Now, regardless of what we do (provided it doesn't involve our destination), we need to center ourselves in a block.
+            if(self.player_aggro != None or self.bullet_aggro != None):
+                self.find_shell(players) #we need to make sure we're using the right type of shells
+                if(self.player_aggro != None): #we just have a player in focus? (this IF statement comes first, because damaging players is more important than destroying bullets)
+                    self.destination = [round(players[self.player_aggro].overall_location[0],0),round(players[self.player_aggro].overall_location[1],0)] #try and find the player if we lose sight of him
+                    self.destination_time = time.time()
+                    tracked = self.entity_alligned(players,players[self.player_aggro],TILE_SIZE)
+                    if(tracked == True): #we're in line?
+                        potential_bullet = players[self.player_number].shoot(TILE_SIZE)
+                elif(self.bullet_aggro != None): #we just have a bullet in focus?
+                    tracked = self.entity_alligned(players,bullets[self.bullet_aggro],TILE_SIZE)
+                    if(tracked == True): #we're in line?
+                        potential_bullet = players[self.player_number].shoot(TILE_SIZE)
+            # - Continuing towards our destination...which might be a bullet which we need to shoot! -
+            self.track_location(players,arena,TILE_SIZE,collideable_tiles,tank_collision_offset,screen)
+        elif(not centering): #just keep moving the same direction we have been to reduce CPU load
+            players[self.player_number].move(self.direction, TILE_SIZE)
         return potential_bullet
                 
 #The following function accepts two entity objects as a list.
