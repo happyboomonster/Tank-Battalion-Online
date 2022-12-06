@@ -29,6 +29,8 @@ screens = [p1_screen, p2_screen]
 T1U = pygame.image.load("../../pix/Characters(gub)/p1U.png")
 T2U = pygame.image.load("../../pix/Characters(gub)/p2U.png")
 T3U = pygame.image.load("../../pix/Characters(gub)/p3U.png")
+T4U = pygame.image.load("../../pix/Characters(gub)/p4U.png")
+T5U = pygame.image.load("../../pix/Characters(gub)/p5U.png")
 t_images = [T1U, T2U, T3U]
 
 #list of all blocks we cannot run through
@@ -122,7 +124,7 @@ bricks = [
     ]
 
 # - Import an external map -
-arena_data = import_arena.return_arena("t2_Arena01")
+arena_data = import_arena.return_arena("t3_Arena01")
 my_map = arena_data[0]
 my_tiles = arena_data[1]
 my_shuffle = arena_data[2]
@@ -158,7 +160,7 @@ p2_mh.default_display_size = [p2_screen.get_width(), p2_screen.get_height()]
 #tank = entity.Tank(T1U, "Player Team")
 p1_acct = battle_engine.create_account(25.0,"Player 1")
 p1_acct.specialization = random.randint(-p1_acct.upgrade_limit,p1_acct.upgrade_limit)
-tank = p1_acct.create_tank(T3U, "Player Team")
+tank = p1_acct.create_tank(T5U, "Player Team")
 #increase the tank's RPM
 #tank.RPM = 25.0
 #tank.damage_multiplier = 9
@@ -218,7 +220,7 @@ powerups = []
 #p2_tank = entity.Tank(T1U, "Player Team")
 p2_acct = battle_engine.create_account(25.0,"Player 2")
 p2_acct.specialization = random.randint(-p2_acct.upgrade_limit,p2_acct.upgrade_limit)
-p2_tank = p2_acct.create_tank(T3U, "Bot Team")
+p2_tank = p2_acct.create_tank(T5U, "Bot Team")
 #p2_tank.destroyed = True
 #increase the tank's RPM
 #p2_tank.RPM = 25.0
@@ -273,17 +275,33 @@ p2_hud.add_HUD_element("text",[[101,10],9,[[255,255,0],None,None],"disk shell"])
 players = [tank, p2_tank]
 old_positions = [None,None]
 # - Uncomment the commented list to make the players become bots, and you can passively watch a completely bot-only battle! -
-bot_player_managers = [None, None] #[entity.Bot(0, 0, 1.15), entity.Bot(1, 1, 1.15)]
+bot_player_managers = [None, entity.Bot(1, 1, 1.15)] #[entity.Bot(0, 0, 1.15), entity.Bot(1, 1, 1.15)]
 huds = [hud, p2_hud]
 
 #add some extra bots to the game...LOL
-for x in range(0,48):
+for x in range(0,12):
     bot_player_managers.append(entity.Bot(x % 2, x + 2, [1.15,1.15][x % 2])) #create the bot manager
     #create the bot account, and create a bot tank. Append that to the players list...
     bot_acct = battle_engine.create_account(25.0,"Bot Player " + str(x))
     players.append(bot_acct.create_tank([T1U,T2U][x % 2], ["Player Team","Bot Team"][x % 2]))
     bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
     bot_player_managers[x + 2].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
+# - Uncomment this to add a third team of only bots! -
+for x in range(0,7):
+    bot_player_managers.append(entity.Bot(2, x + 2 + 12, 1.15)) #create the bot manager
+    #create the bot account, and create a bot tank. Append that to the players list...
+    bot_acct = battle_engine.create_account(25.0,"Bot Player " + str(x + 12))
+    players.append(bot_acct.create_tank(T3U, "2nd Bot Team"))
+    bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
+    bot_player_managers[x + 2 + 12].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
+### - Uncomment this to add a fourth team of only bots! -
+##for x in range(0,7):
+##    bot_player_managers.append(entity.Bot(3, x + 2 + 12 + 7, 1.15)) #create the bot manager
+##    #create the bot account, and create a bot tank. Append that to the players list...
+##    bot_acct = battle_engine.create_account(25.0,"Bot Player " + str(x + 12 + 7))
+##    players.append(bot_acct.create_tank(T4U, "3nd Bot Team"))
+##    bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
+##    bot_player_managers[x + 2 + 12 + 7].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
 
 player_bar_hud_start = 17
 for x in range(0,len(players)): #add the HUD elements for all players to p1's and p2's HUD engines
