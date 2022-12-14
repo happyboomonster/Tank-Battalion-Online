@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.45---
+##"battle_server.py" library ---VERSION 0.46---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -469,7 +469,7 @@ class BattleEngine():
                 if(player == 0): #add the team bookmark to the eliminated[] list.
                     eliminated.append(["Team " + str(teams), False])
                 #print(players[teams][0][player])
-                game_objects.append(players[teams][0][player][1][0].create_tank("image replacement", "Team " + str(teams)))
+                game_objects.append(players[teams][0][player][1][0].create_tank("image replacement", "Team " + str(teams), upgrade_offsets=[0,0,0,0], skip_image_load=False, team_num=teams, team_ct=len(players)))
                 # - Set the position our player should go to -
                 game_objects[len(game_objects) - 1].goto(arena.flag_locations[teams])
         # - Start child threads to handle netcode -
@@ -479,7 +479,7 @@ class BattleEngine():
                 _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, False, teams, gfx, sfx))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
-        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx))
+        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx, False))
 
     # - This battle mode allows you to lose experience, which is needed to unlock new tanks -
     def ranked_battle_server(self, players):
@@ -519,7 +519,7 @@ class BattleEngine():
                 if(player == 0): #add the team bookmark to the eliminated[] list.
                     eliminated.append(["Team " + str(teams), False])
                 #print(players[teams][0][player])
-                game_objects.append(players[teams][0][player][1][0].create_tank("image replacement", "Team " + str(teams)))
+                game_objects.append(players[teams][0][player][1][0].create_tank("image replacement", "Team " + str(teams), upgrade_offsets=[0,0,0,0], skip_image_load=False, team_num=teams, team_ct=len(players)))
                 # - Set the position our player should go to -
                 game_objects[len(game_objects) - 1].goto(arena.flag_locations[teams])
         # - Start child threads to handle netcode -
@@ -529,10 +529,10 @@ class BattleEngine():
                 _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, True, teams, gfx, sfx))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
-        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx))
+        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx, True))
 
     # - Handles most of the computation for battles, excluding packet exchanging -
-    def battle_server_compute(self, game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx):
+    def battle_server_compute(self, game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx, experience=False):
         battle = True #this goes false when the battle is finished.
         TILE_SIZE = 20 #this is a constant which we don't *really* need...
         framecounter = 0 #we need a framecounter for handling particle generation
@@ -575,7 +575,22 @@ class BattleEngine():
                 for x in range(0,len(game_objects)):
                     if(game_objects[x - decrement].type == "Tank"): #Are we updating a tank object?
                         if(game_objects[x - decrement].destroyed != True):
-                            potential_bullet = game_objects[x - decrement].shoot(20, server=True) #did the client try to shoot? And, were we able to let them shoot?
+                            # - Check if we have spotted any players every 0.25ish seconds -
+                            if(framecounter % 7 == 0): #every 28 frames, we check 4 times for spotting players.
+                                for y in range(0,len(game_objects)):
+                                    if(game_objects[y].type == "Tank" and y != x): #we need to meet some requirements before we try spotting anyone...
+                                        if(game_objects[y].team != game_objects[x].team): #Are we trying to spot our own team? Ridiculous.
+                                            # - The next set of requirements only pass if the game mode involves experience. If not, players are always spotted -
+                                            if(experience):
+                                                if(game_objects[y].spotted[game_objects[x].team_num] - time.time() < 0.1): #this player is NOT spotted (or close)?
+                                                    # - Let's see if we can spot him! -
+                                                    spotted = entity.check_visible(arena,[game_objects[x],game_objects[y]],blocks,vision=5)
+                                                    if(spotted): #IF we spotted him, we set his spotted variable so that our whole team knows where he is.
+                                                        game_objects[y].spotted[game_objects[x].team_num] = time.time() + 1.5 #X seconds of spotted before he must be in view to continue being spotted.
+                                            else: #this is not an experience-based battle?
+                                                game_objects[y].spotted[game_objects[x].team_num] = time.time() + 1.5
+                            # - Did the client try to shoot? And, were we able to let them shoot? -
+                            potential_bullet = game_objects[x - decrement].shoot(20, server=True)
                             if(potential_bullet != None): #if our gunshot was successful, we add the bullet object to our game objects list.
                                 game_objects.append(potential_bullet)
                                 # - Create a gunshot sound effect -
@@ -759,12 +774,12 @@ class BattleEngine():
                     packet_data = [False,[account.Account().return_data(),account.Account().return_data()],2]
                     packet_phase = "setup" #make sure we move onto the next stage of client setup
                 elif(packet_phase == "setup"): #setting up the client? player_ct is needed to tell the client how many HUD HP bars are needed for other players...
-                    player_ct = 0
-                    with game_objects_lock: #count players
+                    tanks = []
+                    with game_objects_lock: #gather player data
                         for x in game_objects:
                             if(x.type == "Tank"):
-                                player_ct += 1
-                    packet_data = ["setup" ,player_data[0].return_data(), map_name, player_ct]
+                                tanks.append(x.return_data(2,False))
+                    packet_data = ["setup" ,player_data[0].return_data(), map_name, tanks]
                 elif(packet_phase == "sync"): #client sync?
                     packet_data = ["sync", game_objects[player_index].return_data()]
                 elif(packet_phase == "end"): #end of game? Send ALL the player data and nothing else then...
@@ -776,8 +791,11 @@ class BattleEngine():
                 elif(packet_phase == "packet"): #typical data packet
                     with game_objects_lock:
                         game_object_data = [] #gather all entity data into one list (this could be moved into the compute thread later on)
-                        for x in range(0,len(game_objects)):
-                            game_object_data.append(game_objects[x].return_data(2, False))
+                        for x in range(0,len(game_objects)): #This requires adding a ".spotted" timer to tanks in order to send only spotted tanks to the team.
+                            if(game_objects[x].type == "Tank" and game_objects[x].team != game_objects[player_index].team and game_objects[x].spotted[game_objects[player_index].team_num] - time.time() > 0):
+                                game_object_data.append(game_objects[x].return_data(2, False))
+                            elif(game_objects[x].type != "Tank" or game_objects[x].type == "Tank" and game_objects[x].team == game_objects[player_index].team):
+                                game_object_data.append(game_objects[x].return_data(2, False))
                     packet_data = ["packet", game_object_data]
                     # - Send particle data to client every Xnd packet -
                     if(packet_counter % 2 == 0): #it's every second packet?

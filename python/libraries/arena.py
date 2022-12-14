@@ -34,7 +34,7 @@ class Arena():
         self.stretch = True #should we stretch the arena to draw it on our screen without any clipping?
 
         #    --- Tile SCALING stuff ---
-        self.scaled_tiles = self.tiles[:]
+        self.scaled_tiles = tiles[:]
         self.last_screen_size = [-1,-1] #whenever the screen size does not equal this, the tiles need to be rescaled.
 
         #    --- Tile Shuffling stuff ---

@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.52---
+##"battle_client.py" library ---VERSION 0.53---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -1398,6 +1398,12 @@ class BattleEngine():
                                 # - The font is size 7 for this. x_offset is a value which should always equal half of the name's length in pixels -
                                 x_offset = len(x.name) * 7 * hud.rectangular_scale * 0.25
                                 hud.update_HUD_element(bar * 3 + BAR_START + 2,[[(0.5 + x.overall_location[0] - player_tank.map_location[0]) * arena.TILE_SIZE * screen_scale[0] - x_offset,(0.125 + x.overall_location[1] - player_tank.map_location[1]) * arena.TILE_SIZE * screen_scale[1]],3,[[150,150,150],None,None],x.name])
+                            else:
+                                hud.update_HUD_element(BAR_START + bar * 3,[[-1000,-1000],[20,5],[color,[0,0,0],[0,0,255]],value])
+                                hud.update_HUD_element(bar * 3 + BAR_START + 1,[[-1000,-1000],3,[[150,150,150],None,None],label])
+                                # - The font is size 7 for this. x_offset is a value which should always equal half of the name's length in pixels -
+                                x_offset = len(x.name) * 7 * hud.rectangular_scale * 0.25
+                                hud.update_HUD_element(bar * 3 + BAR_START + 2,[[-1000,-1000],3,[[150,150,150],None,None],x.name])
                         except Exception as e:
                             print("Exception occurred at battle_client(): " + str(e) + " - Nonfatal")
                         bar += 1 #increment the HP bar counter
@@ -1463,6 +1469,10 @@ class BattleEngine():
         #define ally and enemy images
         ally_image = pygame.image.load(path + "../../pix/Characters(gub)/p1U.png").convert_alpha()
         enemy_image = pygame.image.load(path + "../../pix/Characters(gub)/p2U.png").convert_alpha()
+        team_images = [ally_image, enemy_image,
+                       pygame.image.load(path + "../../pix/Characters(gub)/p3U.png").convert_alpha(),
+                       pygame.image.load(path + "../../pix/Characters(gub)/p4U.png").convert_alpha()
+                       ]
         
         while packets:
             #recieve data from the server
@@ -1485,7 +1495,8 @@ class BattleEngine():
                     with player_tank.lock:
                         #team name will get set on a sync packet. The server will have to send one right after setup occurs.
                         player_tank_new = player_account.create_tank(pygame.image.load(path + "../../pix/Characters(gub)/p1U.png").convert_alpha(), "team name here...")
-                        player_tank.enter_data(player_tank_new.return_data(), arena.TILE_SIZE, screen_scale)
+                        player_tank.enter_data(player_tank_new.return_data(), arena.TILE_SIZE, screen_scale, server=False) #this has to be run twice, once as client, once as server to enter all the data necessary.
+                        player_tank.enter_data(player_tank_new.return_data(), arena.TILE_SIZE, screen_scale, server=True) # - The server version only inputs certain pieces of data, as does the client. Doing both enters all the data.
                     # - Set up the arena -
                     with arena.lock:
                         arena_name = data[2] #the server sent us the name of the arena we're playing on
@@ -1498,11 +1509,21 @@ class BattleEngine():
                             blocks.append(x)
                         # - Now we update our arena tile scale -
                         arena.last_screen_size = [-1,-1] #changing this value WILL make the game update the scale.
-                    # - Set up the HUD a bit (HP bars for all players other than ourselves) -
-                    for x in range(0,data[3]):
+                    # - Set up the HUD a bit (HP bars for all players other than ourselves) & add enough tank entities for all players -
+                    for x in range(0,len(data[3])):
                         hud.add_HUD_element("horizontal bar",[[0,-100],[20,5],[[0,255,0],[0,0,0],[0,0,255]],1.0],False)
                         hud.add_HUD_element("text",[[0,-100],7,[[255,0,0],False,False],"100 HP"],False)
                         hud.add_HUD_element("text",[[0,-100],7,[[255,0,0],False,False],"Player Name"],False)
+                    # - Set up all players -
+                    with entities_lock:
+                        for x in range(0,len(entities)): #clear the entities list
+                            del(entities[x])
+                        for x in range(0,len(data[3])): #Index 4 is every player's data in the match.
+                            new_tank = entity.Tank("image will be fixed", ["Tank name which will be inserted when we enter_data()","Team name which will be fixed when we enter_data()"])
+                            new_tank.enter_data(data[3][x], TILE_SIZE=20, screen_scale=[1,1], server=False) #fixes everything but the image, which we can do by checking if the player is on our team. if not, the image is p2's tank.
+                            # - Fix the image -
+                            new_tank.image = team_images[new_tank.team_num]
+                            entities.append(new_tank)
                     setup = False
                 elif(data[0] == "sync"): #we're moving a bit funny, and the server doesn't like it...we can't move for a bit here =(
                     with player_tank.lock:
@@ -1510,8 +1531,11 @@ class BattleEngine():
                     sync = True #turn on our sync flag (auugh! we can't move all of a sudden!)
                 elif(data[0] == "packet"): #normal data packet
                     with entities_lock:
+                        decrement = 0
                         for x in range(0,len(entities)):
-                            del(entities[0]) #delete all of the entities list without removing our pointer to the list
+                            if(entities[x - decrement].type != "Tank"):
+                                del(entities[x - decrement]) #delete all of the entities list (except tanks) without removing our pointer to the list
+                                decrement += 1
                         for x in range(0,len(data[1])):
                             if(data[1][x][0] == "Powerup"): #we need to create a powerup object and insert attributes into it
                                 entities.append(entity.Powerup("image will be fixed", 0, [0,0]))
@@ -1522,13 +1546,12 @@ class BattleEngine():
                                 entities[len(entities) - 1].enter_data(data[1][x]) #fix most of the bad data entries I made above
                                 entities[len(entities) - 1].image = player_tank.shell_images[entities[len(entities) - 1].shell_type] #fix the bullet's image
                             elif(data[1][x][0] == "Tank"): #we need to create a tank object and insert attributes into it
-                                entities.append(entity.Tank("image will be fixed", ["Tank name which will be inserted when we enter_data()","Team name which will be fixed when we enter_data()"]))
-                                entities[len(entities) - 1].enter_data(data[1][x]) #fixes everything but the image, which we can do by checking if the player is on our team. if not, the image is p2's tank.
-                                # - Fix the image -
-                                if(entities[len(entities) - 1].team == player_tank.team): #on our team?
-                                    entities[len(entities) - 1].image = ally_image #assign p1_tank's image
-                                else: #assign p2_tank's image
-                                    entities[len(entities) - 1].image = enemy_image
+                                new_tank_data = entity.Tank("image will be fixed", ["Tank name which will be inserted when we enter_data()","Team name which will be fixed when we enter_data()"])
+                                new_tank_data.enter_data(data[1][x]) #fixes everything but the image, which we can do by checking if the player is on our team. if not, the image is p2's tank.
+                                for find in range(0,len(entities)): #check where this tank is...
+                                    if(entities[find].type == "Tank" and new_tank_data.name == entities[find].name and new_tank_data.team_num == entities[find].team_num):
+                                        entities[find].enter_data(data[1][x])
+                                        break
                         # - Update our particle list -
                         if(data[2] != None): #the server is sending particles this packet?
                             with particles_lock:
@@ -1568,9 +1591,12 @@ class BattleEngine():
                     for x in range(0,len(data[2])): #this is the order teams were eliminated in.
                         eliminated[x] = data[2][x]
                     game_end = True
-                    with entities_lock: #we still need to update entities...
+                    with entities_lock:
+                        decrement = 0
                         for x in range(0,len(entities)):
-                            del(entities[0]) #delete all of the entities list without removing our pointer to the list
+                            if(entities[x - decrement].type != "Tank"):
+                                del(entities[x - decrement]) #delete all of the entities list (except tanks) without removing our pointer to the list
+                                decrement += 1
                         for x in range(0,len(data[1])):
                             if(data[1][x][0] == "Powerup"): #we need to create a powerup object and insert attributes into it
                                 entities.append(entity.Powerup("image will be fixed", 0, [0,0]))
@@ -1581,13 +1607,12 @@ class BattleEngine():
                                 entities[len(entities) - 1].enter_data(data[1][x]) #fix most of the bad data entries I made above
                                 entities[len(entities) - 1].image = player_tank.shell_images[entities[len(entities) - 1].shell_type] #fix the bullet's image
                             elif(data[1][x][0] == "Tank"): #we need to create a tank object and insert attributes into it
-                                entities.append(entity.Tank("image will be fixed", ["Tank name which will be inserted when we enter_data()","Team name which will be fixed when we enter_data()"]))
-                                entities[len(entities) - 1].enter_data(data[1][x]) #fixes everything but the image, which we can do by checking if the player is on our team. if not, the image is p2's tank.
-                                # - Fix the image -
-                                if(entities[len(entities) - 1].team == player_tank.team): #on our team?
-                                    entities[len(entities) - 1].image = ally_image #assign p1_tank's image
-                                else: #assign p2_tank's image
-                                    entities[len(entities) - 1].image = enemy_image
+                                new_tank_data = entity.Tank("image will be fixed", ["Tank name which will be inserted when we enter_data()","Team name which will be fixed when we enter_data()"])
+                                new_tank_data.enter_data(data[1][x]) #fixes everything but the image, which we can do by checking if the player is on our team. if not, the image is p2's tank.
+                                for find in range(0,len(entities)): #check where this tank is...
+                                    if(entities[find].type == "Tank" and new_tank_data.name == entities[find].name and new_tank_data.team_num == entities[find].team_num):
+                                        entities[find].enter_data(data[1][x])
+                                        break
 
             # - Copy a small amount of data from the entities list into our player_tank object -
             for x in range(0,len(entities)): #find which tank is us...
@@ -1603,6 +1628,8 @@ class BattleEngine():
                             player_tank.shells[y] = entities[x].shells[y]
                         for y in range(0,len(entities[x].powerups)):
                             player_tank.powerups[y] = entities[x].powerups[y]
+                        player_tank.team_num = entities[x].team_num #fix OUR image + our team_num, since it WILL be wrong.
+                        player_tank.image = team_images[player_tank.team_num]
                     break
 
             #send our data back to the server

@@ -1,4 +1,4 @@
-##"account.py" library ---VERSION 0.29---
+##"account.py" library ---VERSION 0.30---
 ## - REQUIRES: "entity.py"
 ## - For managing account data in Tank Battalion Online -
 ##Copyright (C) 2022  Lincoln V.
@@ -239,8 +239,8 @@ class Account():
         self.cash = 0
         self.experience = 0
 
-    def create_tank(self, image, team_name, upgrade_offsets=[0,0,0,0], skip_image_load=False): #returns a tank object with all the account's tank stats taken into account.
-        tank = entity.Tank(image, [self.name,team_name], skip_image_load) #create a generic tank object
+    def create_tank(self, image, team_name, upgrade_offsets=[0,0,0,0], skip_image_load=False, team_num=0, team_ct=2): #returns a tank object with all the account's tank stats taken into account.
+        tank = entity.Tank(image, [self.name,team_name], skip_image_load, team_num, team_ct) #create a generic tank object
 
         #Take into account upgrades:
         tank.damage_multiplier = pow(1.12, self.upgrades[0] + upgrade_offsets[0]) #gun

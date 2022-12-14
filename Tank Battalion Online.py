@@ -1,8 +1,8 @@
 #To do:
-#P1 - Only spotted/audible players get transmitted to teams
-#P1   - Players which are not spotted get left in their last spotted position
-#P1   - Does not apply in "simple" game modes? (unrated, but NOT ranked)
-#P2 - Make 3D arenas?
+# - Fix 100% Accuracy display bug at end of battle
+# - Add victory/defeat status to battle end screen, also add 1/2/3/4th place,
+#   because more than 2 teams exist
+# - Platoon system?
 
 ##Tank Battalion Online ---VERSION 1.0---
 ##Copyright (C) 2022  Lincoln V.

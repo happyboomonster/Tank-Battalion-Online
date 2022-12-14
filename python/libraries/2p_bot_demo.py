@@ -275,12 +275,12 @@ p2_hud.add_HUD_element("text",[[101,10],9,[[255,255,0],None,None],"disk shell"])
 players = [tank, p2_tank]
 old_positions = [None,None]
 # - Uncomment the commented list to make the players become bots, and you can passively watch a completely bot-only battle! -
-bot_player_managers = [None, entity.Bot(1, 1, 1.15)] #[entity.Bot(0, 0, 1.15), entity.Bot(1, 1, 1.15)]
+bot_player_managers = [None, None] #[entity.Bot(0, 0, 1.40), entity.Bot(1, 1, 1.00)]
 huds = [hud, p2_hud]
 
 #add some extra bots to the game...LOL
 for x in range(0,12):
-    bot_player_managers.append(entity.Bot(x % 2, x + 2, [1.15,1.15][x % 2])) #create the bot manager
+    bot_player_managers.append(entity.Bot(x % 2, x + 2, [1.00,1.20][x % 2])) #create the bot manager
     #create the bot account, and create a bot tank. Append that to the players list...
     bot_acct = battle_engine.create_account(25.0,"Bot Player " + str(x))
     players.append(bot_acct.create_tank([T1U,T2U][x % 2], ["Player Team","Bot Team"][x % 2]))
@@ -288,7 +288,7 @@ for x in range(0,12):
     bot_player_managers[x + 2].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
 # - Uncomment this to add a third team of only bots! -
 for x in range(0,7):
-    bot_player_managers.append(entity.Bot(2, x + 2 + 12, 1.15)) #create the bot manager
+    bot_player_managers.append(entity.Bot(2, x + 2 + 12, 1.00)) #create the bot manager
     #create the bot account, and create a bot tank. Append that to the players list...
     bot_acct = battle_engine.create_account(25.0,"Bot Player " + str(x + 12))
     players.append(bot_acct.create_tank(T3U, "2nd Bot Team"))

@@ -1,4 +1,4 @@
-##"entity.py" library ---VERSION 0.65---
+##"entity.py" library ---VERSION 0.67---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -277,7 +277,7 @@ class Brick():
         self.fire = 0 #what would happen if a brick had fire in its gas tank?????? :P
 
 class Tank():
-    def __init__(self, image='pygame.image.load()...', names=["tank name","team name"], skip_image_load=False):
+    def __init__(self, image='pygame.image.load()...', names=["tank name","team name"], skip_image_load=False, team_num=0, team_ct=2):
         # - Needed for external functions -
         self.type = "Tank" #define what this class is
         self.lock = _thread.allocate_lock()
@@ -292,6 +292,7 @@ class Tank():
         self.armor = 20.0 #tank armor points (helps deflect shots from damaging main health points
         self.current_shell = 0 #which shell do we have currently selected to load into our gun? (0=hollow, 1=regular, 2=explosive, 3=disk)
         self.team = names[1]
+        self.team_num = team_num #this flag isn't used in this class itself, but I might migrate to using it more to speed up checking which team a player is on
         self.name = names[0] #this tank player has a name!!! Mind blowing.
         self.destroyed = False #well, this one's pretty self explanatory.
         #this flag simply tells the computer whether we need to spawn a location at this tank.
@@ -330,6 +331,9 @@ class Tank():
         self.last_shot = time.time() #when did our tank fire last? (governs when we may shoot again, based on RPM)
         self.damage_second = 0 #this is how much damage gets done to our tank each second.
         self.last_damage_second = time.time()
+        self.spotted = [] #this is a list of which teams have spotted this tank for a certain period of time.
+        for x in range(0,team_ct):
+            self.spotted.append(time.time())
 
         # - Set this flag to True if you are a client and want to shoot! -
         self.shot_pending = False
@@ -711,6 +715,9 @@ class Tank():
                             map_position[0] += 0.75
                         # - Set the bullet's position to our calculated coordinates -
                         new_bullet.map_location = map_position
+                        # - Make sure that this player gets spotted temporarily for shooting -
+                        for x in range(0,len(self.spotted)):
+                            self.spotted[x] = time.time() + 0.75 #spotted for 0.75 seconds
                         # - Return "new_bullet" -
                         return new_bullet
         elif(server == False): #we're a client, so we need to set self.shot_pending to True.
@@ -724,6 +731,9 @@ class Tank():
                 if(self.message_request in self.MESSAGE_WHITELIST): #we only make the message public IF it passes our censoring!!
                     message_particle = GFX.Particle([self.overall_location[0] - (len(self.message_request) * 0.25),self.overall_location[1]], [self.overall_location[0] + random.randint(-2,2), self.overall_location[1] + random.randint(-2,2)], 0.65, 0.15, [random.randint(150,255),random.randint(150,255),random.randint(150,255)], [50,50,50], time.time(), time.time() + 5.0, self.message_request)
                     particles.append(message_particle) #add the new message particle to our particles list
+                    # - Now this player gets spotted for speaking -
+                    for x in range(0,len(self.spotted)):
+                        self.spotted[x] = time.time() + 0.75
                 self.message_request = None #clear the message_request flag
         else: #this is what happens client-side
             self.message_request = message #set the message_request flag
@@ -754,7 +764,8 @@ class Tank():
             self.shells,
             self.powerups,
             round(self.RPM,precision),
-            self.message_request
+            self.message_request,
+            self.team_num
             ]
         if(clear_flags):
             self.powerup_request = None #clear the powerup_request flag
@@ -798,6 +809,8 @@ class Tank():
             self.RPM = data[23]
         if(server):
             self.message_request = data[24]
+        if(not server):
+            self.team_num = data[25]
 
 class Bot(): #AI player which can fill a player queue if there is not enough players.
     def __init__(self,team_number=0,player_number=0,player_rating=0.85):
@@ -1202,12 +1215,6 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                 break
         return seen
 
-    # - New draft directional_move function: -
-    #   - Start by checking if there is ANY wall between us and our destination.
-    #       - If there IS, we continue going in one of two directions: The direction we are currently going in, OR the direction we were previously.
-    #           - If not possible, then new direction must be chosen.
-    #       - If no wall, we head in the direction which will bring us closer to the base.
-
     #Tries to move in one of a few given directions. Input a list of preferred directions, starting with highest priority.
     def directional_move(self,players,available_directions,preferred_directions,TILE_SIZE,arena,collideable_tiles,screen=None):
         # - Needed debug info -
@@ -1580,6 +1587,106 @@ def spawn_powerups(arena,powerups,images): #spawns powerups every POWERUP_SPAWN_
         last_powerup_spawn = time.time() #reset our powerup spawn timer
         for x in range(0,len(arena.flag_locations)):
             powerups.append(Powerup(images[x], random.randint(0,POWERUP_CT - 1), arena.flag_locations[x]))
+
+# - Checks if the two entities in entities[] are able to spot one another -
+def check_visible(arena,entities,collideable_tiles,vision=5):
+    TILE_SIZE = arena.TILE_SIZE
+    seen = False
+    visible_tiles = [2,2] #for checking arena collision
+    # - Check on the X and Y axis until a wall/brick is reached to see if we have found an entity -
+    dummy_tank = Tank(image='img', names=["dt","tn"], skip_image_load=True)
+    dummy_tank.map_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
+    dummy_tank.overall_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
+    dummy_tank.clock(TILE_SIZE)
+    wall = False #this becomes true if we try looking through a wall.
+    for check_x in range(0,vision + 1): #the bot can only see this far in each direction
+        #check if we are trying to look through a wall...
+        arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
+        collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
+        for tile in collided_tiles:
+            if(tile[0] in collideable_tiles): #we're trying to look through a wall...
+                wall = True
+                break #exit the collision loop
+        if(wall):
+            break
+        dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another enemy.
+        if(check_collision(dummy_tank, entities[1], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
+            seen = True
+            break
+        dummy_tank.map_location[0] -= 1 #keep updating the dummy tank's position and check if an entity has collided with it.
+        dummy_tank.overall_location[0] -= 1
+    if(seen == False): #check the other way on the X axis
+        dummy_tank.map_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
+        dummy_tank.overall_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
+        dummy_tank.clock(TILE_SIZE)
+        wall = False #this becomes true if we try looking through a wall.
+        for check_x in range(0,vision): #the bot can only see this far in each direction
+            #check if we are trying to look through a wall...
+            arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
+            collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
+            for tile in collided_tiles:
+                if(tile[0] in collideable_tiles): #we're trying to look through a wall...
+                    wall = True
+                    break #exit the collision loop
+            if(wall):
+                break
+            dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another enemy.
+            if(check_collision(dummy_tank, entities[1], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
+                seen = True
+                break
+            dummy_tank.map_location[0] += 1 #keep updating the dummy tank's position and check if an entity has collided with it.
+            dummy_tank.overall_location[0] += 1
+    if(seen == False):
+        wall = False
+        dummy_tank.map_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
+        dummy_tank.overall_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
+        dummy_tank.clock(TILE_SIZE)
+        for check_y in range(0,vision + 1):
+            #check if we are trying to look through a wall...
+            arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
+            collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
+            for tile in collided_tiles:
+                if(tile[0] in collideable_tiles): #we're trying to look through a wall...
+                    wall = True
+                    break #exit the collision loop
+            if(wall):
+                break
+            dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another entity.
+            if(check_collision(dummy_tank, entities[1], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
+                seen = True
+                break
+            dummy_tank.map_location[1] -= 1 #keep updating the dummy tank's position and check if an entity has collided with it.
+            dummy_tank.overall_location[1] -= 1
+    if(seen == False):
+        wall = False
+        dummy_tank.map_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
+        dummy_tank.overall_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
+        dummy_tank.clock(TILE_SIZE)
+        for check_y in range(0,vision):
+            #check if we are trying to look through a wall...
+            arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
+            collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
+            for tile in collided_tiles:
+                if(tile[0] in collideable_tiles): #we're trying to look through a wall...
+                    wall = True
+                    break #exit the collision loop
+            if(wall):
+                break
+            dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another entity.
+            if(check_collision(dummy_tank, entities[1], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
+                seen = True
+                break
+            dummy_tank.map_location[1] += 1 #keep updating the dummy tank's position and check if an entity has collided with it.
+            dummy_tank.overall_location[1] += 1
+    if(seen == False): #Check if someone got proximity spotted (vision / 2 distance)
+        uncombined_distance = [
+            entities[0].overall_location[0] - entities[1].overall_location[0],
+            entities[0].overall_location[1] - entities[1].overall_location[1]
+            ]
+        distance = math.sqrt(pow(abs(uncombined_distance[0]),2) + pow(abs(uncombined_distance[1]),2))
+        if(distance < vision / 2):
+            seen = True 
+    return seen
 
 ###Small demo to test the entity system
 ##tank = Tank(pygame.image.load("../../pix/Characters(gub)/p1U.png"), names=["tank name","team name"])
