@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.54---
+##"battle_client.py" library ---VERSION 0.55---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -481,6 +481,9 @@ class BattleEngine():
         self.music.transition_track(self.music_files[0][random.randint(0,len(self.music_files[0]) - 1)])
 
         while self.running:
+            #update our menu's scale
+            lobby_menu.update(self.screen)
+            
             if(self.special_window == None): #this stuff only needs to happen if we're not currently utilizing the special menu.
                 # - Update bullet damage strings -
                 button_descriptions[2] = ["^ can be earned in battles or purchased.","Hollow shell - Deals " + str(int(self.acct.damage_multiplier * damage_numbers[0][0])) + " damage at " + str(int(self.acct.penetration_multiplier * damage_numbers[0][1])) + " penetration",
@@ -554,9 +557,6 @@ class BattleEngine():
                     self.WORDS_QTY = int(int(lobby_menu.grab_settings(["GFX Quality"])[0][0]) / 2)
                     self.music.set_volume(int(lobby_menu.grab_settings(["Music Volume"])[0][0]) / 10)
                     self.sfx.sound_volume = int(lobby_menu.grab_settings(["SFX Volume"])[0][0]) / 10
-                    
-                #update our menu's scale
-                lobby_menu.update(self.screen)
 
                 # - Update the value of specialization in menu 4, index 0 + EXP counter -
                 if(lobby_menu.current_menu == 4):

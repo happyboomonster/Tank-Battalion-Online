@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.47---
+##"battle_server.py" library ---VERSION 0.48---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -859,7 +859,7 @@ class BattleEngine():
                                 if(packet_phase != "end"): #we only punish the player for leaving if the battle's not over AND he's not already dead (you can't die twice)
                                     game_objects[player_index].destroyed = True
                                 outcome = player_data[0].return_tank(game_objects[player_index],rebuy=True,bp_to_cash=True,experience=experience, verbose=True)
-                            special_window_str = self.generate_outcome_menu(outcome, game_objects[player_index], "- Battle Complete -")
+                            special_window_str = self.generate_outcome_menu(outcome, game_objects[player_index], eliminated, "- Battle Complete -")
                             _thread.start_new_thread(self.lobby_server,(player_data, special_window_str))
                             del(player_data)
                             packets = False
