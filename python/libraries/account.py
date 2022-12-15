@@ -1,4 +1,4 @@
-##"account.py" library ---VERSION 0.30---
+##"account.py" library ---VERSION 0.31---
 ## - REQUIRES: "entity.py"
 ## - For managing account data in Tank Battalion Online -
 ##Copyright (C) 2022  Lincoln V.
@@ -362,7 +362,7 @@ class Account():
                     return False #we couldn't get item
         elif(item == "shell"): #ammunition?
             price = self.shell_prices[item_index] * self.damage_multiplier
-            details = "D/P - " + str(round(self.shell_specs[item_index][0],1)) + "/" + str(round(self.shell_specs[item_index][1],1))
+            details = "Base D/P - " + str(round(self.shell_specs[item_index][0],1)) + "/" + str(round(self.shell_specs[item_index][1],1))
             if(not view_price):
                 if(self.cash >= price): #we has the money?
                     if(self.max_shells[item_index] > self.shells[item_index]): #we're not at our max?

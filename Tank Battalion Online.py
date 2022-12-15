@@ -1,8 +1,6 @@
 #To do:
-# - Fix 100% Accuracy display bug at end of battle
-# - Add victory/defeat status to battle end screen, also add 1/2/3/4th place,
-#   because more than 2 teams exist
 # - Platoon system?
+# - Make sure that bots cannot set destinations outside of the map
 
 ##Tank Battalion Online ---VERSION 1.0---
 ##Copyright (C) 2022  Lincoln V.

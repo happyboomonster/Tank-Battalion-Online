@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.53---
+##"battle_client.py" library ---VERSION 0.54---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -383,6 +383,7 @@ class BattleEngine():
     def lobby_frontend(self): #this is the GUI for the lobby.
         _thread.start_new_thread(self.lobby_client,()) #start up the netcode for the lobby!!
         lobby_menu = menu.Menuhandler() #create a menu handler
+        lobby_menu.default_display_size[0] += 150 #make the scale for menu text slightly smaller so I have more room for displaying text
         # - Create the various lobby menus -
         lobby_menu.create_menu(["Battle","Store","Settings","Exit"],[["",""],["",""],["",""],["",""]],[[1,1],[0,6],[2,7]],[],"Tank Battalion Online Lobby")
         lobby_menu.create_menu(["Purchase Mode","Shells","Upgrades","Specialization","Powerups","Back"],[["buy","refund"],["",""],["",""],["",""],["",""],["",""]],[[5,0],[1,2],[2,3],[3,4],[4,5]],[],"Tank Battalion Online Store")
@@ -409,6 +410,7 @@ class BattleEngine():
 
         # - Create a special second menu with a menu depth of 1 (no sub menus) for special stuff like end-game results -
         special_menu = menu.Menuhandler()
+        special_menu.default_display_size[0] += 150
 
         # - Last index of key configuration stuff -
         last_keyconfig = 21
@@ -424,7 +426,7 @@ class BattleEngine():
                  "Explosive shell - Deals " + str(damage_numbers[2][0]) + " damage at " + str(damage_numbers[2][1]) + " penetration",
                  "Disk shell - Deals " + str(damage_numbers[3][0]) + " damage at " + str(damage_numbers[3][1]) + " penetration",""],
             ["^ can be earned in battles or purchased.","Increases damage multiplier and penetration multiplier.","Increases tank RPM.","Increases total armor.","Increases tank speed.",""],
-            ["EXP can be earned by playing rating battles.","This is the current state of your tank   -","Make your tank faster, shoot with more RPM and penetration but with less damage.","Make your tank slower, decrease RPM and penetration, but increase damage significantly.",""],
+            ["EXP can be earned by playing rating battles.","This is the current state of your tank   -","Make your tank faster, shoot with more RPM and penetration but with less damage and armor.","Make your tank slower, decrease RPM and penetration, but increase damage and armor significantly.",""],
             ["^ can be earned in battles or purchased.","","","","","","This powerup acts a little strangely - If you have armor left, that armor gets increased by 50% temporarily. If you have no armor left, you will recieve no benefit from using this powerup, because 0 armor times 1.5 equals 0 armor.",""],
             ["Back to the lobby menu   -","Change the type of battle you want to enter   -","Enter the battle queue   -"],
             ["","","","Are you going to play on a joystick or a keyboard","","","","","","","","","","","","","","","","","","","Graphical Effects Quality","",""]
@@ -585,9 +587,9 @@ class BattleEngine():
                     lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"^ Available")
                     for x in range(0,len(self.acct.shells)): #configure the shells counter
                         if(purchase_mode == "buy"):
-                            opt_str = str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + ", " + self.acct.purchase("shell",x,True)[1] + ", " + str(round(self.acct.purchase("shell",x,True)[0],2)) + "^"
+                            opt_str = "Owned - " + str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + ", " + self.acct.purchase("shell",x,True)[1] + ", Cost - " + str(round(self.acct.purchase("shell",x,True)[0],2)) + "^"
                         else:
-                            opt_str = str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + ", " + self.acct.refund("shell",x,True)[1] + ", " + str(round(self.acct.refund("shell",x,True)[0],2)) + "^"
+                            opt_str = "Owned - " + str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + ", " + self.acct.refund("shell",x,True)[1] + ", Refund amt -" + str(round(self.acct.refund("shell",x,True)[0],2)) + "^"
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,shell_names[x])
             else: #we need to configure our special window/menu...which is always just a set of strings, with no settings you can change lol
                 if(self.special_window != special_window_backup):

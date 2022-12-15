@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.46---
+##"battle_server.py" library ---VERSION 0.47---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -647,6 +647,7 @@ class BattleEngine():
                                 if(t[0] in blocks):
                                     #bullet destroyed!
                                     game_objects[x - decrement].destroyed = True
+                                    game_objects[x - decrement].tank_origin.missed_shots += 1 #increment the amount of shots this particular tank missed...
                                     sfx.play_sound(self.CRACK, game_objects[x - decrement].map_location[:], [0,0]) #play this sound when the bullet hits...
                                     break
                         # - Tanks? Or another bullet? -
@@ -884,7 +885,7 @@ class BattleEngine():
                                         if(packet_phase != "end"): #we only punish the player for leaving if the battle's not over AND he's not already dead (you can't die twice)
                                             game_objects[player_index].destroyed = True
                                         outcome = player_data[0].return_tank(game_objects[player_index],rebuy=True,bp_to_cash=True,experience=experience, verbose=True)
-                                    special_window_str = self.generate_outcome_menu(outcome,  game_objects[player_index], "- Battle Complete -")
+                                    special_window_str = self.generate_outcome_menu(outcome,  game_objects[player_index], eliminated, "- Battle Complete -")
                                     _thread.start_new_thread(self.lobby_server, (player_data[1], special_window_str)) #back to the lobby...
                                     print("[BATTLE] Removed player " + str(player_data[1].name) + " from the battle successfully")
                                     del(player_data)
@@ -948,7 +949,7 @@ class BattleEngine():
                     
             clock.tick(20) #limit PPS to 20
 
-    def generate_outcome_menu(self, rebuy_data, tank, title): #generates the menu string which needs to be transmitted to the client to form a "special menu/window".
+    def generate_outcome_menu(self, rebuy_data, tank, eliminated_order, title): #generates the menu string which needs to be transmitted to the client to form a "special menu/window".
         # - Calculate some statistics about player performance -
         total_shots = 0
         for x in tank.shells_used:
@@ -958,9 +959,19 @@ class BattleEngine():
         total_powerups = 0
         for x in tank.powerups_used:
             total_powerups += x
+        # - Check if we won, or if we got 2nd, 3rd, 4th...etc. place -
+        for x in eliminated_order:
+            if(x[0] == tank.team):
+                team_pos = x[1]
+        if(team_pos == False): #we won (weren't destroyed)?
+            team_pos = "Victory"
+        else:
+            team_pos = str(team_pos + 1) + " place"
         # - Generate the outcome menu -
         return [ #rebuy_data format: [earned, shell_cost, pu_cost, net earnings, net experience]
             "Back",
+            "",
+            "Battle Status - " + team_pos,
             "",
             "Earnings",
             "^ before rebuy - " + str(round(rebuy_data[0],2)),

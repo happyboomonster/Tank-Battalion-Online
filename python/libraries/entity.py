@@ -318,6 +318,7 @@ class Tank():
             ]
         self.total_damage = 0
         self.kills = 0
+        #this variable must be managed outside this tank; There's no way for me to tell when your bullet simply hit a wall from inside entity.py.
         self.missed_shots = 0
         # - This is needed for account.py's upgrade details system -
         self.account_stats = [[self.damage_multiplier,self.penetration_multiplier],[self.RPM],[self.armor],[self.speed]]
