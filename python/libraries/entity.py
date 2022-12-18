@@ -1,4 +1,4 @@
-##"entity.py" library ---VERSION 0.67---
+##"entity.py" library ---VERSION 0.69---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -961,7 +961,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                 position = self.destination[:]
                 size = 0 #how wide the circle is that we are using to check for a new destination point
                 while is_on_block == True:
-                    size += 1
+                    size += 2
                     for z in range(0,4):
                         for length in range(0,size):
                             # - Update the new potential self.destination point -
@@ -976,8 +976,12 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                                     # - Uhoh...now we know that our destination IS on a block! -
                                     is_on_block = True
                             if(not is_on_block): #we found a valid destination???
-                                self.destination = position[:]
-                                break
+                                # - We still need to check if this destination is *outside* the map. If it is, we're not ever going to get there -
+                                if(position[0] >= len(arena.arena[0]) or position[0] <= 0 or position[1] <= 0 or position[1] >= len(arena.arena)):
+                                    is_on_block = True #this is not a valid position
+                                else: #this is a valid position
+                                    self.destination = position[:]
+                                    break
                         if(not is_on_block):
                             break
                     position[0] -= 1

@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.48---
+##"battle_server.py" library ---VERSION 0.49---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -102,9 +102,11 @@ class BattleEngine():
         self.UPGRADE_WEIGHT = 1.35 #this defines the overall power of a player (more upgrades = more powerful tank)
         self.CASH_WEIGHT = 0.0 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
         self.SHELLS_WEIGHT = [0.025, 0.05, 0.075, 0.15] #this defines the overall power of a player (more powerful shells = more dangerous)
-        self.POWERUP_WEIGHT = 4 / 6 #this defines the overall power of a player (more powerups = more dangerous)
+        self.POWERUP_WEIGHT = 0.85 #this defines the overall power of a player (more powerups = more dangerous)
         self.SPECIALIZATION_WEIGHT = 1.125 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
-        self.IMBALANCE_LIMIT = 1.00 #the maximum imbalance of rating points a match is allowed to have to be finalized.
+        # - This value MUST be larger than a single rating value (e.g. the rating of owning 1 disk shell).
+        #   - If a match gets past this imbalance, bots get created to help out a bit.
+        self.IMBALANCE_LIMIT = 1.35 #(this is larger than self.SPECIALIZATION_WEIGHT, which is 1.125)
         #How many players can be put into a battle? [min, max]
         self.PLAYER_CT = [2, 50]
         #How many teams can a single battle have? -
@@ -208,7 +210,7 @@ class BattleEngine():
                 print("[CONNECT] Recieved login/create account data - Username: " + str(name) + " Password: " + str(password) + " - ", end="")
 
                 # - First check if the player's name is equivalent to the name all bots are assigned: "Bot Player" -
-                if(name != "Bot Player"): #if the player name IS "Bot Player", the player has NO CHANCE of creating a new account/signing in.
+                if(name[0:3] != "Bot"): #if the player name starts with "Bot", the player has NO CHANCE of creating a new account/signing in.
                     # - Create the player's acccount if the player does not have an account already -
                     if(signin == False):
                         # - First check if the account NAME (not password) already exists. If it DOESN'T, then the new account gets created -
@@ -441,6 +443,7 @@ class BattleEngine():
         # - Which map are we playing on? -
         map_name = self.pick_map(players)
         if(map_name == False): #we didn't get a map? (0 players in match)
+            print("[BATTLE] NO MAP! Escaping battle routine...")
             return None #exit this battle!
         # - This is for holding all particle effects. This lets people know where gunfights are happening easily because everyone gets to see them -
         particles = []
@@ -491,6 +494,7 @@ class BattleEngine():
         # - Which map are we playing on? -
         map_name = self.pick_map(players)
         if(map_name == False): #we didn't get a map? (0 players in match)
+            print("[BATTLE] NO MAP! Escaping battle routine...")
             return None #exit this battle!
         # - This is for holding all particle effects. This lets people know where gunfights are happening easily because everyone gets to see them -
         particles = []
@@ -691,7 +695,7 @@ class BattleEngine():
                             del(game_objects[x - decrement])
                             decrement += 1
 
-                # - Check if any teams were eliminated -
+                # - Check if any teams were eliminated (this does have to be done with entities_lock, by the way) -
                 for teams in range(0,len(eliminated)):
                     if(eliminated[teams][1] != False): #this team already got eliminated? Skip the computation.
                         pass
@@ -725,7 +729,7 @@ class BattleEngine():
                 if(eliminated[battle_end][1] != False): #this team got eliminated?
                     battle_end_check += 1
             if(battle_timeout != None and time.time() - battle_timeout > self.BATTLE_TIMER): #30 seconds after battle ends? Kill this thread.
-                print("[BATTLE] Main compute thread ended...")
+                print("[BATTLE] Main compute thread ending through battle timeout...")
                 break #exit the loop! We're done here!
             elif(battle_end_check >= len(eliminated) - 1 and battle_timeout == None): #battle ends?
                 print("[BATTLE] Game over timeout started...")
@@ -774,7 +778,7 @@ class BattleEngine():
                 if(packet_phase == "init"): #making sure the client left the matchmaker?
                     packet_data = [False,[account.Account().return_data(),account.Account().return_data()],2]
                     packet_phase = "setup" #make sure we move onto the next stage of client setup
-                elif(packet_phase == "setup"): #setting up the client? player_ct is needed to tell the client how many HUD HP bars are needed for other players...
+                elif(packet_phase == "setup"): #setting up the client? tanks is needed to tell the client how many HUD HP bars and Tank entities are needed for other players...
                     tanks = []
                     with game_objects_lock: #gather player data
                         for x in game_objects:
@@ -782,7 +786,8 @@ class BattleEngine():
                                 tanks.append(x.return_data(2,False))
                     packet_data = ["setup" ,player_data[0].return_data(), map_name, tanks]
                 elif(packet_phase == "sync"): #client sync?
-                    packet_data = ["sync", game_objects[player_index].return_data()]
+                    with game_objects_lock:
+                        packet_data = ["sync", game_objects[player_index].return_data()]
                 elif(packet_phase == "end"): #end of game? Send ALL the player data and nothing else then...
                     with game_objects_lock:
                         game_object_data = [] #gather all entity data into one list (this could be moved into the compute thread later on)
@@ -872,7 +877,8 @@ class BattleEngine():
                             if(verify):
                                 # - Handle the packet -
                                 if(packet_phase == "sync"): #if we sent a sync packet beforehand, we need to check if the client followed the sync packet before we continue with normal packets.
-                                    compare_data = game_objects[player_index].return_data()
+                                    with game_objects_lock:
+                                        compare_data = game_objects[player_index].return_data()
                                     data[1][15] = compare_data[15] #make sure the comparison is fair...index 15 will never match, so I need to make it match.
                                     data[1][16] = compare_data[16] #...same with data 16 and 17. Not that they won't always match, but they won't sometimes, and the server can bypass the sync on these variables without consequences.
                                     data[1][17] = compare_data[17]
@@ -1026,8 +1032,23 @@ class BattleEngine():
         # - Now that we've found the available maps, we need to choose from them. If there were too many players, a random map is chosen then -
         if(len(available_maps) > 0): #we have maps which can host the amount of players we want?
             battle_map = available_maps[random.randint(0,len(available_maps) - 1)]
-        else: #just pick a random map then...
-            battle_map = import_arena.return_arena_numerical(random.randint(0,map_counter - 1))[1]
+        else: #just pick a random map then...but MAKE sure it has the right number of teams!
+            map_counter = 0
+            while True:
+                potential_map = import_arena.return_arena_numerical(map_counter) #get our potential map
+                map_counter += 1 #increment our map counter
+                
+                if(potential_map != None):
+                    # - Potential_map[0][0] is the map itself, potential_map[0][1] is the map's tiles, potential_map[1] is the map's name
+                    if(len(potential_map[0][6]) == len(players)): #we have the right amount of bases for the amount of teams we have?
+                            #YES!
+                            available_maps.append(potential_map[1]) #just append the map's name, nothing else. We can get the map's data later using import_arena.
+                    else:
+                        #NO...
+                        pass
+                else:
+                    break
+            battle_map = available_maps[random.randint(0,len(available_maps) - 1)]
         return battle_map #just returns the map name, nothing more.
 
     def return_rating(self, player_account, rating=False): #creates a numerical rating number for a player.
@@ -1051,54 +1072,15 @@ class BattleEngine():
 
     def create_account(self,rating,player_name="Bot Player"): #creates an account with upgrades which correspond roughly to the rating value you input.
         bot_account = account.Account(player_name,"pwd",True) #create a bot account
-        while self.return_rating(bot_account) < rating or self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT:
+        # - This variable makes sure that this while loop does not run forever -
+        run_ct = 0
+        while self.return_rating(bot_account) < rating and run_ct < 30 or self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT and run_ct < 30:
+            run_ct += 1 #increment our runtime counter (keeps us from running these loops infinitely)
             while self.return_rating(bot_account) < rating:
                 bot_account.bot_purchase()
             while self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT:
                 bot_account.bot_refund()
         return bot_account
-
-    def return_team_ratings(self, player_queue, odd_allowed=False, rating=False):
-        if(len(player_queue) >= self.PLAYER_CT[0]): #we have enough players in queue to start a game?
-            if(len(player_queue) >= self.PLAYER_CT[1]): #we have too many players in queue for one game?
-                #Create a match with the maximum amount of players allowed in one battle!
-                match_players = []
-                for x in range(0,self.PLAYER_CT[1]):
-                    match_players.append(player_queue.pop(0))
-            else: #create a match with an even/odd number of players
-                if(odd_allowed):
-                    match_player_ct = len(player_queue)
-                else:
-                    match_player_ct = (int(len(player_queue) / 2.0) * 2)
-                match_players = []
-                for x in range(0,match_player_ct):
-                    match_players.append(player_queue[x])
-            # - Now we need to balance the "match_players" into two teams -
-            #"match_players_stats" holds numbers: the higher the number, the better the player is predicted to perform.
-            match_players_stats = [] #Holds what I will refer to as "numerical rating" or "predicted performance" numbers
-            for x in range(0,len(match_players)): #find the numerical rating of each player in this match
-                match_players_stats.append([self.return_rating(match_players[x][0],rating), match_players[x]])
-            # - Now that we have attempted to predict how powerful a player will be, we need to arrange teams -
-            teams = [[[], 0], [[], 0]] #this could be changed in the future to allow 3 or 4 teams...
-            while len(match_players_stats) > 0:
-                # - find the most powerful player -
-                power = [0, 0]
-                for x in range(0,len(match_players_stats)):
-                    if(match_players_stats[x][0] > power[0]): #this player is more powerful than any others we have checked?
-                        power = [match_players_stats[x][0], x]
-                powerful_player = match_players_stats[power[1]]
-                powerful_player_full = [powerful_player[0], powerful_player[1]]
-                del(match_players_stats[power[1]])
-                # - Now which team should he go on? Which one is behind in matchmaking points? -
-                if(teams[0][1] > teams[1][1]): #then the player goes on team 1.
-                    teams[1][0].append(powerful_player_full)
-                    teams[1][1] += powerful_player[0] #add the player's numerical rating to the team's overall rating
-                else: #the player goes on team 0.
-                    teams[0][0].append(powerful_player_full)
-                    teams[0][1] += powerful_player[0] #add the player's numerical rating to the team's overall rating
-            return abs(teams[0][1] - teams[1][1]) #return the imbalance of points in the matchmaking
-        else:
-            return None
 
     #***Player_queue MUST be locked while matchmaking to avoid index errors***
     #player_queue is a list: [ [account, client socket], [account, client socket] ... ]
@@ -1229,14 +1211,20 @@ class BattleEngine():
             for team in match:
                 if(max_team_rating - team[1] > self.IMBALANCE_LIMIT):
                     # - Index 1 of the bot player data MUST be equal to "bot" to make the bot scripts begin in the game's main loop -
-                    team[0].append([max_team_rating - team[1], [self.create_account(max_team_rating - team[1]),"bot"]]) #get the bot in the game
+                    team[0].append([max_team_rating - team[1], [self.create_account(max_team_rating - team[1], "Bot -1"),"bot"]]) #get the bot in the game
+            # - Now we also just add some bots to each team to make things interesting -
+            team_counter = 0
+            for team in match:
+                for add in range(0,4):
+                    team[0].append([self.IMBALANCE_LIMIT, [self.create_account(self.IMBALANCE_LIMIT,"Bot T" + str(team_counter) + "P" + str(add)),"bot"]])
+                team_counter += 1
             #       - max_team_players is a variable storing the most players on a team
             max_team_players = 0
             for most_players in player_counts:
                 if(most_players > max_team_players):
                     max_team_players = most_players
             #       - min_team_players is a variable storing the least players on a team
-            min_team_players = (self.PLAYER_CT[1] * 2)
+            min_team_players = (self.PLAYER_CT[1] / 2)
             for least_players in player_counts:
                 if(least_players < min_team_players):
                     min_team_players = least_players
@@ -1253,19 +1241,18 @@ class BattleEngine():
                     if(player[0] < min_player_rating):
                         min_player_rating = player[0]
             #       - bot_rating[] is a list: [rating, team index]
-            bot_rating = [0.001, 0] # - Find the bot! There can only be one, and its name is always "Bot Player", and password is "pwd"
+            bot_rating = [0.00001, 0] # - Find the bot! There can be multiple, but their names always start with "Bot", and password is "pwd"
             team_index = 0
             found = False
             for teams in match:
                 for player in teams[0]:
                     if(found == False):
-                        if(player[1][0].name == "Bot Player" and player[1][0].password == "pwd"):
+                        if(player[1][0].name[0:3] == "Bot" and player[1][0].password == "pwd"):
                             bot_rating[0] = player[0]
                             bot_rating[1] = team_index
                             found = True
-                            break
                     else: #this only applies once we've already found A bot. However, it might not be the lowest rating bot in the match...
-                        if(player[1][0].name == "Bot Player" and player[1][0].password == "pwd"):
+                        if(player[1][0].name[0:3] == "Bot" and player[1][0].password == "pwd"):
                             if(player[0] < bot_rating[0]): #this bot's rating IS lower than the one we WERE thinking of?
                                 bot_rating[0] = player[0] #well now all eyes are on IT!
                                 bot_rating[1] = team_index
@@ -1293,6 +1280,7 @@ class BattleEngine():
             match_allowed = False
         # - Did the match succeed? -
         if(match_allowed):
+            print("[MATCH] Successful match made.")
             # - Delete all the players in the match out of the player_queue[] before the match starts -
             for team in match:
                 for player in team[0]:
@@ -1323,8 +1311,7 @@ engine = BattleEngine()
 ##for x in range(0,500):
 ##    accounts = []
 ##    for x in range(0,random.randint(8,50)): #prepare (random # of) random accounts
-##        accounts.append(account.Account("name", "password"))
-##        accounts[len(accounts) - 1].randomize_account()
+##        accounts.append(engine.create_account(random.randint(100,2500) / 100,player_name="name"))
 ##
 ##    player_queue = []
 ##    for x in range(0,len(accounts)):
@@ -1347,10 +1334,11 @@ engine = BattleEngine()
 ##        avg_power_differences += abs(greatest_imbalance)
 ##    else: #I also want to see how many matches got rejected...
 ##        failed_matches += 1
-##        print("Failed match!")
 ##avg_power_differences /= len(power_differences)
-##print("Average unbalance: " + str(avg_power_differences))
-##print("Percentage of rejected matches: " + str(failed_matches / 500 * 100))
+##print("\n\n\n")
+##print("Average imbalance: " + str(round(avg_power_differences,2)))
+##print("Failed match count: " + str(failed_matches) + " Successful match count: " + str(500 - failed_matches))
+##print("Percentage of rejected matches: " + str(round(failed_matches / 500 * 100,2)) + "%")
 ##
 ### - Find the outliers (extremes), beginning with the battle most in favor of Team 0 -
 ##power = 0
@@ -1365,10 +1353,11 @@ engine = BattleEngine()
 ##        if(power < greatest_imbalance):
 ##            power = greatest_imbalance
 ##            imbalance_index = x #needed to print out team specs
+##print("\n\n\n")
 ##print("Greatest imbalance: " + str(power))
 ###print out the teams for the specific match in which the inbalance occurred.
 ##for team in range(0,len(power_differences[imbalance_index])):
-##    print("\n\n\n - Team " + str(team) + ":")
+##    print("\n - Team " + str(team) + ":")
 ##    for x in range(0,len(power_differences[imbalance_index][team][0])): #iterate through team 0's players
 ##        print("Player " + str(x) + ": ", end="")
 ##        print(power_differences[imbalance_index][team][0][x][0]) #print out the player's rating
@@ -1392,7 +1381,7 @@ engine = BattleEngine()
 ##print("Least imbalance: " + str(power))
 ###print out the teams for the specific match in which the inbalance occurred.
 ##for team in range(0,len(power_differences[imbalance_index])):
-##    print("\n\n\n - Team " + str(team) + ":")
+##    print("\n - Team " + str(team) + ":")
 ##    for x in range(0,len(power_differences[imbalance_index][team][0])): #iterate through team 0's players
 ##        print("Player " + str(x) + ": ", end="")
 ##        print(power_differences[imbalance_index][team][0][x][0]) #print out the player's rating

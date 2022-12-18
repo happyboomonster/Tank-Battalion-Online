@@ -1,4 +1,4 @@
-##"account.py" library ---VERSION 0.31---
+##"account.py" library ---VERSION 0.33---
 ## - REQUIRES: "entity.py"
 ## - For managing account data in Tank Battalion Online -
 ##Copyright (C) 2022  Lincoln V.
@@ -18,6 +18,7 @@
 
 import entity
 import random
+import math
 
 class Account():
     def __init__(self,name="a name",password="123 is a bad password",bot=False): #this sets the beginning stats for any new account.
@@ -194,7 +195,7 @@ class Account():
         for x in self.max_shells:
             sum_max_shells += x
         if(sum_shells > 0): #avoid div0 errors
-            if(sum_shells / (sum_max_shells / 3.5) >= 1): #we can get upgrades + powerups since we already have a good amount of shells
+            if(sum_shells / (sum_max_shells / 2.5) >= 1): #we can get upgrades + powerups since we already have a good amount of shells
                 decisions.append("powerup")
                 decisions.append("upgrade")
                 decisions.append("specialization")
@@ -207,8 +208,25 @@ class Account():
         elif(decision == "powerup"):
             rng_num = random.randint(0,len(self.powerups) - 1)
         else:
-            rng_num = random.randint(0,len(self.shells) - 1)
-        self.purchase(decision, rng_num)
+            # - I used a goofy algorithm here to prioritize buying cheaper shells over the others -
+            rng_num = int((len(self.shells) - 1) - round(math.sqrt(random.randint(0,(len(self.shells) - 1) * (len(self.shells) - 1))),0))
+        successful_purchase = False
+        purchase_timer = 0 #We may only run this loop a max of X times, so that we don't end up in a never-ending loop.
+        while not successful_purchase and purchase_timer < 12: #X is defined here (see above comment)
+            success = self.purchase(decision, rng_num)
+            successful_purchase = success
+            purchase_timer += 1
+            # - Assuming the purchase was *not* successful, we can try decreasing our rng_num down to 0,
+            #   - and then wrapping it back to its max value to see if there's anything we can buy possibly
+            if(rng_num > 0):
+                rng_num -= 1
+            else: #we're already at 0? Each option has its own max value, so I have to set rng_num manually for each individual choice.
+                if(decision == "powerup"):
+                    rng_num = len(self.powerups) - 1
+                elif(decision == "upgrade"):
+                    rng_num = len(self.upgrades) - 1
+                elif(decision == "shell"):
+                    rng_num = len(self.shells) - 1
         # - Reset our cash and experience values -
         self.cash = 0
         self.experience = 0
@@ -234,7 +252,23 @@ class Account():
             rng_num = random.randint(0,len(self.powerups) - 1)
         else:
             rng_num = random.randint(0,len(self.shells) - 1)
-        self.refund(decision, rng_num)
+        successful_refund = False
+        refund_timer = 0 #We may only run this loop a max of X times, so that we don't end up in a never-ending loop.
+        while not successful_refund and refund_timer < 12: #X is defined here (see above comment)
+            success = self.refund(decision, rng_num)
+            successful_refund = success
+            refund_timer += 1
+            # - Assuming the refund was *not* successful, we can try decreasing our rng_num down to 0,
+            #   - and then wrapping it back to its max value to see if there's anything we can refund possibly
+            if(rng_num > 0):
+                rng_num -= 1
+            else: #we're already at 0? Each option has its own max value, so I have to set rng_num manually for each individual choice.
+                if(decision == "powerup"):
+                    rng_num = len(self.powerups) - 1
+                elif(decision == "upgrade"):
+                    rng_num = len(self.upgrades) - 1
+                elif(decision == "shell"):
+                    rng_num = len(self.shells) - 1
         # - Reset our cash and experience values -
         self.cash = 0
         self.experience = 0
@@ -395,7 +429,7 @@ class Account():
                 variables_str = "" #Move our purchase difference stats into a string which we can return later
                 if(difference != None): #this if statement is here to prevent trying to iterate through a NoneType variable.
                     for b in difference:
-                        variables_str += str(round(b,1)) + "/"
+                        variables_str += "+" + str(round(b,1)) + "/"
                     variables_str = variables_str[0:len(variables_str) - 1]
                     details = self.upgrade_details[x] + variables_str
                 else:
@@ -450,6 +484,7 @@ class Account():
                 success = True
         elif(item == "shell"): #ammunition?
             price = self.shell_prices[item_index] * self.REFUND_PERCENT
+            details = "Base D/P - " + str(round(self.shell_specs[item_index][0],1)) + "/" + str(round(self.shell_specs[item_index][1],1))
             if(not view_price and self.shells[item_index] > 0):
                 self.cash += price
                 self.shells[item_index] -= 1

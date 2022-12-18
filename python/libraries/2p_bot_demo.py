@@ -158,7 +158,7 @@ p2_mh.default_display_size = [p2_screen.get_width(), p2_screen.get_height()]
 
 #create our tank object
 #tank = entity.Tank(T1U, "Player Team")
-p1_acct = battle_engine.create_account(25.0,"Player 1")
+p1_acct = battle_engine.create_account(15.0,"Player 1")
 p1_acct.specialization = random.randint(-p1_acct.upgrade_limit,p1_acct.upgrade_limit)
 tank = p1_acct.create_tank(T5U, "Player Team")
 #increase the tank's RPM
@@ -218,7 +218,7 @@ powerups = []
 
 #spawn P2...
 #p2_tank = entity.Tank(T1U, "Player Team")
-p2_acct = battle_engine.create_account(25.0,"Player 2")
+p2_acct = battle_engine.create_account(15.0,"Player 2")
 p2_acct.specialization = random.randint(-p2_acct.upgrade_limit,p2_acct.upgrade_limit)
 p2_tank = p2_acct.create_tank(T5U, "Bot Team")
 #p2_tank.destroyed = True
@@ -280,9 +280,9 @@ huds = [hud, p2_hud]
 
 #add some extra bots to the game...LOL
 for x in range(0,12):
-    bot_player_managers.append(entity.Bot(x % 2, x + 2, [1.00,1.20][x % 2])) #create the bot manager
+    bot_player_managers.append(entity.Bot(x % 2, x + 2, [1.00,1.30][x % 2])) #create the bot manager
     #create the bot account, and create a bot tank. Append that to the players list...
-    bot_acct = battle_engine.create_account(25.0,"Bot Player " + str(x))
+    bot_acct = battle_engine.create_account(15.0,"Bot Player " + str(x))
     players.append(bot_acct.create_tank([T1U,T2U][x % 2], ["Player Team","Bot Team"][x % 2]))
     bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
     bot_player_managers[x + 2].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
@@ -290,7 +290,7 @@ for x in range(0,12):
 for x in range(0,7):
     bot_player_managers.append(entity.Bot(2, x + 2 + 12, 1.00)) #create the bot manager
     #create the bot account, and create a bot tank. Append that to the players list...
-    bot_acct = battle_engine.create_account(25.0,"Bot Player " + str(x + 12))
+    bot_acct = battle_engine.create_account(15.0,"Bot Player " + str(x + 12))
     players.append(bot_acct.create_tank(T3U, "2nd Bot Team"))
     bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
     bot_player_managers[x + 2 + 12].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))

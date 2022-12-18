@@ -1,6 +1,4 @@
-#To do:
-# - Platoon system?
-# - Make sure that bots cannot set destinations outside of the map
+# - Make it easier to navigate mazes - edge navigation aid
 
 ##Tank Battalion Online ---VERSION 1.0---
 ##Copyright (C) 2022  Lincoln V.

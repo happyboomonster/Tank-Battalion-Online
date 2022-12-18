@@ -81,7 +81,7 @@ class BattleEngine():
         # - Packet formats (what we recieve from the server) -
         self.LOBBY_PACKETS = [["<class 'bool'>", "<class 'list'>", "<class 'list'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'list'>"], ["<class 'bool'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'bool'>", "<class 'str'>", "<class 'list'>", "<class 'NoneType'>"]]
         self.MATCH_PACKET = ["<class 'bool'>", "<class 'list'>", "<class 'int'>"] #[in_battle(True/False), viewing_players data list, player_count]
-        self.GAME_PACKET = ["<class 'str'>", "...", "...", "...", "...", "...", "..."] #the last sublists of the game_packet do not get transmitted every packet...and the data isn't a consistent type either =(
+        self.GAME_PACKET = ["<class 'str'>", "...", "...", "...", "...", "...", "...", "..."] #the last sublists of the game_packet do not get transmitted every packet...and the data isn't a consistent type either =(
 
         # - Constants for properly displaying player rating in matchmaking -
         self.battle_types = ["Unrated Battle","Experience Battle"]
@@ -145,10 +145,12 @@ class BattleEngine():
         self.UPGRADE_WEIGHT = 1.35 #this defines the overall power of a player (more upgrades = more powerful tank)
         self.CASH_WEIGHT = 0.0 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
         self.SHELLS_WEIGHT = [0.025, 0.05, 0.075, 0.15] #this defines the overall power of a player (more powerful shells = more dangerous)
-        self.POWERUP_WEIGHT = 4 / 6 #this defines the overall power of a player (more powerups = more dangerous)
+        self.POWERUP_WEIGHT = 0.85 #this defines the overall power of a player (more powerups = more dangerous)
         self.SPECIALIZATION_WEIGHT = 1.125 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
-        self.IMBALANCE_LIMIT = 1.00 #the maximum imbalance of rating points a match is allowed to have to be finalized.
-
+        # - This value MUST be larger than a single rating value (e.g. the rating of owning 1 disk shell).
+        #   - If a match gets past this imbalance, bots get created to help out a bit.
+        self.IMBALANCE_LIMIT = 1.35 #(this is larger than self.SPECIALIZATION_WEIGHT, which is 1.125)
+        
         # - Battle constants -
         self.EXPLOSION_TIMER = 1.0 #seconds; how long between each explosion when game over occurs?
         self.WORDS_QTY = 15 #how many words to spawn in each self.EXPLOSION_TIMER interval?
@@ -383,14 +385,14 @@ class BattleEngine():
     def lobby_frontend(self): #this is the GUI for the lobby.
         _thread.start_new_thread(self.lobby_client,()) #start up the netcode for the lobby!!
         lobby_menu = menu.Menuhandler() #create a menu handler
-        lobby_menu.default_display_size[0] += 150 #make the scale for menu text slightly smaller so I have more room for displaying text
+        lobby_menu.default_display_size[0] += 275 #make the scale for menu text slightly smaller so I have more room for displaying text
         # - Create the various lobby menus -
         lobby_menu.create_menu(["Battle","Store","Settings","Exit"],[["",""],["",""],["",""],["",""]],[[1,1],[0,6],[2,7]],[],"Tank Battalion Online Lobby")
         lobby_menu.create_menu(["Purchase Mode","Shells","Upgrades","Specialization","Powerups","Back"],[["buy","refund"],["",""],["",""],["",""],["",""],["",""]],[[5,0],[1,2],[2,3],[3,4],[4,5]],[],"Tank Battalion Online Store")
         lobby_menu.create_menu(["^ Available","Hollow","Regular","Explosive","Disk","Back"],[["",""],["0","0"],["0","0"],["0","0"],["0","0"],["",""]],[[5,1]],[],"Tank Battalion Online Store - Shells")
-        lobby_menu.create_menu(["^ Available","Gun - Damage","Loading Mechanism - RPM","Armor","Engine - More Speed","Back"],[["",""],["0","0"],["0","0"],["0","0"],["0","0"],["",""]],[[5,1]],[],"Tank Battalion Online Store - Upgrades")
+        lobby_menu.create_menu(["^ Available","Gun","Loading Mechanism","Armor","Engine","Back"],[["",""],["0","0"],["0","0"],["0","0"],["0","0"],["",""]],[[5,1]],[],"Tank Battalion Online Store - Upgrades")
         lobby_menu.create_menu(["EXP Available","Current Specialization","Specialize Light","Specialize Heavy","Back"],[["",""],["0","0"],["",""],["",""],["",""]],[[4,1]],[],"Tank Battalion Online Store - Specialization")
-        lobby_menu.create_menu(["^ Available","Improved Fuel +35% Speed","Fire Extinguisher -10% Speed","Dangerous Loading +50% RPM -10% HP","Explosive Tip +25% DMG. -5% RPM -5% PN.",
+        lobby_menu.create_menu(["^ Available","Improved Fuel +35% Speed","Fire Extinguisher -10% Speed","Dangerous Loading +50% RPM -10% HP","Explosive Tip +25%/-5% D/P, -5% RPM",
                                 "Amped Gun +25% PN. -10% HP","Extra Armor +50% Armor -50% Speed","Back"],[["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""]],[[7,1]],[],"Tank Battalion Online Store - Powerups")
         lobby_menu.create_menu(["Back","Battle Type","Battle"],[["",""],["Unrated Battle","Experience Battle"],["",""]],[[0,0]],[],"Tank Battalion Online Battle Menu") #this line will need to be changed based on what battle modes are available.
         lobby_menu.create_menu(["Back","Key config","Deadzone","KB/JS","Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier","PTT Key","GFX Quality","Music Volume","SFX Volume"],[["",""],["",""],[1,9],["Keyboard","Joystick"],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],[1,30],[0,10],[0,10]],[[0,0]],[],"Tank Battalion Online Settings")
@@ -439,11 +441,11 @@ class BattleEngine():
         hud.add_HUD_element("scrolling text",[[0,220],[20,16],[[255,255,255],[100,100,100],[0,255,0]],"Demo text which is scrolling"])
 
         # - Reference index of the names of lobby_menu index 3 (upgrades) so that I can change their values -
-        upgrade_names = ["Gun - Damage","Loading Mechanism - RPM","Armor","Engine - More Speed"]
+        upgrade_names = ["Gun","Loading Mechanism","Armor","Engine"]
         # - Reference index of the names of lobby_menu index 2 (shells) so that I can change their values -
         shell_names = ["Hollow","Regular","Explosive","Disk"]
         # - Reference index of the names of lobby_menu index 5 (powerups) so that I can change their values -
-        powerup_names = ["Improved Fuel +35% Speed","Fire Extinguisher -10% Speed","Dangerous Loading +50% RPM -10% HP","Explosive Tip +25% DMG. -5% RPM -5% PN.",
+        powerup_names = ["Improved Fuel +35% Speed","Fire Extinguisher -10% Speed","Dangerous Loading +50% RPM -10% HP","Explosive Tip +25%/-5% D/P, -5% RPM",
                         "Amped Gun +25% PN. -10% HP","Extra Armor +50% Armor -50% Speed"]
         # - Reference names for key configurations -
         key_configuration_names = [
@@ -523,9 +525,9 @@ class BattleEngine():
                         if(self.acct.powerups[x] == True):
                             owned = 1
                         if(purchase_mode == "buy"):
-                            opt_str = str(owned) + "/1 " + str(round(self.acct.purchase("powerup",x,True)[0],2))
+                            opt_str = "Owned - " + str(owned) + "/1, " + "Cost - " + str(round(self.acct.purchase("powerup",x,True)[0],2)) + "^"
                         else:
-                            opt_str = str(owned) + "/1 " + str(round(self.acct.refund("powerup",x,True)[0],2))
+                            opt_str = "Owned - " + str(owned) + "/1, " + "Refund amt - " + str(round(self.acct.refund("powerup",x,True)[0],2)) + "^"
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,powerup_names[x])
 
                 # - Update our key configuration menu -
@@ -576,9 +578,9 @@ class BattleEngine():
                     lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"^ Available")
                     for x in range(0,len(self.acct.upgrades)): #configure the upgrades counter
                         if(purchase_mode == "buy"):
-                            opt_str = str(self.acct.upgrades[x]) + "/" + str(self.acct.upgrade_limit) + ", " + self.acct.purchase("upgrade",x,True)[1] + ", " + str(round(self.acct.purchase("upgrade",x,True)[0],2)) + "^"
+                            opt_str = "Owned - " + str(self.acct.upgrades[x]) + "/" + str(self.acct.upgrade_limit) + ", " + self.acct.purchase("upgrade",x,True)[1] + ", Cost - " + str(round(self.acct.purchase("upgrade",x,True)[0],2)) + "^"
                         else:
-                            opt_str = str(self.acct.upgrades[x]) + "/" + str(self.acct.upgrade_limit) + ", " + self.acct.refund("upgrade",x,True)[1] + ", " + str(round(self.acct.refund("upgrade",x,True)[0],2)) + "^"
+                            opt_str = "Owned - " + str(self.acct.upgrades[x]) + "/" + str(self.acct.upgrade_limit) + ", " + self.acct.refund("upgrade",x,True)[1] + ", Refund amt - " + str(round(self.acct.refund("upgrade",x,True)[0],2)) + "^"
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,upgrade_names[x])
 
                 # - Update the value of shells + ^ counter -
@@ -589,12 +591,14 @@ class BattleEngine():
                         if(purchase_mode == "buy"):
                             opt_str = "Owned - " + str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + ", " + self.acct.purchase("shell",x,True)[1] + ", Cost - " + str(round(self.acct.purchase("shell",x,True)[0],2)) + "^"
                         else:
-                            opt_str = "Owned - " + str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + ", " + self.acct.refund("shell",x,True)[1] + ", Refund amt -" + str(round(self.acct.refund("shell",x,True)[0],2)) + "^"
+                            opt_str = "Owned - " + str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + ", " + self.acct.refund("shell",x,True)[1] + ", Refund amt - " + str(round(self.acct.refund("shell",x,True)[0],2)) + "^"
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,shell_names[x])
             else: #we need to configure our special window/menu...which is always just a set of strings, with no settings you can change lol
                 if(self.special_window != special_window_backup):
                     special_window_backup = self.special_window[:]
                     with self.special_window_lock:
+                        special_menu = menu.Menuhandler() #wipe out the old special_menu instance, and create a new one which has no menus created
+                        special_menu.default_display_size[0] += 150
                         options_settings = []
                         for x in range(0,len(self.special_window) - 1):
                             options_settings.append(["",""])
@@ -1326,13 +1330,17 @@ class BattleEngine():
 
             # - Set up an explosion system IF the game is over -
             msg = None #if this does not equal None, we create explosions. If it equals None, then the game's not over yet.
-            destroyed_counter = 0 #if this gets equal to len(eliminated) - 1, we know the game is finished.
+            #This is set to -2 because of the IF statement down below which checks if this gets equal
+            destroyed_counter = -2 #to len(eliminated) - 1. If that happens, I assume the game is finished.
             self_eliminated = False
             for x in eliminated:
                 if(x[0] == player_tank.team and x[1] != False): #our team got eliminated?
                     msg = ["game over","defeat","L","oig"][random.randint(0,3)]
                 elif(x[1] != False):
-                    destroyed_counter += 1
+                    if(destroyed_counter < 0): #this is the first team we've seen get eliminated?
+                        destroyed_counter = 1
+                    else: #just increment the counter...
+                        destroyed_counter += 1
                 if(x[0] == player_tank.team):
                     if(x[1] == False):
                         self_eliminated = False
@@ -1366,7 +1374,8 @@ class BattleEngine():
                 gfx.purge() #delete old particles
 
             # - Update our SFX_Manager() -
-            self.sfx.clock(player_tank.overall_location[:])
+            with self.sfx.lock:
+                self.sfx.clock(player_tank.overall_location[:])
 
             # - Draw everything -
             self.screen.fill([0,0,0]) #start with black...every good game starts with a black screen.
@@ -1577,9 +1586,11 @@ class BattleEngine():
                                 for x in range(0,len(data[5]) - len(eliminated)):
                                     eliminated.append(["",False])
                         for x in range(0,len(data[5])): #this is the order teams were eliminated in.
-                            eliminated[x] = data[5][x]
+                            eliminated[x][0] = data[5][x][0]
+                            eliminated[x][1] = data[5][x][1]
                         # - Update SFX_Manager() -
-                        self.sfx.enter_data(data[6], player_tank.overall_location[:])
+                        with self.sfx.lock:
+                            self.sfx.enter_data(data[6], player_tank.overall_location[:])
                                 
                 elif(data[0] == "end"): #game over?
                     # - Update eliminated list -
@@ -1591,7 +1602,8 @@ class BattleEngine():
                             for x in range(0,len(data[2]) - len(eliminated)):
                                 eliminated.append(["",False])
                     for x in range(0,len(data[2])): #this is the order teams were eliminated in.
-                        eliminated[x] = data[2][x]
+                        eliminated[x][0] = data[2][x][0]
+                        eliminated[x][1] = data[2][x][1]
                     game_end = True
                     with entities_lock:
                         decrement = 0
@@ -1671,7 +1683,10 @@ class BattleEngine():
 
     def create_account(self,rating,player_name="Bot Player"): #creates an account with upgrades which correspond roughly to the rating value you input.
         bot_account = account.Account(player_name,"pwd",True) #create a bot account
-        while self.return_rating(bot_account) < rating or self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT:
+        # - This variable makes sure that this while loop does not run forever -
+        run_ct = 0
+        while self.return_rating(bot_account) < rating and run_ct < 30 or self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT and run_ct < 30:
+            run_ct += 1 #increment our runtime counter (keeps us from running these loops infinitely)
             while self.return_rating(bot_account) < rating:
                 bot_account.bot_purchase()
             while self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT:
