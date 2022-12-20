@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.49---
+##"battle_server.py" library ---VERSION 0.50---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -107,8 +107,8 @@ class BattleEngine():
         # - This value MUST be larger than a single rating value (e.g. the rating of owning 1 disk shell).
         #   - If a match gets past this imbalance, bots get created to help out a bit.
         self.IMBALANCE_LIMIT = 1.35 #(this is larger than self.SPECIALIZATION_WEIGHT, which is 1.125)
-        #How many players can be put into a battle? [min, max]
-        self.PLAYER_CT = [2, 50]
+        #How many players (not including bots) can be put into a battle? [min, max]
+        self.PLAYER_CT = [2, 8]
         #How many teams can a single battle have? -
         self.TEAM_CT = [2,4]
         # - How long should it take before a minimum player match attempts to take place?
@@ -286,14 +286,14 @@ class BattleEngine():
                     elif(client_data[0] == "battle"): #enter into battle!!!
                         with self.player_queue_lock:
                             reply = [False]
-                            #netcode.clear_socket(player_data[1]) #clear the socket so that the matchmaker doesn't have to deal with garbage
                             for x in range(0,len(self.battle_types)): #...just making sure this game mode exists...
                                 if(self.battle_types[x] == client_data[1]):
-                                    self.player_queue[x].append(player_data)
                                     reply = [True, "battle"]
                                     reply.append(player_data[0].return_data())
                                     reply.append(None) #append NO special window data to the list
                                     netcode.send_data(player_data[1], self.buffersize, reply)
+                                    self.player_queue[x].append(player_data)
+                        in_lobby = False #exit the lobby netcode loop
                     elif(client_data[0] == "sw_close"): #closing the special window?
                         special_window = None #clear our special window...
                     else:
@@ -303,7 +303,7 @@ class BattleEngine():
             else:
                 reply = [None]
 
-            if(len(reply) < 2): #we're not battling? We can send data like normal...
+            if((len(reply) > 1 and reply[1] != "battle") or len(reply) < 2): #we're not battling? We can send data like normal...
                 #make sure that the player we're connected to knows his ^ balance, tank upgrades, etc.
                 reply.append(player_data[0].return_data())
 
@@ -315,12 +315,9 @@ class BattleEngine():
 
                 #send back a response based on whether we had to perform any action, and whether we could perform it.
                 netcode.send_data(player_data[1], self.buffersize, reply) #Server transmission format: [True] (success), [None] (no operation), [False, "$$$ needed"/"max"]
-
-            # - Check if it is time to exit the server's lobby loop -
-            if(len(reply) > 1 and reply[1] == "battle"):
-                in_lobby = False
+                
         if(len(reply) > 1 and reply[1] == "battle"): #entered battle?
-            print("[IN QUEUE] Player " + player_data[0].name + " has entered battle in mode: " + str(client_data[1]))
+            print("[IN QUEUE] Player " + player_data[0].name + " has entered queue in mode: " + str(client_data[1]))
         else: #save the player's data if the player disconnected
             #print out a disconnect message, move the player data back into its place inside self.accounts so that it is saved for later...
             print("[DISCONNECT] " + player_data[0].name + " has disconnected from the server. Saving account data...",end="")
@@ -858,7 +855,7 @@ class BattleEngine():
                             verify = netcode.data_verify(data, x)
                             if(verify):
                                 break
-                        if(verify):
+                        if(verify): # - The player left to the lobby? -
                             print("[BATTLE] Connecting player " + str(player_data[0].name) + " to lobby...")
                             with game_objects_lock:
                                 if(packet_phase != "end"): #we only punish the player for leaving if the battle's not over AND he's not already dead (you can't die twice)
@@ -868,7 +865,7 @@ class BattleEngine():
                             _thread.start_new_thread(self.lobby_server,(player_data, special_window_str))
                             del(player_data)
                             packets = False
-                        else:
+                        else: # - The player HAS NOT left to the lobby? -
                             verify = False
                             for x in self.GAME_PACKETS:
                                 if(netcode.data_verify(data, x)):
@@ -898,10 +895,10 @@ class BattleEngine():
                                     packets = False #then it is time to leave...
                                 else: #either setup packet stuff or standard packets are coming through...
                                     if(packet_phase == "setup" or data[0] == "setup"):
-                                        if(packet_phase == "setup"): #once we finish setting up the player, we need to sync his state.
-                                            packet_phase = "sync"
-                                        if(data[0] == "setup"): #we need to resend the setup data
+                                        if(data[0] == "setup"): #we need to resend the setup data if the client didn't get it
                                             packet_phase = "setup"
+                                        elif(packet_phase == "setup"): #once we finish setting up the player, we need to sync his state.
+                                            packet_phase = "sync"
                                     else: #normal packet - only enter data IF the player is alive by server standards!
                                         with game_objects_lock:
                                             if(game_objects[player_index].destroyed == False):
@@ -952,6 +949,8 @@ class BattleEngine():
                     potential_bullet = bot_computer.analyse_game(tanks,bullets,arena,arena.TILE_SIZE,all_blocks,screen_scale=[1,1],tank_collision_offset=2)
                     if(potential_bullet != None): #did the bot shoot?
                         game_objects.append(potential_bullet)
+                        # - Create a gunshot sound effect so that this bot actually makes sound -
+                        sfx.play_sound(self.GUNSHOT, game_objects[player_index].overall_location[:], [0,0])
                     
             clock.tick(20) #limit PPS to 20
 
@@ -1215,7 +1214,7 @@ class BattleEngine():
             # - Now we also just add some bots to each team to make things interesting -
             team_counter = 0
             for team in match:
-                for add in range(0,4):
+                for add in range(0,2):
                     team[0].append([self.IMBALANCE_LIMIT, [self.create_account(self.IMBALANCE_LIMIT,"Bot T" + str(team_counter) + "P" + str(add)),"bot"]])
                 team_counter += 1
             #       - max_team_players is a variable storing the most players on a team

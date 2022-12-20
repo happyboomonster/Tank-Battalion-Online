@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.55---
+##"battle_client.py" library ---VERSION 0.56---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -21,6 +21,8 @@ import _thread, socket, pygame, time, sys, random, math
 sys.path.insert(0, "../maps")
 #My own proprietary libraries (I just realized that there's a lot of them):
 import account, menu, HUD, netcode, font, arena, GFX, SFX, import_arena, entity, arena as arena_lib, controller
+# - Netcode.py sets its default socket timeout to 5 seconds. However, we MUST take longer than the server does, so I will increase it to 7.5 seconds -
+netcode.DEFAULT_TIMEOUT = 7.5 #seconds
 
 # - This is a global which tells us the path to find the directory battle_client is stored in -
 path = ""
@@ -79,7 +81,11 @@ class BattleEngine():
         self.controls_backup.buttons = [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n, pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d, pygame.K_e, pygame.K_ESCAPE, pygame.K_SPACE, pygame.K_t]
 
         # - Packet formats (what we recieve from the server) -
-        self.LOBBY_PACKETS = [["<class 'bool'>", "<class 'list'>", "<class 'list'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'list'>"], ["<class 'bool'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'NoneType'>", "<class 'list'>", "<class 'NoneType'>"], ["<class 'bool'>", "<class 'str'>", "<class 'list'>", "<class 'NoneType'>"]]
+        self.LOBBY_PACKETS = [["<class 'bool'>", "<class 'list'>", "<class 'list'>"],
+                              ["<class 'NoneType'>", "<class 'list'>", "<class 'list'>"],
+                              ["<class 'bool'>", "<class 'list'>", "<class 'NoneType'>"],
+                              ["<class 'NoneType'>", "<class 'list'>", "<class 'NoneType'>"],
+                              ["<class 'bool'>", "<class 'str'>", "<class 'list'>", "<class 'NoneType'>"]]
         self.MATCH_PACKET = ["<class 'bool'>", "<class 'list'>", "<class 'int'>"] #[in_battle(True/False), viewing_players data list, player_count]
         self.GAME_PACKET = ["<class 'str'>", "...", "...", "...", "...", "...", "...", "..."] #the last sublists of the game_packet do not get transmitted every packet...and the data isn't a consistent type either =(
 
@@ -485,6 +491,11 @@ class BattleEngine():
         while self.running:
             #update our menu's scale
             lobby_menu.update(self.screen)
+
+            # - Check if time.time() - request_pending is greater than our maximum ping allowance (2 seconds? I'm gonna reference the constant in netcode.py) -
+            with self.request_pending_lock:
+                if(self.request_pending != True and self.request_pending != False and time.time() - self.request_pending > netcode.DEFAULT_TIMEOUT):
+                    self.request_pending = False
             
             if(self.special_window == None): #this stuff only needs to happen if we're not currently utilizing the special menu.
                 # - Update bullet damage strings -
@@ -497,11 +508,6 @@ class BattleEngine():
                 if(lobby_menu.current_menu == 6): #we're in the battle selection screen?
                     battle_settings = lobby_menu.grab_settings(["Battle Type"])
                     button_actions[6][2] = ["battle",battle_settings[0][0]]
-                
-                # - Check if time.time() - request_pending is greater than our maximum ping allowance (2 seconds? I'm gonna reference the constant in netcode.py) -
-                with self.request_pending_lock:
-                    if(self.request_pending != True and self.request_pending != False and time.time() - self.request_pending > netcode.DEFAULT_TIMEOUT):
-                        self.request_pending = False
 
                 # - Update purchase_mode if we are in menu index 1 (the menu which can control purchase_mode) -
                 if(lobby_menu.current_menu == 1):
@@ -641,7 +647,7 @@ class BattleEngine():
                     cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * lobby_menu.menu_scale
                     cursorpos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * lobby_menu.menu_scale
 
-            if(shoot in keys and time.time() - debounce > 0.2): #shoot?
+            if(shoot in keys and time.time() - debounce > 0.2 and str(type(self.request_pending)) != "<class 'float'>"): #shoot? And we're not still connecting to server?
                 debounce = time.time()
                 self.sfx.play_sound(self.GUNSHOT, [0,0],[0,0]) #play the gunshot sound effect
                 if(self.special_window == None):
@@ -740,7 +746,7 @@ class BattleEngine():
                     print("An exception occurred during special_menu.draw_menu: " + str(e) + " - Nonfatal")
             #draw our cursor onscreen (it's a crosshair LOL...I should add a gunshot effect for when you click on the screen...)
             # - Change: Crosshair is only when a request is not pending...and is ALWAYS a crosshair when in special_menu.
-            if(self.request_pending == True or self.special_window != None):
+            if(self.request_pending == True):
                 pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] - int(8 * lobby_menu.menu_scale)],[cursorpos[0],cursorpos[1] - int(4 * lobby_menu.menu_scale)],int(3 * lobby_menu.menu_scale))
                 pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] + int(8 * lobby_menu.menu_scale)],[cursorpos[0],cursorpos[1] + int(4 * lobby_menu.menu_scale)],int(3 * lobby_menu.menu_scale))
                 pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] + int(8 * lobby_menu.menu_scale),cursorpos[1]],[cursorpos[0] + int(4 * lobby_menu.menu_scale),cursorpos[1]],int(3 * lobby_menu.menu_scale))
@@ -881,7 +887,7 @@ class BattleEngine():
         # - Start the music! -
         self.music.transition_track(self.music_files[1][random.randint(0,len(self.music_files[1]) - 1)]) #start the music up again...
 
-        #...queuing is taking a long time, eh?
+        #...queueing is taking a long time, eh?
         queueing = True
         while queueing and self.running:
             if(send_packet): #only if the server is waiting for a packet...
