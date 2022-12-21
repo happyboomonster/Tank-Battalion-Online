@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.56---
+##"battle_client.py" library ---VERSION 0.58---
 ## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -496,7 +496,7 @@ class BattleEngine():
             with self.request_pending_lock:
                 if(self.request_pending != True and self.request_pending != False and time.time() - self.request_pending > netcode.DEFAULT_TIMEOUT):
                     self.request_pending = False
-            
+                     
             if(self.special_window == None): #this stuff only needs to happen if we're not currently utilizing the special menu.
                 # - Update bullet damage strings -
                 button_descriptions[2] = ["^ can be earned in battles or purchased.","Hollow shell - Deals " + str(int(self.acct.damage_multiplier * damage_numbers[0][0])) + " damage at " + str(int(self.acct.penetration_multiplier * damage_numbers[0][1])) + " penetration",
@@ -724,7 +724,7 @@ class BattleEngine():
                     hud.update_HUD_element_value(0,"Tank stats - " + str(armor) + " Armor, " + str(speed) + " Speed, " + str(damage) + " Damage multiplier, " + str(penetration) + " Penetration multiplier, " + str(RPM) + " RPM   -")
 
             # - Make sure that our crosshair does not become a red X when we enter the lobby -
-            if(first_entry == True and self.special_window == None and self.request_pending == False):
+            if(first_entry == True and self.request_pending == False):
                 self.request_pending = True
                 first_entry = False
 
