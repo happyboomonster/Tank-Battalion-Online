@@ -43,25 +43,25 @@ class BattleEngine():
         # - List of all music files for lobby, queue, and ingame -
         self.music_files = [
             [ #lobby
-                path + "../../sfx/music/lobby/Bit Quest.mp3",
-                path + "../../sfx/music/lobby/Bleeping Demo.mp3",
-                path + "../../sfx/music/lobby/Blippy Trance.mp3",
-                path + "../../sfx/music/lobby/Unwritten Return.mp3"
+                path + "../../sfx/music/lobby/Bit Quest.wav",
+                path + "../../sfx/music/lobby/Bleeping Demo.wav",
+                path + "../../sfx/music/lobby/Blippy Trance.wav",
+                path + "../../sfx/music/lobby/Unwritten Return.wav"
                 ],
             [ #queue
-                path + "../../sfx/music/queue/Bit Shift.mp3",
-                path + "../../sfx/music/queue/Blip Stream.mp3",
-                path + "../../sfx/music/queue/Digital Lemonade.mp3",
-                path + "../../sfx/music/queue/Shadowlands-CK4.ogg",
+                path + "../../sfx/music/queue/Bit Shift.wav",
+                path + "../../sfx/music/queue/Blip Stream.wav",
+                path + "../../sfx/music/queue/Digital Lemonade.wav",
+                path + "../../sfx/music/queue/Shadowlands-CK4.wav",
                 ],
             [ #ingame
-                path + "../../sfx/music/ingame/Furious Freak.mp3",
-                path + "../../sfx/music/ingame/Oasis-CK4.ogg",
-                path + "../../sfx/music/ingame/Overworld.mp3",
-                path + "../../sfx/music/ingame/Pixelland.mp3",
-                path + "../../sfx/music/ingame/Salty Ditty.mp3",
-                path + "../../sfx/music/ingame/Tank Force March.mp3",
-                path + "../../sfx/music/ingame/Vegetables-CK4.ogg",
+                path + "../../sfx/music/ingame/Furious Freak.wav",
+                path + "../../sfx/music/ingame/Oasis-CK4.wav",
+                path + "../../sfx/music/ingame/Overworld.wav",
+                path + "../../sfx/music/ingame/Pixelland.wav",
+                path + "../../sfx/music/ingame/Salty Ditty.wav",
+                path + "../../sfx/music/ingame/Tank Force March.wav",
+                path + "../../sfx/music/ingame/Vegetables-CK4.wav",
                 ]
             ]
 
@@ -118,11 +118,11 @@ class BattleEngine():
         self.running_lock = _thread.allocate_lock()
         self.music = SFX.Music() #this is our music controller (handled client-side)
         self.sfx = SFX.SFX_Manager() #this is our SFX controller (handled mostly server-side)
-        self.sfx.add_sound(path + "../../sfx/gunshot_01.ogg")
-        self.sfx.add_sound(path + "../../sfx/driving.ogg")
-        self.sfx.add_sound(path + "../../sfx/thump.ogg")
-        self.sfx.add_sound(path + "../../sfx/explosion_large.ogg")
-        self.sfx.add_sound(path + "../../sfx/crack.ogg")
+        self.sfx.add_sound(path + "../../sfx/gunshot_01.wav")
+        self.sfx.add_sound(path + "../../sfx/driving.wav")
+        self.sfx.add_sound(path + "../../sfx/thump.wav")
+        self.sfx.add_sound(path + "../../sfx/explosion_large.wav")
+        self.sfx.add_sound(path + "../../sfx/crack.wav")
         self.GUNSHOT = 0 #constants which correspond to SFX_Manager() sounds
         self.DRIVING = 1
         self.THUMP = 2

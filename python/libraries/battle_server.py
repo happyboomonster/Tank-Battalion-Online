@@ -509,11 +509,11 @@ class BattleEngine():
         # - Create a SFX_Manager() so that the client has sound effects occurring at the right times -
         sfx = SFX.SFX_Manager()
         sfx.server = True
-        sfx.add_sound("../../sfx/gunshot_01.ogg")
-        sfx.add_sound("../../sfx/driving.ogg")
-        sfx.add_sound("../../sfx/thump.ogg")
-        sfx.add_sound("../../sfx/explosion_large.ogg")
-        sfx.add_sound("../../sfx/crack.ogg")
+        sfx.add_sound("../../sfx/gunshot_01.wav")
+        sfx.add_sound("../../sfx/driving.wav")
+        sfx.add_sound("../../sfx/thump.wav")
+        sfx.add_sound("../../sfx/explosion_large.wav")
+        sfx.add_sound("../../sfx/crack.wav")
         # - Set players in the right position -
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])):
