@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.50---
+##"battle_server.py" library ---VERSION 0.51---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2022  Lincoln V.
 ##
@@ -108,16 +108,16 @@ class BattleEngine():
         #   - If a match gets past this imbalance, bots get created to help out a bit.
         self.IMBALANCE_LIMIT = 1.35 #(this is larger than self.SPECIALIZATION_WEIGHT, which is 1.125)
         #How many players (not including bots) can be put into a battle? [min, max]
-        self.PLAYER_CT = [2, 8]
+        self.PLAYER_CT = [2, 16]
         #How many teams can a single battle have? -
         self.TEAM_CT = [2,4]
         # - How long should it take before a minimum player match attempts to take place?
         #   - (These matchmaking delays are really just here to reduce server CPU load now that match restrictions are built into the...
         #   - ...matchmaker)
-        self.IMMEDIATE_MATCH = 20 #X/60 minutes = maximum wait time
+        self.IMMEDIATE_MATCH = 40 #X/60 minutes = maximum wait time
         # - This isn't really the maximum match time, it's the maximum match time during which all matchmaking rules apply.
         #   - After X number of seconds have passed, the restrictions on matchmaking will begin to slacken to encourage a quick match.
-        self.MAXIMUM_MATCH_TIME = 40 #seconds
+        self.MAXIMUM_MATCH_TIME = 45 #seconds
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
         self.TIME_SCALING_CONSTANT = self.IMMEDIATE_MATCH * self.PLAYER_CT[0] * 0.7 #how fast should the matchmaker shove players into matches if there are more than minimum players?
         # - This constant defines the minimum player count for an "optimal" match -
@@ -342,6 +342,9 @@ class BattleEngine():
             with self.player_queue_lock:
                 for x in range(0,len(self.player_queue)): #perform matchmaking for all game types available
                     first_iter = True
+                    # - Check if there are 0 players in queue. If so, our matchmaking time gets reset -
+                    if(len(self.player_queue[x]) == 0):
+                        matchmaking_time[x] = time.time() #reset matchmaking time
                     while making_matches[x] == True or first_iter: #prevent new players from joining queue while the matchmaker arranges things properly (this could create problems if player ping gets too high)
                         team = None #clear our team queue variable
                         first_iter = False #make sure that the loop above knows that we are no longer on our first iteration next time the condition above gets checked! (...or first_iter)
@@ -355,8 +358,13 @@ class BattleEngine():
                             match_urgency = self.MAXIMUM_MATCH_TIME / (time.time() - matchmaking_time[x])
                             if(match_urgency > 1):
                                 match_urgency = 1
-                            elif(match_urgency < 0.5):
-                                match_urgency = 0.5
+                            elif(match_urgency < 0.125):
+                                match_urgency = 0.125
+                            # - Now I make match_urgency happen incrementally: What I mean is this: it doesn't go from 0.99 to 0.98, it goes from 1.0 to 0.75, to 0.50 etc -
+                            # - This makes it more likely for multiple players to get into the same match, instead of single pairs of players always getting queued together -
+                            match_urgency *= 8 #this means we will have X/2 increments of urgency.
+                            match_urgency = round(match_urgency,0) #remove extra digits of precision
+                            match_urgency /= 8 #change match_urgency back to a decimal between 0.5 and 1.0
                             #print("[MATCHMAKER] Current urgency: " + str(round(match_urgency,3)))
                             team = self.matchmake(self.player_queue[x], odd_allowed=(not self.experience_battles[x]), rating=self.experience_battles[x], urgency=match_urgency)
                             #did we get a match? Let's send them off to the battlefield, and reset our time counter!
@@ -458,11 +466,11 @@ class BattleEngine():
         # - Create a SFX_Manager() so that the client has sound effects occurring at the right times -
         sfx = SFX.SFX_Manager()
         sfx.server = True
-        sfx.add_sound("../../sfx/gunshot_01.ogg")
-        sfx.add_sound("../../sfx/driving.ogg")
-        sfx.add_sound("../../sfx/thump.ogg")
-        sfx.add_sound("../../sfx/explosion_large.ogg")
-        sfx.add_sound("../../sfx/crack.ogg")
+        sfx.add_sound("../../sfx/gunshot_01.wav")
+        sfx.add_sound("../../sfx/driving.wav")
+        sfx.add_sound("../../sfx/thump.wav")
+        sfx.add_sound("../../sfx/explosion_large.wav")
+        sfx.add_sound("../../sfx/crack.wav")
         # - Set players in the right position -
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])):
