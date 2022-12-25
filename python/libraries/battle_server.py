@@ -114,10 +114,10 @@ class BattleEngine():
         # - How long should it take before a minimum player match attempts to take place?
         #   - (These matchmaking delays are really just here to reduce server CPU load now that match restrictions are built into the...
         #   - ...matchmaker)
-        self.IMMEDIATE_MATCH = 40 #X/60 minutes = maximum wait time
+        self.IMMEDIATE_MATCH = 35 #X/60 minutes = maximum wait time
         # - This isn't really the maximum match time, it's the maximum match time during which all matchmaking rules apply.
         #   - After X number of seconds have passed, the restrictions on matchmaking will begin to slacken to encourage a quick match.
-        self.MAXIMUM_MATCH_TIME = 45 #seconds
+        self.MAXIMUM_MATCH_TIME = 30 #seconds
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
         self.TIME_SCALING_CONSTANT = self.IMMEDIATE_MATCH * self.PLAYER_CT[0] * 0.7 #how fast should the matchmaker shove players into matches if there are more than minimum players?
         # - This constant defines the minimum player count for an "optimal" match -

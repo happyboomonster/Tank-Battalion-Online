@@ -17,8 +17,8 @@
 To play the game, simply start the "Tank Battalion Online.py" script!
 Make sure you have the following libraries installed for it to work:
 	Pygame v1.9.2 or later
-	Pickle
-	Sys
+	pickle
+	sys
 	_thread
 	socket
 	time
@@ -32,7 +32,7 @@ Have fun! (hopefully there are no more bugs left in the game)
 
 "Bit Quest","Bit Shift","Bleeping Demo","Blip Stream",
 "Blippy Trance","Digital Lemonade","Unwritten Return",
-"Furious Freak","Overworld","Pixelland","Salty Ditty"
+"Overworld","Pixelland","Salty Ditty"
 	Kevin MacLeod (incompetech.com)
 Licensed under Creative Commons: By Attribution 4.0 License
 http://creativecommons.org/licenses/by/4.0/

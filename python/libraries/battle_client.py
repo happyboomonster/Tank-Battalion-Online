@@ -52,16 +52,11 @@ class BattleEngine():
                 path + "../../sfx/music/queue/Bit Shift.wav",
                 path + "../../sfx/music/queue/Blip Stream.wav",
                 path + "../../sfx/music/queue/Digital Lemonade.wav",
-                path + "../../sfx/music/queue/Shadowlands-CK4.wav",
                 ],
             [ #ingame
-                path + "../../sfx/music/ingame/Furious Freak.wav",
-                path + "../../sfx/music/ingame/Oasis-CK4.wav",
                 path + "../../sfx/music/ingame/Overworld.wav",
                 path + "../../sfx/music/ingame/Pixelland.wav",
                 path + "../../sfx/music/ingame/Salty Ditty.wav",
-                path + "../../sfx/music/ingame/Tank Force March.wav",
-                path + "../../sfx/music/ingame/Vegetables-CK4.wav",
                 ]
             ]
 
