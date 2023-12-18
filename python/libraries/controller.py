@@ -1,6 +1,6 @@
-##"controller.py" library ---VERSION 0.09---
+##"controller.py" library ---VERSION 0.10---
 ## - use this library to easily make a game compatible with both controllers and keyboards!
-##Copyright (C) 2022  Lincoln V.
+##Copyright (C) 2023  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -96,15 +96,21 @@ def get_keys(): #this should be run once per frame/compute tick in a game's code
 
 class Controls():
     def __init__(self, buttons_ct=8, kb_ctrl="kb", js_num=0):
+        self.default_buttons = []
         self.buttons = [] #this is a list of all our buttons, which holds the corresponding keycode/button code number.
         for x in range(0,buttons_ct): #add key/buttoncode 0 to all our buttons at the moment
             self.buttons.append(0)
+            self.default_buttons.append(0)
         self.kb_ctrl = kb_ctrl #make sure we set a variable telling us if we're using a "kb" (keyboard) or controller "ctrl"
         self.js_num = js_num #which joystick are we using, if any?
         self.js_ct = pygame.joystick.get_count() #update our joystick count
         if(self.js_num < self.js_ct):
             self.joystick = pygame.joystick.Joystick(self.js_num) #set up a joystick object on our joystick ID IF we are using joysticks
             self.joystick.init()
+
+    # - Initializes the default list of buttons...this is needed for if we try to load a preset control scheme and it fails to load -
+    def init_default_buttons(self, buttons):
+        self.default_buttons = buttons[:]
 
     def joystick_request(self, js_num=0):
         self.js_ct = pygame.joystick.get_count() #update our joystick count
@@ -163,6 +169,30 @@ class Controls():
                 self.buttons[key_num] = js_buttons[0]
                 return True
         return False
+
+    # - This returns a list which can be entered as a parameter into enter_settings() to restore previous settings -
+    def return_data(self):
+        global DEADZONE
+        return [
+            self.kb_ctrl, #we better know what input device we're using
+            self.js_num,
+            DEADZONE,
+            self.buttons #all our keyconfigs
+            ]
+
+    # - We try to restore our settings...and if we can't, we revert to...a default setup which MUST be configured when the Controls object is initialized -
+    def enter_data(self, settings):
+        global DEADZONE
+        DEADZONE = settings[2]
+        if(settings[0] == "js"): #we want a JS? Can we get the one we want?
+            success = self.joystick_request(settings[1])
+            if(success): #we should be able to just preload our controls then
+                self.buttons = settings[3][:]
+            else: #keyboard mode is auto-initialized through self.joystick_request...so we just have to set self.buttons to a default set of keyboard bindings.
+                self.buttons = self.default_buttons[:]
+        else:
+            self.kb_ctrl = "kb"
+            self.buttons = settings[3][:]
 
 ### - Brief demo program of how to use this library effectively -
 ##screen = pygame.display.set_mode([200,200])

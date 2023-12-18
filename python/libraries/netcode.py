@@ -1,5 +1,5 @@
-##"netcode.py" library ---VERSION 0.38---
-##Copyright (C) 2022  Lincoln V.
+##"netcode.py" library ---VERSION 0.41---
+##Copyright (C) 2023  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -44,13 +44,72 @@ CONNECTION_LOST = 5 #when we lose so many packets that our connection is conside
 BUFFERSIZE_WARNING = 6 #we don't get any data initially when we use .recv() to grab the buffersize
 SOCK_CLOSE = 7 #if our socket has been formally closed
 
+# - This function acts as a data compressor to reduce netcode transmissions -
+#   It removes all the spaces between elements in a "stringifyed" list while keeping spaces in strings
+def compress_data(data):
+    try: #It is impossible to evaluate a string. This catches data inputs such as strings and directly returns them instead of throwing an error.
+        eval(data)
+    except: #the data is unevaluateable?
+        return data
+    if(str(type(eval(data))) == "<class 'list'>"): #if our data is a single element and not a list, there's nothing we can do to compress it.
+        quote_depth = 0
+        quote_types = [0, 0] #Format: ["#, '#]
+        decrement = 0
+        for char in range(0,len(data)):
+            if(data[char - decrement] == " " and quote_depth == 0): #we found a space which is NOT part of a quote? DELETE IT!
+                data = data[0:char - decrement] + data[char - decrement + 1:len(data)]
+                #print("removed data @ index " + str(char - decrement) + ". New remainder: " + str(data)) #useful debug info
+                decrement += 1
+            elif(data[char - decrement] == '"' and quote_types[1] == 0): #we found a quote? We need to find out whether it ENDS or begins a string.
+                if(quote_types[0] % 2 == 1): #this will END a string.
+                    quote_depth -= 1
+                    quote_types[0] -= 1
+                else: #it began a string =(
+                    quote_depth += 1
+                    quote_types[0] += 1
+            elif(data[char - decrement] == "'" and quote_types[0] == 0): #we found a quote? We need to find out whether it ENDS or begins a string.
+                if(quote_types[1] % 2 == 1): #this will END a string.
+                    quote_depth -= 1
+                    quote_types[1] -= 1
+                else: #it began a string =(
+                    quote_depth += 1
+                    quote_types[1] += 1
+    return data
+
+### - Quick compress_data() test -
+##test_samples = [
+##    9,
+##    True,
+##    "string",
+##    [0, 1, 2, 3],
+##    ["true", "false", "how much data does compress_data() save?", (2, 2)],
+##    [True, False, (True, 9)]
+##    ]
+##compressed = []
+##savings = 0
+##sample_ct = 1
+##for x in test_samples:
+##    # - Compress the data -
+##    compressed.append(compress_data(str(x)))
+##    # - Find the lengths of the original and compressed data, and print out the differences -
+##    lengths = [len(str(x)), len(compressed[len(compressed) - 1])]
+##    print("Original Length: " + str(lengths[0]) + " - Compressed Length: " + str(lengths[1]))
+##    print("\tOriginal Data: " + str(x) + "\n\tCompressed Data: " + str(compressed[len(compressed) - 1]))
+##    # - Calculate the average data savings this algorithm provides and print it out -
+##    savings += lengths[0] / lengths[1] - 1
+##    sample_ct += 1
+##savings /= sample_ct
+##print("Average savings: " + str(round(savings * 100,3)) + "% data saved.")
+
 # - This function acts as a basic data verification system -
 # - Use: give a format list, the function returns whether the data matches your format.
 # - How to make a format list: If this was an acceptable data packet: [2, "a", ["abc", 5.07]]
 # - Then this would be your format: ["<class 'int'>", "<class 'str'>", ["<class 'str'>", "<class 'float'>"]]
 def data_verify(data, verify): #verify is your format list.
     verified = True
-    if(str(type(data)) == "<class 'list'>" and str(type(verify)) == "<class 'list'>"): #if the input is not a list AND our verify data isn't a list, the function works like this. If not...see the else statement...
+    if(str(type(data)) == "<class 'list'>" and str(type(verify)) == "<class 'list'>"): #if the input is a list AND our verify data is a list, the function recursively checks each index. If not...see the else statement...
+        if(len(data) != len(verify)): #Is there a disparity between the AMOUNT of data sent and the amount of data expected? This is an immediate red flag that we're not getting good data.
+            return False #were OUTTA here
         for x in range(0, len(data)): #data MUST be a list.
             try: #this should work UNLESS we get an IndexError: If an IndexError occurs, that is an immediate red flag that the data we got is NOT what we were looking for.
                 verified = data_verify(data[x], verify[x])
@@ -66,10 +125,10 @@ def data_verify(data, verify): #verify is your format list.
         else:
             return False
     return verified
+
 ### - Quick function test -
 ##data = [2, ["abc", 5.74738048109]]
 ##verify = ["<class 'int'>", ["<class 'str'>", "<class 'float'>"]]
-##
 ##print(data_verify(data, verify))
 
 #configures a socket so that it works with this netcode library's send/recieve commands - also resets the timeout value to DEFAULT_TIMEOUT
@@ -100,6 +159,7 @@ def socket_recv(Cs,buffersize): #recieves data, and catches errors.
 def send_data(Cs,buffersize,data): #sends some data without checking if the data made it through the wires
     datalen = justify(str(len(list(str(data)))),buffersize)
     data = str(data)
+    data = compress_data(data) #compress the data to reduce netcode transmissions
     bytes_ct = 0 #how many characters we have sent
     total_data = datalen + data #the total data string we need to send
     if(Cs._closed): #has the socket been closed?

@@ -1,7 +1,7 @@
-##"GFX.py" library ---VERSION 0.17---
+##"GFX.py" library ---VERSION 0.19---
 ## - REQUIRES: "font.py" library
 ## - For creating basic graphical effects (usually based on particles) in the same scale as your screen in a game -
-##Copyright (C) 2022  Lincoln V.
+##Copyright (C) 2023  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -112,7 +112,19 @@ class Particle(): #a square onscreen which can A) change size, B) change color, 
             else: #we want to draw text? (the coordinates are already "intified" within draw_words)
                 font.draw_words(self.form, [self.pos[0] * TILE_SIZE * screen_scale[0] - offset[0] * TILE_SIZE * screen_scale[0], self.pos[1] * TILE_SIZE * screen_scale[1] - offset[1] * TILE_SIZE * screen_scale[1]], self.color, self.size * screen_scale[0] / font.SIZE * TILE_SIZE, screen)
 
+    # - Draws the position of a particle on a minimap. This way, players can see where explosions, etc. are happening and can figure out where game activity is more easily -
+    def draw_minimap(self, minimap_surf):
+        minimap_surf.set_at([int(round(self.pos[0],0)), int(round(self.pos[1],0))], [128,0,150])
+
     def return_data(self,precision=2): #returns data for netcode transmission
+        if(self.active == True): #compress our True/False flags into 1/0s so they use less bandwidth for netcode transmission
+            active = 1
+        else:
+            active = 0
+        if(self.timeout == True):
+            timeout = 1
+        else:
+            timeout = 0
         return [self.pos, #position attributes
             [[round(self.destination[0][0],precision), round(self.destination[0][1],precision)],[round(self.destination[1][0],precision), round(self.destination[1][1],precision)]],
             [round(self.delta_position[0],precision), round(self.delta_position[1],precision)], #find the amount we need to move over...well, the amount of time specified.
@@ -131,8 +143,8 @@ class Particle(): #a square onscreen which can A) change size, B) change color, 
 
             self.form, #form attribute
 
-            self.active, #this becomes true once the particle actually needs to be drawn onscreen.
-            self.timeout, #this becomes true once the particle is finished its job (providing a temporary effect onscreen)
+            active, #this becomes true once the particle actually needs to be drawn onscreen.
+            timeout, #this becomes true once the particle is finished its job (providing a temporary effect onscreen)
 
             round(time.time() - self.last_clock,precision) #this tells us roughly how long it has been since the particle's state has been updated.
                 ]
@@ -156,8 +168,14 @@ class Particle(): #a square onscreen which can A) change size, B) change color, 
 
         self.form = data[12] #form attribute
 
-        self.active = data[13] #this becomes true once the particle actually needs to be drawn onscreen.
-        self.timeout = data[14] #this becomes true once the particle is finished its job (providing a temporary effect onscreen)
+        if(data[13] == 1): #this becomes true once the particle actually needs to be drawn onscreen.
+            self.active = True
+        else:
+            self.active = False
+        if(data[14] == 1): #this becomes true once the particle is finished its job (providing a temporary effect onscreen)
+            self.timeout = True
+        else:
+            self.timeout = False
         self.last_clock = time.time() - data[15]
 
 class GFX_Manager(): # - A class which helps transmit a large amount of particles over netcode without overloading transmission protocols -
@@ -208,6 +226,10 @@ class GFX_Manager(): # - A class which helps transmit a large amount of particle
                 decrement += 1
             elif(self.particle_effects[x - decrement][0] == "fire"): #fire? - Format: ["fire",ID#,[X,Y],time.time()]
                 create_fire(particles,self.particle_effects[x - decrement][2],current_frame)
+
+    def draw_minimap(self, minimap_surf): #draws a purple pixel at all particle positions in a minimap
+        for x in range(0,len(self.particle_effects)):
+            self.particle_effects[x].draw_minimap(minimap_surf)
 
     def enter_data(self, data): #Copies the data from data[] IF we haven't already copied that data into our GFX manager
         # - Start by deleting all fire effects -

@@ -1,6 +1,6 @@
-##"entity.py" library ---VERSION 0.69---
+##"entity.py" library ---VERSION 0.78---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
-##Copyright (C) 2022  Lincoln V.
+##Copyright (C) 2023  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -93,10 +93,14 @@ class Powerup(): #for collectible items within the map
         #draw the powerup/item onscreen
         screen.blit(pygame.transform.scale(self.image,[int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
 
+    #draws a yellow pixel on the minimap at the location of a powerup.
+    def draw_minimap(self, minimap_surf):
+        minimap_surf.set_at([int(round(self.map_location[0],0)),int(round(self.map_location[1],0))],[255,255,0])
+
     def return_data(self, precision=2, clear_flags=None): #gathers data so this can be sent over netcode (certain attributes do not need to be sent)
         return [
             self.type,
-            self.map_location,
+            [round(self.map_location[0],precision),round(self.map_location[1],precision)],
             self.powerup_number
             ]
 
@@ -238,17 +242,28 @@ class Bullet(): #specs_multiplier format: [ damage buff/nerf, penetration buff/n
         else: #NO vfx? Simple! Just blit the image onscreen! (with scaling, of course)
             screen.blit(pygame.transform.scale(self.image,[int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
 
+    #draws a pixel on the minimap at the location of a bullet. Color varies based on which team shot it and whose team the client player is on.
+    def draw_minimap(self, minimap_surf, home_team, useless_parameter=True): #useless_paramter is there so that I can use the same draw command for Tank() and Bullet() objects.
+        if(home_team != self.team): #an enemy shot this bullet? Color = orange.
+            minimap_surf.set_at([int(round(self.map_location[0],0)),int(round(self.map_location[1],0))],[255,125,0])
+        else: #friendly fire? Color = blue.
+            minimap_surf.set_at([int(round(self.map_location[0],0)),int(round(self.map_location[1],0))],[0,0,255])
+
     def return_data(self, precision=2, clear_flags=None): #returns bullet data to be sent over netcode
+        if(self.destroyed == True): #compress our True/False flags into 1/0s to reduce netcode transmissions
+            destroyed = 1
+        else:
+            destroyed = 0
         return [
             self.type,
-            self.map_location,
+            [round(self.map_location[0],precision),round(self.map_location[1],precision)],
             self.direction,
             self.shell_type,
             round(self.damage,precision),
             round(self.penetration,precision),
             round(self.fire_inflict,precision),
             self.team,
-            self.destroyed,
+            destroyed,
             self.explosion_colors,
             self.shell_vfx,
             round(time.time() - self.spawn_time,precision) #this is needed for proper disk shell rotation.
@@ -263,7 +278,10 @@ class Bullet(): #specs_multiplier format: [ damage buff/nerf, penetration buff/n
         self.penetration = data[5]
         self.fire_inflict = data[6]
         self.team = data[7]
-        self.destroyed = data[8]
+        if(data[8] == 1):
+            self.destroyed = True
+        else:
+            self.destroyed = False
         self.explosion_colors = data[9]
         self.shell_vfx = data[10]
         self.spawn_time = time.time() - data[11]
@@ -332,9 +350,11 @@ class Tank():
         self.last_shot = time.time() #when did our tank fire last? (governs when we may shoot again, based on RPM)
         self.damage_second = 0 #this is how much damage gets done to our tank each second.
         self.last_damage_second = time.time()
-        self.spotted = [] #this is a list of which teams have spotted this tank for a certain period of time.
+        self.spotted = [] #this is a list of which teams have spotted this tank for a certain period of time. This is ONLY used by a server, and is NOT sent to the clients.
         for x in range(0,team_ct):
             self.spotted.append(time.time())
+        self.client_spotted = time.time() #this records the last time this tank object has had enter_data() called. It is used to detect whether a tank has been spotted by a client's team recently.
+        self.MAX_SPOTTED = 2.5 #seconds; If (time.time() - self.client_spotted) is greater than MAX_SPOTTED, this tank is considered to *not* have been spotted.
 
         # - Set this flag to True if you are a client and want to shoot! -
         self.shot_pending = False
@@ -355,8 +375,8 @@ class Tank():
 
         # - Equipment installed within the tank (Format: [# of hollow, regular#, explosive#, disk#]) -
         self.shells = [30, 25, 15, 15]
-        #List of powerups in index order: Improved Fuel, Fuel Fire Suppressant, Dangerous Loading, Explosive Tip,
-        #Amped Gun, Makeshift Armor
+        #List of powerups in index order: Improved Fuel, Fire Extinguisher, Dangerous Loading, Explosive Tip,
+        #Amped Gun, Extra Armor
         #List format: Number in quotes = powerup being used right now, "number" seconds left of powerup;
         #Number without quotes = Powerup cooldown occuring right now.
         #None: No powerup available in this slot.
@@ -389,8 +409,28 @@ class Tank():
         # - Rotation threshold constant - how close to desired direction must be achieved? -
         self.ROTATION_THRESHOLD = 10
 
+        # - When you turn a corner and just turn too early...this will help you move around the corner anyways. How much imprecision (in blocks) is the player allowed to make turns? -
+        self.POS_CORRECTION_MAX_THRESHOLD = 0.25 #if we're more than X blocks off, the player doesn't deserve positioning correction.
+        self.POS_CORRECTION_MIN_THRESHOLD = 0.025 #if we're less than X blocks off, we don't need to bother with positioning correction.
+
         # - Visual stuff -
-        self.image = image
+        self.spotted_image = image
+        if(str(type(self.spotted_image)) != "<class 'str'>"): #sometimes I use a string as an image IF I don't want to continually be loading images from disk when using Tank() objects server-side. When I do, I use "str" classes instead.
+            self.unspotted_image = pygame.Surface([self.spotted_image.get_width(), self.spotted_image.get_height()])
+            self.unspotted_image.blit(self.spotted_image,[0,0])
+            for x in range(0,self.spotted_image.get_width()): #use grey dithering to dim the self.spotted_image to generate self.unspotted_image
+                for y in range(0,self.spotted_image.get_width()):
+                    if(y % 2 == 0):
+                        if(x % 2 == 0):
+                            if(self.spotted_image.get_at([x,y])[3] != 0):
+                                self.unspotted_image.set_at([x,y],[125,125,125])
+                    else:
+                        if(x % 2 != 0):
+                            if(self.spotted_image.get_at([x,y])[3] != 0):
+                                self.unspotted_image.set_at([x,y],[75,75,75])
+        else:
+            self.unspotted_image = self.spotted_image
+                    
 
         # - Bullet images -
         global path
@@ -428,12 +468,28 @@ class Tank():
               "Tank Team: " + self.team + "\n" +
               "End of report.")
 
+    # - Allows changing images mid-game -
+    def load_image(self, image):
+        self.spotted_image = image
+        self.unspotted_image = pygame.Surface([self.spotted_image.get_width(), self.spotted_image.get_height()])
+        self.unspotted_image.blit(self.spotted_image,[0,0])
+        for x in range(0,self.spotted_image.get_width()): #use grey dithering to dim the self.spotted_image to generate self.unspotted_image
+            for y in range(0,self.spotted_image.get_width()):
+                if(y % 2 == 0):
+                    if(x % 2 == 0):
+                        if(self.spotted_image.get_at([x,y])[3] != 0):
+                            self.unspotted_image.set_at([x,y],[125,125,125])
+                else:
+                    if(x % 2 != 0):
+                        if(self.spotted_image.get_at([x,y])[3] != 0):
+                            self.unspotted_image.set_at([x,y],[75,75,75])
+
     # - This is needed for account.py's upgrade details system -
     def update_acct_stats(self):
         self.account_stats = [[self.damage_multiplier,self.penetration_multiplier],[self.RPM],[self.armor],[self.speed]]
 
     # - Sets map_location, overall_location properly from the location input and screen_location -
-    def goto(self,location, TILE_SIZE=20, screen_scale=[1,1]):
+    def goto(self, location, TILE_SIZE=20, screen_scale=[1,1]):
         screen_offset = [ #calculate the screen offset in blocks
             self.screen_location[0] / screen_scale[0] / TILE_SIZE,
             self.screen_location[1] / screen_scale[1] / TILE_SIZE
@@ -629,7 +685,7 @@ class Tank():
                 self.map_location[0] -= self.speed * self.time_difference
                 self.last_motion[0] = -self.speed * self.time_difference
                 self.last_motion[1] = 0.0
-        else: #we're gonna have to spend self.speed/2.0 seconds to rotate our tank...
+        else: #we're gonna have to spend 0.5/self.speed seconds to rotate our tank...
             if(self.goal_rotation == 0): #only set goal_rotation if it hasn't been set yet...
                 #how far do we have to rotate? Rotating left/right may create a rotation difference...
                 possible_goal_rotation = self.no_360(direction - self.direction)
@@ -661,8 +717,28 @@ class Tank():
         self.map_location[0] -= self.last_motion[0]
         self.overall_location[1] -= self.last_motion[1]
         self.overall_location[0] -= self.last_motion[0]
+        # - Check if we just *barely* didn't make it around a corner, and let the player make the corner if so -
+        if(abs(self.overall_location[1] - round(self.overall_location[1],0)) < self.POS_CORRECTION_MAX_THRESHOLD): #positioning precision must be within 0.2 blocks for this correction to take effect
+            if(abs(self.overall_location[0] - round(self.overall_location[0],0)) < self.POS_CORRECTION_MAX_THRESHOLD):
+                if(abs(self.overall_location[1] - round(self.overall_location[1],0)) > self.POS_CORRECTION_MIN_THRESHOLD): #we don't have to be PERFECTLY precise tho...
+                    if(abs(self.overall_location[0] - round(self.overall_location[0],0)) > self.POS_CORRECTION_MIN_THRESHOLD):
+                        # - Now we try and ensure that we slowly center ourselves on the square we are *mostly* on, so that we can make the corner anyways...even if we hit a wall -
+                        if(self.last_motion[1] != 0): #movement is in the Y axis, so we need to center ourselves on the X axis
+                            if(self.overall_location[0] - round(self.overall_location[0],0) > 0):
+                                #decrease X pos to get to nearest integer X pos
+                                self.map_location[0] -= self.speed * self.time_difference
+                            else:
+                                #increase X pos to get to nearest integer X pos
+                                self.map_location[0] += self.speed * self.time_difference
+                        else: #movement was in the X axis, so we need to center ourselves on the Y axis
+                            if(self.overall_location[1] - round(self.overall_location[1],0) > 0):
+                                #decrease our Y position to get to the closest integer Y value
+                                self.map_location[1] -= self.speed * self.time_difference
+                            else:
+                                #increase our Y position to get to the closest integer Y value
+                                self.map_location[1] += self.speed * self.time_difference
 
-    def draw(self, screen, screen_scale, TILE_SIZE, third_person_coords=None): #draw a tank onscreen
+    def draw(self, screen, screen_scale, TILE_SIZE, third_person_coords=None, client_only=True): #draw a tank onscreen
         # - Calculate the tank's onscreen coordinates -
         screen_coordinates = [self.map_location[0] * screen_scale[0] * TILE_SIZE + self.screen_location[0], self.map_location[1] * screen_scale[1] * TILE_SIZE + self.screen_location[1]]
         if(third_person_coords == None):
@@ -671,10 +747,34 @@ class Tank():
         else: #we're not the controller of this tank?
             screen_coordinates[0] -= third_person_coords[0] * screen_scale[0] * TILE_SIZE
             screen_coordinates[1] -= third_person_coords[1] * screen_scale[1] * TILE_SIZE
+        # - Find whether we want the spotted or unspotted image; If we are a COMPLETELY client-run engine, we may not want the unspotted image at all. -
+        if(not client_only and time.time() - self.client_spotted > self.MAX_SPOTTED): #we haven't received updates on this tank object for a while? We should use the unspotted image.
+            image_choice = self.unspotted_image
+        else: #use spotted image
+            image_choice = self.spotted_image
         # - Rotate the tank image, scale it, and paste it onscreen -
-        rotated_image = pygame.transform.rotate(self.image, self.direction) #optional: switch self.direction to old_direction
+        rotated_image = pygame.transform.rotate(image_choice, self.direction) #optional: switch self.direction to old_direction
         scaled_image = pygame.transform.scale(rotated_image, [int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])])
         screen.blit(scaled_image, [int(screen_coordinates[0]), int(screen_coordinates[1])])
+
+    #draws a red pixel on the minimap at the location of an enemy who isn't dead, and a green pixel on the minimap at the location of an ally who is alive.
+    def draw_minimap(self, minimap_surf, home_team, client_only=True):
+        if(self.destroyed == False): #there's no point in putting a dead tank on the minimap...
+            # - Find whether we want the spotted or unspotted color; If we are a COMPLETELY client-run engine, we may not want the unspotted color at all. -
+            if(not client_only and time.time() - self.client_spotted > self.MAX_SPOTTED): #we haven't received updates on this tank object for a while? We should use the unspotted image.
+                color_choice = [
+                    [127,0,0],
+                    [0,127,0]
+                    ]
+            else: #use spotted color
+                color_choice = [
+                    [255,0,0],
+                    [0,255,0]
+                    ]
+            if(home_team != self.team): #this tank is NOT on our team
+                minimap_surf.set_at([int(round(self.overall_location[0],0)),int(round(self.overall_location[1],0))],color_choice[0])
+            else: #it must be then...
+                minimap_surf.set_at([int(round(self.overall_location[0],0)),int(round(self.overall_location[1],0))],color_choice[1])
 
     def return_collision(self, TILE_SIZE, collision_offset): #returns the tank's collision coordinates in tile coordinates
         # - Calculate the tank's onscreen coordinates -
@@ -740,6 +840,27 @@ class Tank():
             self.message_request = message #set the message_request flag
 
     def return_data(self, precision=2, clear_flags=True): #returns tank data to be sent over netcode
+        if(self.destroyed): #Convert True/False flags to 1/0s to save netcode transmissions
+            destroyed = 1
+        else:
+            destroyed = 0
+        if(self.explosion_done):
+            explosion_done = 1
+        else:
+            explosion_done = 0
+        if(self.shot_pending):
+            shot_pending = 1
+        else:
+            shot_pending = 0
+        #Compressing the powerups list takes a bit more work since it holds values which can be a Boolean, a Float, or a String.
+        powerups = [] #No modification is needed on the client-side to convert the values sent through netcode to Tank() class compatible data.
+        for x in range(0,len(self.powerups)):
+            if(str(type(self.powerups[x])) == "<class 'float'>"):
+                powerups.append(round(self.powerups[x],precision))
+            elif(str(type(self.powerups[x])) == "<class 'str'>"):
+                powerups.append(str(round(eval(self.powerups[x]),precision)))
+            else:
+                powerups.append(self.powerups[x])
         return_list = [
             self.type,
             round(self.speed,precision),
@@ -748,22 +869,22 @@ class Tank():
             round(self.armor,precision),
             self.team,
             self.name,
-            self.destroyed,
-            self.explosion_done,
+            destroyed,
+            explosion_done,
             round(self.start_HP,precision),
             round(self.start_armor,precision),
             round(self.fire,precision),
-            self.overall_location[:],
+            [round(self.overall_location[0],precision),round(self.overall_location[1],precision)],
             round(self.goal_rotation,precision),
             round(self.old_direction,precision),
             round(time.time() - self.last_shot,precision), #seconds ago last shot happened
-            self.shot_pending, #does the CLIENT want to shoot? (sorry servers, you can't do that)
+            shot_pending, #does the CLIENT want to shoot? (sorry servers, you can't do that)
             self.current_shell, #which shell does the client want to shoot?
             round(self.total_damage,precision),
             self.kills,
             self.powerup_request,
             self.shells,
-            self.powerups,
+            powerups,
             round(self.RPM,precision),
             self.message_request,
             self.team_num
@@ -783,8 +904,14 @@ class Tank():
             self.armor = data[4]
             self.team = data[5]
             self.name = data[6]
-            self.destroyed = data[7]
-            self.explosion_done = data[8]
+            if(data[7] == 1):
+                self.destroyed = True
+            else:
+                self.destroyed = False
+            if(data[8] == 1):
+                self.explosion_done = True
+            else:
+                self.explosion_done = False
             self.start_HP = data[9]
             self.start_armor = data[10]
             self.fire = data[11]
@@ -796,7 +923,10 @@ class Tank():
         if(not server):
             self.last_shot = time.time() - data[15]
         if(server): #yes, this only happens if the enter_data is from the server.
-            self.shot_pending = data[16]
+            if(data[16] == 1):
+                self.shot_pending = True
+            else:
+                self.shot_pending = False
             self.use_shell(data[17]) #make sure that cooldown gets measured properly...
         if(not server):
             self.total_damage = data[18]
@@ -812,6 +942,9 @@ class Tank():
             self.message_request = data[24]
         if(not server):
             self.team_num = data[25]
+        # - If NOT server, then we need to reset self.client_spotted so that the client knows that this tank object HAS been spotted -
+        if(not server):
+            self.client_spotted = time.time()
 
 class Bot(): #AI player which can fill a player queue if there is not enough players.
     def __init__(self,team_number=0,player_number=0,player_rating=0.85):
@@ -847,6 +980,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
         self.OPPOSITE_DIRECTIONS = [[90,270],[0,180]]
         self.FORCED_MOVE_TIME = 1.5
         self.LR_ANGLE = 30 #this angle determines how far left/right the bots will venture when attempting a side attack.
+        self.AGGRO_DIR_THRESH = 1.25 #when bots are at or beyond this rating, they WILL point towards any entity they are aggroed onto. Otherwise, they may point 180 degrees away sometimes.
 
         # - Powerup selection constants -
         self.ARMOR_BOOST_THRESHOLD = 20 * math.sqrt(player_rating) #threshold at which the bot still decides that using armor boost is worth it.
@@ -927,7 +1061,8 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
             elif(self.tactic_num == 2): #now we head to the center.
                 self.tactic_num += 1
                 self.destination = [int(len(arena.arena[0]) / 2), int(len(arena.arena) / 2)]
-            else: #LAST RESORT OPTION!! Follow teammates/random locations
+            elif(self.tactic_num >= 3 and self.tactic_num % 16 <= 7): #Follow teammates
+                self.tactic_num += 1
                 new_destination = [0,0]
                 new_destination_ct = 0 #get the avg. location of all players on our team which are alive
                 for x in range(0,len(players)):
@@ -936,11 +1071,15 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                         new_destination[1] += players[x].overall_location[1]
                         new_destination_ct += 1
                 if(new_destination_ct == 0):
-                    #RANDOM LOCATIONS because no players to follow =(
-                    new_destination = [random.randint(0,len(arena.arena[0])), random.randint(0,len(arena.arena))]
+                    #RANDOM LOCATIONS because no players to follow =( (we shrink the amount of positions available because there is a wall on the edge of the map)
+                    new_destination = [1 + random.randint(0,len(arena.arena[0]) - 1 - 2), 1 + random.randint(0,len(arena.arena[1]) - 1 - 2)]
                 else: #follow the leader...
                     new_destination[0] /= new_destination_ct
                     new_destination[1] /= new_destination_ct
+                self.destination = new_destination
+            else: #go to a random location!
+                self.tactic_num += 1
+                new_destination = [1 + random.randint(0,len(arena.arena[0]) - 1 - 2), 1 + random.randint(0,len(arena.arena[1]) - 1 - 2)]
                 self.destination = new_destination
             # - Now, we have to check if our destination is ontop of a block. If it is, we have to shift our destination until it isn't -
             is_on_block = False
@@ -1450,9 +1589,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
             # - The bot needs to check if any bullets are heading its way, and if it can respond in time -
             # - Check on the X and Y axis until a wall/brick is reached to see if we have found a bullet -
             self.bullet_aggro = self.check_visible_entities(players,bullets,arena,collideable_tiles,TILE_SIZE) #bullets MUST be checked each frame because they can be deleted
-            #if(time.time() - self.last_entity_check > self.LAST_ENTITY_CHECK_TIME):
-                #self.last_entity_check = time.time() #reset our cooldown timer - This is here to promote higher performance levels
-                # - Now, the bot gets to check if it sees any enemies nearby -
+            # - Now, the bot gets to check if it sees any enemies nearby -
             self.player_aggro = self.check_visible_entities(players,players,arena,collideable_tiles,TILE_SIZE)
             # - Check if we should use any powerups -
             self.use_powerups(players,bullets,self.player_aggro,self.bullet_aggro) #are we using our powerups at all?
@@ -1476,7 +1613,11 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
             # - Continuing towards our destination...which might be a bullet which we need to shoot! -
             self.track_location(players,arena,TILE_SIZE,collideable_tiles,tank_collision_offset,screen)
         elif(not centering): #just keep moving the same direction we have been to reduce CPU load
-            players[self.player_number].move(self.direction, TILE_SIZE)
+            #we only keep moving the direction we are IF we're not aggroed onto something.
+            if(self.bullet_aggro == None and self.player_aggro == None or self.rating < self.AGGRO_DIR_THRESH):
+                players[self.player_number].move(self.direction, TILE_SIZE)
+            else: #if we ARE aggroed onto something, we NEED to be pointing the direction of it, NOT the other way.
+                self.point_in_direction(self.direction,players,TILE_SIZE,auto_move=True)
         return potential_bullet
                 
 #The following function accepts two entity objects as a list.
@@ -1498,10 +1639,13 @@ def handle_damage(Entities): #Entities format: [ Entity 1, Entity 2 ]
                 Entities[0].fire_cause = Entities[1].tank_origin
             if(Entities[0].armor > 0.0025):
                 damage_numbers[0] = Entities[1].damage * (Entities[1].penetration / Entities[0].armor) #calculate the damage numbers
-                Entities[0].armor -= Entities[1].damage * (Entities[1].penetration / Entities[0].armor)
-                if(Entities[0].armor < 0): #we lost so much armor that we're negative???
-                    damage_numbers[0] += Entities[0].armor
-                    Entities[0].armor = 0.0001 #now our armor is gone.
+                if(damage_numbers[0] < 0): #negative damage? (this can happen in rare frame-perfect cases)
+                    damage_numbers[0] = 0
+                else:
+                    Entities[0].armor -= Entities[1].damage * (Entities[1].penetration / Entities[0].armor)
+                    if(Entities[0].armor < 0): #we lost so much armor that we're negative???
+                        damage_numbers[0] += Entities[0].armor
+                        Entities[0].armor = 0.0001 #now our armor is gone.
             else:
                 Entities[0].HP -= Entities[1].damage
                 damage_numbers[0] = Entities[1].damage
@@ -1515,10 +1659,13 @@ def handle_damage(Entities): #Entities format: [ Entity 1, Entity 2 ]
                 Entities[1].fire_cause = Entities[0].tank_origin
             if(Entities[1].armor > 0.0025):
                 damage_numbers[1] = Entities[0].damage * (Entities[0].penetration / Entities[1].armor) #calculate the damage numbers
-                Entities[1].armor -= Entities[0].damage * (Entities[0].penetration / Entities[1].armor)
-                if(Entities[1].armor < 0):
-                    damage_numbers[1] += Entities[1].armor
-                    Entities[1].armor = 0.0001 #now our armor is gone.
+                if(damage_numbers[1] < 0): #negative damage? (this can happen in rare frame-perfect cases)
+                    damage_numbers[1] = 0
+                else:
+                    Entities[1].armor -= Entities[0].damage * (Entities[0].penetration / Entities[1].armor)
+                    if(Entities[1].armor < 0):
+                        damage_numbers[1] += Entities[1].armor
+                        Entities[1].armor = 0.0001 #now our armor is gone.
             else:
                 Entities[1].HP -= Entities[0].damage
                 damage_numbers[1] = Entities[0].damage
@@ -1527,20 +1674,29 @@ def handle_damage(Entities): #Entities format: [ Entity 1, Entity 2 ]
                 Entities[0].tank_origin.kills += 1 #***Entities[0].tank_origin.clock() must be run after this occurs to prevent double-kill registering***
             Entities[0].destroyed = True #the bullet is done after it hits a tank.
         elif(Entities[0].type == "Bullet" and Entities[1].type == "Bullet"):
+            # - There is a rare case in which one entity has 0 penetration and gets shot. This results in a 0div error, and is fixed right here -
+            if(Entities[0].penetration == 0 or Entities[1].penetration == 0):
+                return None
             Entity1HP = Entities[1].damage
             Entity1Armor = Entities[1].penetration
             # - Damage Entity1 first -
             damage_numbers[1] = Entities[0].damage * (Entities[0].penetration / Entity1Armor)
-            Entity1Armor -= Entities[0].damage * (Entities[0].penetration / Entity1Armor)
-            if(Entity1Armor <= 0): #this bullet lost all its penetration (momentum, armor, whatever you want to call it)
-                damage_numbers[1] += Entity1Armor #correct this damage number so that it isn't greater than the other bullet's penetration value.
-                Entities[1].destroyed = True #the bullet lost all momentum (penetration), so its useless.
+            if(damage_numbers[1] < 0): #this bullet did negative damage? (this can happen in rare frame-perfect cases)
+                damage_numbers[1] = 0
+            else:
+                Entity1Armor -= Entities[0].damage * (Entities[0].penetration / Entity1Armor)
+                if(Entity1Armor <= 0): #this bullet lost all its penetration (momentum, armor, whatever you want to call it)
+                    damage_numbers[1] += Entity1Armor #correct this damage number so that it isn't greater than the other bullet's penetration value.
+                    Entities[1].destroyed = True #the bullet lost all momentum (penetration), so its useless.
             # - Damage Entity0 second -
             damage_numbers[0] = Entities[1].damage * (Entities[1].penetration / Entities[0].penetration)
-            Entities[0].penetration -= Entities[1].damage * (Entities[1].penetration / Entities[0].penetration)
-            if(Entities[0].penetration <= 0): #If we lose momentum, the bullet's dead.
-                damage_numbers[0] += Entities[0].penetration #correct this damage number so that it isn't over the greater than bullet's penetration value.
-                Entities[0].destroyed = True #the bullet lost all momentum (penetration), so its useless.
+            if(damage_numbers[0] > 0): #this bullet did negative damage? (this can happen in rare frame-perfect cases)
+                damage_numbers[0] = 0
+            else:
+                Entities[0].penetration -= Entities[1].damage * (Entities[1].penetration / Entities[0].penetration)
+                if(Entities[0].penetration <= 0): #If we lose momentum, the bullet's dead.
+                    damage_numbers[0] += Entities[0].penetration #correct this damage number so that it isn't over the greater than bullet's penetration value.
+                    Entities[0].destroyed = True #the bullet lost all momentum (penetration), so its useless.
             # - Overwrite old Entity1 values with Entity1Armor and Entity1HP -
             Entities[1].penetration = Entity1Armor
             Entities[1].damage = Entity1HP
@@ -1725,6 +1881,7 @@ def check_visible(arena,entities,collideable_tiles,vision=5):
 ##    ]
 ##
 ##screen = pygame.display.set_mode([640,480])
+##minimap = pygame.Surface([150,150])
 ##tank.screen_location = [screen.get_width() / 2 - 10, screen.get_height() / 2 - 10]
 ##tank.RPM = 120.0
 ##
@@ -1740,7 +1897,9 @@ def check_visible(arena,entities,collideable_tiles,vision=5):
 ##        
 ##    #update the display
 ##    screen.fill([0,0,0])
+##    minimap.fill([0,0,0])
 ##    tank.draw(screen, [1.00, 1.00], 20)
+##    tank.draw_minimap(minimap, tank.team)
 ##    tank.clock()
 ##    
 ##    #manage bullets
@@ -1748,6 +1907,7 @@ def check_visible(arena,entities,collideable_tiles,vision=5):
 ##        bullets[x].clock([],framecounter)
 ##        bullets[x].move()
 ##        bullets[x].draw(screen, [1.00, 1.00], tank.map_location, 20)
+##        bullets[x].draw_minimap(minimap, tank.team)
 ##        #check if the bullets are offscreen
 ##        bullet_collision = bullets[x].return_collision(20)
 ##        if(bullet_collision[2] < 0 or bullet_collision[0] > screen.get_width()):
@@ -1759,6 +1919,7 @@ def check_visible(arena,entities,collideable_tiles,vision=5):
 ##        elif(bullets[x].destroyed == True):
 ##            del(bullets[x])
 ##            break
+##    screen.blit(minimap, [0,0])
 ##    pygame.display.flip()
 ##
 ##    #manage collision between bullets
@@ -1807,7 +1968,7 @@ def check_visible(arena,entities,collideable_tiles,vision=5):
 ##                bullets.append(bullet) #add a bullet object to the list
 ##
 ##pygame.quit()
-
+##
 ### - Quick demo to test out the new goto() function for Tank() objects -
 ##tank = Tank("image", ["team","playername"])
 ##tank.screen_location = [80,80]

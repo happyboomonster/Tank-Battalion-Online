@@ -123,10 +123,10 @@ p2_mh.default_display_size = [p2_screen.get_width(), p2_screen.get_height()]
 #create our tank object
 tank = entity.Tank(T1U, ["P1","The Good Guys"])
 #increase the tank's RPM
-##tank.RPM = 40.0
-##tank.damage_multiplier = 500.0
-##tank.penetration_multiplier = 0.1
-##tank.speed = 1.75
+tank.RPM = 200.0
+##tank.damage_multiplier = 30.0
+##tank.penetration_multiplier = 0.01
+tank.speed = 1.75
 #set its location onscreen
 tank.screen_location = [screen.get_width() / 4, screen.get_height() / 4]
 tank.goto(my_arena.flag_locations[0], my_arena.TILE_SIZE, my_arena.get_scale(visible_arena,screen))
@@ -179,10 +179,10 @@ bullets = []
 #spawn P2...
 p2_tank = entity.Tank(T2U, ["P2","The Enemy Team (in other words The Bad Guys)"])
 #increase the tank's RPM
-#p2_tank.RPM = 500.0
-##p2_tank.damage_multiplier = 500.0
-##p2_tank.penetration_multiplier = 0.1
-##p2_tank.speed = 1.75
+p2_tank.RPM = 80.0
+##p2_tank.damage_multiplier = 30.0
+##p2_tank.penetration_multiplier = 0.01
+p2_tank.speed = 1.35
 #set the tank's screen location
 p2_tank.screen_location = [screen.get_width() / 4, screen.get_height() / 4]
 #set the tank's map location

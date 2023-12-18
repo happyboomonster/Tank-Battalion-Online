@@ -1,5 +1,5 @@
 ##"t2_Arena01.py" - A small arena meant for two teams
-##Copyright (C) 2022  Lincoln V.
+##Copyright (C) 2023  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -92,11 +92,11 @@ def get_arena(path="",convert=False):
     # - Define the arena -
     arena = [
          [24,19,19,19,19,19,19,19,19,19,19,19,19,19,19,21],
-         [20, 4,12, 1, 1, 0, 0,12,12, 0, 0, 0, 0,12, 4,20],
+         [20, 4, 2, 1, 1, 0, 0,12,12, 0, 0, 0, 0,12, 4,20],
          [20, 4,11, 1,27,15,19,15,19,19,19,28, 3,11, 4,20],
          [20,30, 9, 2, 3,20, 0,26, 1, 3, 3, 2, 3, 9,31,20],
          [20, 4,11, 2, 3,26, 0,11, 1,29, 1,29, 2,11, 4,20],
-         [20, 4,12, 3, 1, 1, 0,25, 2, 2, 1, 2, 2,12, 4,20],
+         [20, 4,12, 3, 1, 1, 0,25, 2, 2, 1, 2, 2, 2, 4,20],
          [23,19,19,19,19,19,19,16,19,19,19,19,19,19,19,22]
          ]
     return [arena, tiles, shuffle_pattern, blocks, bricks, destroyed_brick, flags]

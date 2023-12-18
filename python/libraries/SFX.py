@@ -1,6 +1,6 @@
-##"SFX.py" library ---VERSION 0.04---
+##"SFX.py" library ---VERSION 0.06---
 ## - For creating basic audio effects with volume-based positional sound -
-##Copyright (C) 2022  Lincoln V.
+##Copyright (C) 2023  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -79,12 +79,16 @@ class Sound(): # - A sound playing class which takes into account position to ma
             return volume
         return 0 #no volume if we're not playing!
 
-    def return_data(self, server=False):
+    #This function draws a purple pixel on a minimap at the location that the sound occurred. If we're going to send location data about where sounds come from in games, we might as well make it obvious...LOL
+    def draw_minimap(self, minimap_surf):
+        minimap_surf.set_at([int(round(self.pos[0],0)), int(round(self.pos[1],0))], [128,0,150])
+
+    def return_data(self, precision=2, server=False):
         return [
             self.initial_volume,
-            self.pos,
-            self.track_length,
-            time.time() - self.track_start,
+            [round(self.pos[0],precision),round(self.pos[1],precision)],
+            round(self.track_length,precision),
+            round(time.time() - self.track_start,precision),
             self.sound_id,
             self.ID
             ]
@@ -158,6 +162,11 @@ class SFX_Manager(): # - A manager for keeping track of multiple Sound() objects
                 del(self.sound_instances[x - decrement])
                 decrement += 1
 
+    #This function draws a purple pixel on a minimap at the location that each sound occurred. If we're going to send location data about where sounds come from in games, we might as well make it obvious...LOL
+    def draw_minimap(self, minimap_surf):
+        for x in range(0,len(self.sound_instances)):
+            self.sound_instances[x].draw_minimap(minimap_surf)
+
     def return_data(self,player_pos=[0,0]): #player_pos is to make sure we only transmit audible sounds.
         instance_data = []
         for x in range(0,len(self.sound_instances)):
@@ -225,7 +234,7 @@ class SFX_Manager(): # - A manager for keeping track of multiple Sound() objects
 ### - Quick test for the Sound() class -
 ##import random
 ##sounds = []
-##sound = pygame.mixer.Sound("../../sfx/gunshot_01.ogg")
+##sound = pygame.mixer.Sound("../../sfx/gunshot_01.wav")
 ##while True:
 ##    location = [random.randint(0,30), random.randint(0,30)]
 ##    print(location)
@@ -242,8 +251,8 @@ class SFX_Manager(): # - A manager for keeping track of multiple Sound() objects
 ### - Longer, more annoying test for the SFX_Manager() class -
 ##import random
 ##sfx = SFX_Manager()
-##sfx.add_sound("../../sfx/gunshot_01.ogg")
-##sfx.add_sound("../../sfx/driving.ogg")
+##sfx.add_sound("../../sfx/gunshot_01.wav")
+##sfx.add_sound("../../sfx/thump.wav")
 ##while True:
 ##    decision_sound = random.randint(0,30)
 ##    if(decision_sound > 24):
@@ -260,8 +269,8 @@ class SFX_Manager(): # - A manager for keeping track of multiple Sound() objects
 ##import random
 ##sfx_server = SFX_Manager()
 ##sfx_server.server = True
-##sfx_server.add_sound("../../sfx/gunshot_01.ogg")
-##sfx_server.add_sound("../../sfx/driving.ogg")
+##sfx_server.add_sound("../../sfx/gunshot_01.wav")
+##sfx_server.add_sound("../../sfx/thump.wav")
 ##while True:
 ##    decision_sound = random.randint(0,30)
 ##    if(decision_sound > 22):
@@ -276,8 +285,8 @@ class SFX_Manager(): # - A manager for keeping track of multiple Sound() objects
 
 ### - Client script (part of the same demo above) -
 ##sfx = SFX_Manager()
-##sfx.add_sound("../../sfx/gunshot_01.ogg")
-##sfx.add_sound("../../sfx/driving.ogg")
+##sfx.add_sound("../../sfx/gunshot_01.wav")
+##sfx.add_sound("../../sfx/thump.wav")
 ##while True:
 ##    server_data = eval(input("Get server data: "))
 ##    sfx.enter_data(server_data,[15,15])

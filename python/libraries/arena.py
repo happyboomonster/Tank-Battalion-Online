@@ -1,6 +1,6 @@
-##"arena.py" library ---VERSION 0.20---
+##"arena.py" library ---VERSION 0.21---
 ## - For drawing (and manipulating) maps within Tank Battalion Online -
-##Copyright (C) 2022  Lincoln V.
+##Copyright (C) 2023  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -200,8 +200,18 @@ class Arena():
                     except IndexError: #sometimes we try to draw beyond our arena boundaries. If so, we just don't try to draw that tile.
                         pass
 
+    # - Returns a pygame Surface() object where 1 px represents 1 block -
+    def draw_minimap(self, collideable_tiles):
+        minimap = pygame.Surface([len(self.arena[0]),len(self.arena)])
+        for y in range(0,len(self.arena)):
+            for x in range(0,len(self.arena[0])):
+                if(self.arena[y][x] in collideable_tiles):
+                    minimap.set_at([x,y],[0,0,0]) #black for a wall
+                else:
+                    minimap.set_at([x,y],[255,255,255]) #white for open space
+        return minimap
 
-###NOT so quick demo; Display some blocks on a resizable window and scrolls them at your will (use the arrow keys)
+###NOT so quick demo; Display some blocks on a resizable window and scrolls them at your will (use the arrow keys). Also displays a minimap in the corner of the screen.
 ##
 ###create a pygame screen
 ##screen = pygame.display.set_mode([100,100], pygame.RESIZABLE)
@@ -219,6 +229,8 @@ class Arena():
 ##          [ 0, 0, 2, 1, 0, 0, 2, 1, 0, 0, 2, 1],
 ##          [ 4, 4, 3, 3, 4, 4, 3, 3, 4, 4, 3, 3],
 ##          [ 4, 4, 3, 3, 4, 4, 3, 3, 4, 4, 3, 3]]
+##
+##collideable_tiles = [5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
 ##
 ###all the tiles we can draw in the arena
 ##my_tiles = [pygame.image.load("../../pix/blocks/ground/asphalt.png"), #0
@@ -289,6 +301,7 @@ class Arena():
 ##    #draw the arena
 ##    my_arena.shuffle_tiles()
 ##    my_arena.draw_arena([6,6],[x,y],screen)
+##    screen.blit(my_arena.draw_minimap(collideable_tiles), [0,0])
 ##    pygame.display.flip() #update the display
 ##    screen.fill([0,0,0]) #clear the display for next frame
 ##

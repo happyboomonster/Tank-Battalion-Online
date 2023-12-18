@@ -1,6 +1,6 @@
-##"battle_server.py" library ---VERSION 0.51---
+##"battle_server.py" library ---VERSION 0.57---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
-##Copyright (C) 2022  Lincoln V.
+##Copyright (C) 2023  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -50,9 +50,18 @@ class BattleEngine():
         # - Formats for netcode packets (being recieved from the client) -
         #   - Format: [None], OR if we want to buy/return something, ["buy"/"return","item type",###], enter battle ["battle","battle type"]
         self.LOGIN_PACKET = ["<class 'str'>","<class 'str'>","<class 'bool'>"]
-        self.LOBBY_PACKETS = [["<class 'NoneType'>"], ["<class 'str'>", "<class 'str'>", "<class 'int'>"], ["<class 'str'>", "<class 'str'>"]]
+        #NOTE: the INT class contained in the last LOBBY_PACKETS packet type is redundant; it is simply there to distinguish it from a GAME_PACKET, which also has an ID of a STR + a LIST.
+        self.LOBBY_PACKETS = [
+            ["<class 'NoneType'>"],
+            ["<class 'str'>", "<class 'str'>", "<class 'int'>"],
+            ["<class 'str'>", "<class 'str'>"],
+            ["<class 'str'>", "<class 'int'>", "<class 'list'>"]
+            ]
         self.MATCH_PACKETS = ["<class 'int'>", "<class 'int'>"] #[VIEW_CT, player_view_index] OR [False] to leave matchmaker (this one doesn't need to be included)
-        self.GAME_PACKETS = [["<class 'str'>"],["<class 'str'>","<class 'list'>"]]
+        self.GAME_PACKETS = [
+            ["<class 'str'>"],
+            ["<class 'str'>","<class 'list'>"]
+            ]
 
         #list of all accounts in the game; These get stored into a pickle dump when the server is shut down, and recovered when the server starts up.
         self.accounts = []
@@ -67,7 +76,6 @@ class BattleEngine():
             self.accounts.append(account.Account("shadow","name11"))
             self.accounts.append(account.Account("gubba","mylittledingus"))
             self.accounts.append(account.Account("yeudler","diycandles"))
-            self.accounts.append(account.Account("necroneus","idkwhatpwdshouldbe"))
             self.accounts.append(account.Account("allegheny1606","cabforward"))
         self.logged_in = [] #list of ["player name","player password] lists to detect who is/isn't logged in
         self.logged_in_lock = _thread.allocate_lock()
@@ -83,7 +91,7 @@ class BattleEngine():
         
         #the IP/device name of our server
         HOST_NAME = socket.gethostname()
-        self.IP = socket.gethostbyname(HOST_NAME)
+        self.IP = socket.gethostbyname(HOST_NAME + ".local")
 
         #create a random port number
         PORT = 5031
@@ -91,11 +99,9 @@ class BattleEngine():
         
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #create a socket object
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.s.bind((self.IP, PORT))
         self.s.listen() #wait for connections
-
-        # - AC Constants -
-        self.AC_THRESH = 1.10 #how much can a player break past the AC's allowed constants before being labelled a cheater?
 
         # - Matchmaker constants -
         self.EXP_WEIGHT = 0.0005 #this defines the overall power of a player (more EXP = more experienced player = more strategic = more dangerous)
@@ -121,9 +127,11 @@ class BattleEngine():
         # - This constant is used by dividing SCALING_CONSTANT / PlayersInQueue
         self.TIME_SCALING_CONSTANT = self.IMMEDIATE_MATCH * self.PLAYER_CT[0] * 0.7 #how fast should the matchmaker shove players into matches if there are more than minimum players?
         # - This constant defines the minimum player count for an "optimal" match -
-        self.OPTIMAL_MATCH_CT = 16 #16 players on a maximum of 4 teams is really the bare minimum for a *good* battle...
-        self.OPTIMAL_TEAM_CT = 4 #X players on each team
-
+        self.OPTIMAL_MATCH_CT = 8 #How many players does the matchmaker *want* in a game? If it is not met, the game will add extra bots to compensate.
+        # - At this point, a match WILL be made regardless of whether we have attained self.OPTIMAL_MATCH_CT number of players -
+        self.FORCED_MATCH_URGENCY = 0.625
+        # - The lower this constant is, the faster the matchmaker will make matches at the expense of being more unbalanced. Values less than 1 and greater than 0 only -
+        self.MIN_URGENCY = 0.25
         # - Matchmaker rules -
         #   - Usable variables:
         #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
@@ -142,13 +150,9 @@ class BattleEngine():
         #           - and the last player rating for each team is always the strongest player.
         # - Self.rules is a list of strings which the matchmaker has to evaluate to determine whether the match is fair.
         self.RULES = [ #The rules without urgency implemented in them will remain rigid at all times.
-            #"bot_rating[0] < player_ratings[bot_rating[1]][len(player_ratings[bot_rating[1]]) - 1]", #bot player must be weaker than the strongest player on the team
-            #The rule above is redundant because the match will not let players within a certain skill gap enter the match. Even without the bot, the team's players will be at least comparable to the other players without the bot.
             "max_team_rating * math.sqrt(urgency) < min_team_rating", #all teams must be within sqrt(urgency%) rating differences
             "bot_rating[0] >= self.IMBALANCE_LIMIT", #the bot player MUST have at least the rating required to hold a few shells (otherwise useless bot, because bot has no bullets)
             "min_team_players > max_team_players * urgency" #all teams must have the same amount of players with urgency% error.
-            #"min_player_rating > max_player_rating * urgency" #all players must be within urgency% as powerful as each other. [DEPRECATED] Now using PLAYER_RULES to account for deprecating this rule.
-            #The above rule is useless because a rule in self.PLAYER_RULES basically performs the same task.
             ]
 
         # - self.PLAYER_RULES is a list of rules which EACH player has to meet to be added to a match -
@@ -166,6 +170,9 @@ class BattleEngine():
 
         # - How long should the compute thread of a battle last AFTER game over has occurred? -
         self.BATTLE_TIMER = 30.0 #seconds
+
+        # - How long do players have to COMPLETE a battle? (remember: battle_time is different from battle_timer [see above]) -
+        self.BATTLE_TIME = 5 * 60 #5 minutes is adequate?
 
         if(autostart):
             _thread.start_new_thread(self.matchmaker_loop,())
@@ -207,7 +214,7 @@ class BattleEngine():
                 password = client_data[0][1]
                 signin = client_data[0][2]
 
-                print("[CONNECT] Recieved login/create account data - Username: " + str(name) + " Password: " + str(password) + " - ", end="")
+                print("[CONNECT] Recieved login/create account data - Username: " + str(name) + "; Password: " + str(password) + " - ", end="")
 
                 # - First check if the player's name is equivalent to the name all bots are assigned: "Bot Player" -
                 if(name[0:3] != "Bot"): #if the player name starts with "Bot", the player has NO CHANCE of creating a new account/signing in.
@@ -296,6 +303,9 @@ class BattleEngine():
                         in_lobby = False #exit the lobby netcode loop
                     elif(client_data[0] == "sw_close"): #closing the special window?
                         special_window = None #clear our special window...
+                    elif(client_data[0] == "settings"): #change our settings?
+                        player_data[0].settings = client_data[2][:]
+                        reply = [True]
                     else:
                         reply = [None]
                 else:
@@ -315,6 +325,9 @@ class BattleEngine():
 
                 #send back a response based on whether we had to perform any action, and whether we could perform it.
                 netcode.send_data(player_data[1], self.buffersize, reply) #Server transmission format: [True] (success), [None] (no operation), [False, "$$$ needed"/"max"]
+
+        # - Make sure that the client receives free hollow shells if they haven't got any for 24+ hrs -
+        player_data[0].check_free_stuff()
                 
         if(len(reply) > 1 and reply[1] == "battle"): #entered battle?
             print("[IN QUEUE] Player " + player_data[0].name + " has entered queue in mode: " + str(client_data[1]))
@@ -358,13 +371,8 @@ class BattleEngine():
                             match_urgency = self.MAXIMUM_MATCH_TIME / (time.time() - matchmaking_time[x])
                             if(match_urgency > 1):
                                 match_urgency = 1
-                            elif(match_urgency < 0.125):
-                                match_urgency = 0.125
-                            # - Now I make match_urgency happen incrementally: What I mean is this: it doesn't go from 0.99 to 0.98, it goes from 1.0 to 0.75, to 0.50 etc -
-                            # - This makes it more likely for multiple players to get into the same match, instead of single pairs of players always getting queued together -
-                            match_urgency *= 8 #this means we will have X/2 increments of urgency.
-                            match_urgency = round(match_urgency,0) #remove extra digits of precision
-                            match_urgency /= 8 #change match_urgency back to a decimal between 0.5 and 1.0
+                            elif(match_urgency < self.MIN_URGENCY):
+                                match_urgency = self.MIN_URGENCY
                             #print("[MATCHMAKER] Current urgency: " + str(round(match_urgency,3)))
                             team = self.matchmake(self.player_queue[x], odd_allowed=(not self.experience_battles[x]), rating=self.experience_battles[x], urgency=match_urgency)
                             #did we get a match? Let's send them off to the battlefield, and reset our time counter!
@@ -450,9 +458,16 @@ class BattleEngine():
         if(map_name == False): #we didn't get a map? (0 players in match)
             print("[BATTLE] NO MAP! Escaping battle routine...")
             return None #exit this battle!
+        # - How much time should the players (and bots) have to finish the bots? -
+        time_remaining = [self.BATTLE_TIME] #this HAS to be a list for it to be shared between threads
         # - This is for holding all particle effects. This lets people know where gunfights are happening easily because everyone gets to see them -
         particles = []
         particles_lock = _thread.allocate_lock()
+        # - This is for holding team-specific particle effects. These are for confidential communications by using word particles -
+        team_particles = []
+        for x in range(0,len(players)): #create a particle effect list for each team
+            team_particles.append([])
+        team_particles_lock = _thread.allocate_lock()
         # - This list documents which teams have been eliminated -
         eliminated = [] #[team 0, team 1, team 2, etc.] Format: False = not destroyed, 1 = first destroyed, 2 = 2nd destroyed, etc.
         # - Grab our arena data -
@@ -484,10 +499,10 @@ class BattleEngine():
         player_number = 0
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])):
-                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, False, teams, gfx, sfx))
+                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, time_remaining, False, teams, gfx, sfx))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
-        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx, False))
+        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, gfx, sfx, time_remaining, False))
 
     # - This battle mode allows you to lose experience, which is needed to unlock new tanks -
     def ranked_battle_server(self, players):
@@ -501,9 +516,16 @@ class BattleEngine():
         if(map_name == False): #we didn't get a map? (0 players in match)
             print("[BATTLE] NO MAP! Escaping battle routine...")
             return None #exit this battle!
+        # - How much time should the players (and bots) have to finish the bots? -
+        time_remaining = [self.BATTLE_TIME] #this HAS to be a list for it to be shared between threads
         # - This is for holding all particle effects. This lets people know where gunfights are happening easily because everyone gets to see them -
         particles = []
         particles_lock = _thread.allocate_lock()
+        # - This is for holding team-specific particle effects. These are for confidential communications by using word particles -
+        team_particles = []
+        for x in range(0,len(players)): #create a particle effect list for each team
+            team_particles.append([])
+        team_particles_lock = _thread.allocate_lock()
         # - This list documents which teams have been eliminated -
         eliminated = [] #[team 0, team 1, team 2, etc.] Format: False = not destroyed, 1 = first destroyed, 2 = 2nd destroyed, etc.
         # - Grab our arena data -
@@ -535,13 +557,13 @@ class BattleEngine():
         player_number = 0
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])): #the True at the end is to let all threads know that this battle is for more stakes then just cash!
-                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, arena, eliminated, True, teams, gfx, sfx))
+                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, time_remaining, True, teams, gfx, sfx))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
-        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx, True))
+        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, gfx, sfx, time_remaining, True))
 
     # - Handles most of the computation for battles, excluding packet exchanging -
-    def battle_server_compute(self, game_objects, game_objects_lock, map_name, particles, particles_lock, arena, eliminated, gfx, sfx, experience=False):
+    def battle_server_compute(self, game_objects, game_objects_lock, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, gfx, sfx, time_remaining, experience=False):
         battle = True #this goes false when the battle is finished.
         TILE_SIZE = 20 #this is a constant which we don't *really* need...
         framecounter = 0 #we need a framecounter for handling particle generation
@@ -555,12 +577,17 @@ class BattleEngine():
         destroyed_brick = arena_data[5]
         battle_timeout = None
         clock = pygame.time.Clock() #limit the CPU usage just a bit, ok?
+        compute_timer = time.time()
         while battle:
             # - Update our framecounter -
             if(framecounter >= 65535):
                 framecounter = 0
             else:
                 framecounter += 1
+
+            # - Update time_remaining for the battle -
+            time_remaining[0] -= time.time() - compute_timer
+            compute_timer = time.time()
 
             # - Update the state of the SFX_Manager() -
             sfx.clock([0,0])
@@ -576,6 +603,19 @@ class BattleEngine():
                     if(particles[x - decrement].timeout == True):
                         del(particles[x - decrement])
                         decrement += 1
+
+            with team_particles_lock:
+                for i in team_particles:
+                    # - Update all team-specific particles (for confidential communication purposes) in the game -
+                    for x in i:
+                        x.clock() #keeps all the particles working properly
+
+                    # - Delete any particles which are finished their job -
+                    decrement = 0
+                    for x in range(0,len(i)):
+                        if(i[x - decrement].timeout == True):
+                            del(i[x - decrement])
+                            decrement += 1
 
             decrement = 0 # - Update all the "game_objects" in the game -
             with game_objects_lock:
@@ -605,7 +645,7 @@ class BattleEngine():
                                 # - Create a gunshot sound effect -
                                 sfx.play_sound(self.GUNSHOT, game_objects[x - decrement].overall_location[:], [0,0])
                             game_objects[x - decrement].clock(TILE_SIZE, [1, 1], particles, framecounter, gfx) #update all tank objects
-                            game_objects[x - decrement].message("This is server-side...", particles)
+                            game_objects[x - decrement].message("This is server-side...", team_particles[game_objects[x - decrement].team_num])
                         else: #now we need to check if we exploded the tank yet....
                             if(game_objects[x - decrement].explosion_done == False): #we haven't done the explosion yet?
                                 #Create a nice big explosion
@@ -728,7 +768,7 @@ class BattleEngine():
             with gfx.lock:
                 gfx.purge()
 
-            # - Check if all but one team has been eliminated -
+            # - Check if all but one team has been eliminated OR if time is up -
             battle_end_check = 0 #this variable needs to equal len(eliminated) - 1 by the time this loop is finished for the game to end.
             for battle_end in range(0,len(eliminated)):
                 if(eliminated[battle_end][1] != False): #this team got eliminated?
@@ -736,13 +776,13 @@ class BattleEngine():
             if(battle_timeout != None and time.time() - battle_timeout > self.BATTLE_TIMER): #30 seconds after battle ends? Kill this thread.
                 print("[BATTLE] Main compute thread ending through battle timeout...")
                 break #exit the loop! We're done here!
-            elif(battle_end_check >= len(eliminated) - 1 and battle_timeout == None): #battle ends?
+            elif(battle_end_check >= len(eliminated) - 1 and battle_timeout == None or time_remaining[0] <= 0 and battle_timeout == None): #battle ends?
                 print("[BATTLE] Game over timeout started...")
                 battle_timeout = time.time() #start a timer...
 
     # - Player_data is a list of [account, socket].
     # - This function exchanges packets between client and server, AND stuffs the client's data into the game_objects list. It can also function as a dummy client, with a bot controlling the tank. -
-    def battle_server(self, game_objects, game_objects_lock, player_data, player_index, map_name, particles, particles_lock, arena, eliminated, experience=False, team_num=0, gfx=None, sfx=None):
+    def battle_server(self, game_objects, game_objects_lock, player_data, player_index, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, time_remaining, experience=False, team_num=0, gfx=None, sfx=None):
         #Send packet description: All packets start with a "prefix", a small string describing what the packet does and the format corresponding to it.
         # - Type A) Setup packet. Very long packet, used to setup the client's game state. (Not entity related stuff; Account data, arena data, etc.)
         #       Format: ["setup", account.return_data(), map_name]
@@ -770,6 +810,8 @@ class BattleEngine():
         if(player_data[1] == "bot"):
             packet_phase = "bot"
             bot_computer = entity.Bot(team_num,player_index,player_rating=1.15)
+        else: #If we're NOT dealing with a bot, we need to set up a speedhax anti-cheat system.
+            ac = AntiCheater()
 
         packet_counter = 0 #this counts packets; I use this to help tell which packets we send packet data through.
 
@@ -798,7 +840,7 @@ class BattleEngine():
                         game_object_data = [] #gather all entity data into one list (this could be moved into the compute thread later on)
                         for x in range(0,len(game_objects)):
                             game_object_data.append(game_objects[x].return_data(2, False))
-                    packet_data = ["end", game_object_data, eliminated] #this way we can see the scoreboard at the end of the game...
+                    packet_data = ["end", game_object_data, eliminated, time_remaining[0]] #this way we can see the scoreboard at the end of the game...
                 elif(packet_phase == "packet"): #typical data packet
                     with game_objects_lock:
                         game_object_data = [] #gather all entity data into one list (this could be moved into the compute thread later on)
@@ -810,11 +852,14 @@ class BattleEngine():
                     packet_data = ["packet", game_object_data]
                     # - Send particle data to client every Xnd packet -
                     if(packet_counter % 2 == 0): #it's every second packet?
-                        with particles_lock:
-                            particle_list = []
+                        particle_list = []
+                        with particles_lock: #gather public particles
                             for x in particles:
                                 particle_list.append(x.return_data())
-                            packet_data.append(particle_list) #send particle data
+                        with team_particles_lock: #gather private (team-specific) particles
+                            for x in team_particles[game_objects[player_index].team_num]:
+                                particle_list.append(x.return_data())
+                        packet_data.append(particle_list) #send particle data
                         with gfx.lock:
                             packet_data.append(gfx.return_data())
                     else:
@@ -836,6 +881,8 @@ class BattleEngine():
                     with sfx.lock:
                         sfx_data = sfx.return_data(game_objects[player_index].overall_location[:])
                     packet_data.append(sfx_data)
+                    # - Send time_remaining -
+                    packet_data.append(time_remaining[0])
                 netcode.send_data(player_data[1], self.buffersize, packet_data) #send the battle data
 
                 # - Recieve data from the client -
@@ -884,12 +931,33 @@ class BattleEngine():
                                 if(packet_phase == "sync"): #if we sent a sync packet beforehand, we need to check if the client followed the sync packet before we continue with normal packets.
                                     with game_objects_lock:
                                         compare_data = game_objects[player_index].return_data()
-                                    data[1][15] = compare_data[15] #make sure the comparison is fair...index 15 will never match, so I need to make it match.
-                                    data[1][16] = compare_data[16] #...same with data 16 and 17. Not that they won't always match, but they won't sometimes, and the server can bypass the sync on these variables without consequences.
+                                    #make sure the comparison is fair...index 15 will never match, so I need to make it match.
+                                    #...same with data 16 and 17. Not that they won't always match, but they won't sometimes, and the server can bypass the sync on these variables without consequences.
+                                    data[1][1] = compare_data[1] #1, and 3-11 don't HAVE to match, so why make them?
+                                    #2 should match
+                                    data[1][3] = compare_data[3]
+                                    data[1][4] = compare_data[4]
+                                    data[1][5] = compare_data[5]
+                                    data[1][6] = compare_data[6]
+                                    data[1][7] = compare_data[7]
+                                    data[1][8] = compare_data[8]
+                                    data[1][9] = compare_data[9]
+                                    data[1][10] = compare_data[10]
+                                    data[1][11] = compare_data[11]
+                                    #12-14 should match
+                                    data[1][15] = compare_data[15]
+                                    data[1][16] = compare_data[16]
                                     data[1][17] = compare_data[17]
                                     data[1][18] = compare_data[18]
                                     data[1][19] = compare_data[19]
+                                    data[1][20] = compare_data[20]
+                                    data[1][21] = compare_data[21] #21-23 don't HAVE to match, so I won't make them
+                                    data[1][22] = compare_data[22]
+                                    data[1][23] = compare_data[23]
+                                    data[1][24] = compare_data[24]
+                                    data[1][25] = compare_data[25] #25 doesn't have to match either
                                     if(compare_data == data[1]): #we got the sync to happen properly?
+                                        print("[BATTLE] Sync from player " + player_data[0].name + " successful")
                                         packet_phase = "packet" #if the player does not sync, the server continues to ignore the player's new coordinates.
                                 elif(data[0] == "end"): #the client wants to leave now?
                                     with game_objects_lock:
@@ -924,7 +992,7 @@ class BattleEngine():
                             print("[BATTLE] Failed to save player data from user " + str(player_data[0].name) + " during battle")
                         packets = False #this thread can die now...
 
-            # - Check if we should switch packet_phase to "end" (game over). This can happen EITHER if we are eliminated, OR if we win. -
+            # - Check if we should switch packet_phase to "end" (game over). This can happen EITHER if we are eliminated, if we win, OR if we run out of time. -
             win = 0
             for x in eliminated:
                 if(x[0] == game_objects[player_index].team and x[1] != False): #our team is destroyed? End flag it is...IF we're NOT a bot!!!
@@ -936,6 +1004,11 @@ class BattleEngine():
                 elif(x[1] != False):
                     win += 1
             if(win >= len(eliminated) - 1): #all teams were eliminated BUT ourselves?
+                if(packet_phase != "bot"):
+                    packet_phase = "end"
+                else: #just kill the thread...
+                    packets = False
+            if(time_remaining[0] <= 0): #we ran out of time?
                 if(packet_phase != "bot"):
                     packet_phase = "end"
                 else: #just kill the thread...
@@ -959,7 +1032,17 @@ class BattleEngine():
                         game_objects.append(potential_bullet)
                         # - Create a gunshot sound effect so that this bot actually makes sound -
                         sfx.play_sound(self.GUNSHOT, game_objects[player_index].overall_location[:], [0,0])
-                    
+            else: #ONLY if this player is NOT a bot, we need to do some Anti-Cheat stuff to prevent speedhax...
+                with game_objects_lock:
+                    cheater = ac.clock(game_objects[player_index])
+                    if(cheater): #We did catch this player cheating?
+                        return_pos = ac.find_last_uncheat_pos() #Get the last position he was in where he WASN'T using speedhax
+                        if(return_pos != None): #If we could get a position, we're gonna use it to force him to return to the last position he was in BEFORE using speedhax
+                            #I address each individual value of the position list because otherwise some annoying pointers get lost and the player doesn't receive the right position.
+                            game_objects[player_index].goto(return_pos)
+                            packet_phase = "sync" #force the client to sync to the position we just decided was the last non-cheating position
+                            print("[BATTLE] Player " + str(player_data[0].name) + " has cheated - New position: [" + str(round(game_objects[player_index].overall_location[0],1)) + ", " + str(round(game_objects[player_index].overall_location[1],1)) + "]")
+                        
             clock.tick(20) #limit PPS to 20
 
     def generate_outcome_menu(self, rebuy_data, tank, eliminated_order, title): #generates the menu string which needs to be transmitted to the client to form a "special menu/window".
@@ -972,19 +1055,26 @@ class BattleEngine():
         total_powerups = 0
         for x in tank.powerups_used:
             total_powerups += x
-        # - Check if we won, or if we got 2nd, 3rd, 4th...etc. place -
+        # - Check if we won, or if we got 2nd, 3rd, 4th...etc. place or a TIE -
+        alive_ct = [] #this is used to check if we got a tie between other teams
         for x in eliminated_order:
             if(x[0] == tank.team):
                 team_pos = x[1]
-        if(team_pos == False): #we won (weren't destroyed)?
+            else:
+                if(x[1] == False): #bookmark all the OTHER teams which DIDN'T die
+                    alive_ct.append(x)
+        if(team_pos == False and len(alive_ct) == 0): #we won (weren't destroyed) and no one else was alive?
             team_pos = "Victory"
+        elif(team_pos == False and len(alive_ct) > 0): #we weren't destroyed, but others weren't as well? (we ran out of time)
+            team_pos = str(len(alive_ct) + 1) + " - way tie"
         else:
-            team_pos = str(team_pos + 1) + " place"
+            place_english = ["1st","2nd","3rd","4th","5th","6th","7th","8th","9th","10th","11th","12th","13th","14th","15th","16th"]
+            team_pos = place_english[team_pos] + " place"
         # - Generate the outcome menu -
         return [ #rebuy_data format: [earned, shell_cost, pu_cost, net earnings, net experience]
             "Back",
             "",
-            "Battle Status - " + team_pos,
+            "Battle Outcome - " + team_pos,
             "",
             "Earnings",
             "^ before rebuy - " + str(round(rebuy_data[0],2)),
@@ -1110,7 +1200,11 @@ class BattleEngine():
         # - We always start by adding the first player in the queue to the match, and then seeing how many other players we can add after him -
         if(len(player_queue) > 0): #there HAS to be players in the queue for this to work...
             #print("[MATCH] Phase I begin! Find enough players!") #debug
+            potential_players = 1 #this tells us how many players we COULD have in a match (if the matchmaker pays as little regard to balance as possible)
             player_ct = 1
+            # - This becomes *very* important for choosing bot difficulty ratings and account ratings, as they will try hit 0.75*avg_player_rating account rating to be competitive -
+            avg_player_rating = 0
+            avr_ct = 0
             #   - Usable variables for individual player rules:
             #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
             #           - It is used to promote quick(er) matches when there isn't really enough players in the queue.
@@ -1122,7 +1216,7 @@ class BattleEngine():
                 add = True
                 # - player is a list containing this player's data: [rating, [account, socket]] -
                 player = [self.return_rating(player_queue[x][0],rating),player_queue[x]]
-                for rule in self.PLAYER_RULES:
+                for rule in self.PLAYER_RULES: #this loop determines whether this player can enter THIS match
                     if(eval(rule)):
                         pass
                     else:
@@ -1131,53 +1225,96 @@ class BattleEngine():
                         break
                 if(add):
                     player_ct += 1
-            # - Was there enough players for a match? -
-            if(player_ct >= self.PLAYER_CT[0]):
+                    # - Also add this player's rating to the average -
+                    avg_player_rating = (avg_player_rating * avr_ct + player[0])/(avr_ct + 1)
+                    avr_ct += 1
+                # - Check whether the player *could* enter this match IF urgency = 0.5 (used to help the matchmaker whether to make the first available match or wait longer) -
+                potential_add = True
+                old_urgency = urgency
+                urgency = 0.5
+                for rule in self.PLAYER_RULES:
+                    if(eval(rule)):
+                        pass
+                    else:
+                        potential_add = False
+                    if(not potential_add):
+                        break
+                if(potential_add):
+                    potential_players += 1
+                urgency = old_urgency
+            # - Was there enough players for a match? ANNND...is there enough to get a GOOD match going if we wait a little longer? -
+            if(player_ct >= self.OPTIMAL_MATCH_CT or player_ct >= potential_players and player_ct >= self.PLAYER_CT[0] and urgency <= self.FORCED_MATCH_URGENCY):
                 #print("[MATCH] Phase I Complete: Found " + str(player_ct) + " players...Beginning Phase II: Add players to teams.") #debug
-                # - How many teams should we create? -
-                team_ct = int(player_ct / self.OPTIMAL_TEAM_CT)
-                if(team_ct < self.TEAM_CT[0]): #not enough teams for a battle to start???
-                    team_ct = self.TEAM_CT[0] #just head for the bare minimum amount of teams
-                # - Start adding players to a new match! -
-                match = []
-                for x in range(0,team_ct): #prepare a match list with space for teams
-                    match.append([[], 0.0])
-                # - Add the first player in the queue to our match -
-                match[0][0].append([self.return_rating(player_queue[0][0], rating),player_queue[0]])
-                match[0][1] += self.return_rating(player_queue[0][0], rating)
-                # - Start adding other players into the match by seeing which team has the least rating, and adding the player there -
-                #   - Usable variables for individual player rules:
-                #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
-                #           - It is used to promote quick(er) matches when there isn't really enough players in the queue.
-                #       - first_player is a variable storing the rating of the first player added to the match.
-                #       - player is a list containing this player's data: [rating, [account, socket]]
-                #           - It usually has to be defined within the player evaluation loop because it needs to be changed for each player.
-                for x in range(1,len(player_queue)): #we don't need to re-add the first player to the queue, which is why I start at 1.
-                    add = True #do we add this player or not??
-                    # - player is a list containing this player's data: [rating, [account, socket]] -
-                    player = [self.return_rating(player_queue[x][0],rating),player_queue[x]]
-                    for rule in self.PLAYER_RULES:
-                        if(eval(rule)):
-                            pass
-                        else:
-                            add = False
-                        if(not add):
-                            break
-                    if(add): #we're adding this player to the match!
-                        # - Now we need to check: Which team do we add this player to?? -
-                        #   - This is done by checking which team is the weakest by rating, and adding the player to that team.
-                        least_powerful_team = 0
-                        least_powerful_team_rating = match[0][1] #set this to the rating of the first team for now
-                        for team in range(0,len(match)):
-                            if(match[team][1] < least_powerful_team_rating): #we found a less powerful team?
-                                least_powerful_team_rating = match[team][1] #make sure we remember this team.
-                                least_powerful_team = team
-                        match[least_powerful_team][0].append([self.return_rating(player_queue[x][0],rating), player_queue[x]])
-                        match[least_powerful_team][1] += self.return_rating(player_queue[x][0],rating)
+                max_teams = player_ct
+                if(max_teams > self.TEAM_CT[1]):
+                    max_teams = self.TEAM_CT[1]
+                matches = []
+                for generate_matches in range(self.TEAM_CT[0], max_teams + 1): #try generating matches with ANY number of teams possible (1 player per team minimum, 4 teams maximum)
+                    # - Start adding players to a new match! -
+                    match = []
+                    for x in range(0,generate_matches): #prepare a match list with space for teams
+                        match.append([[], 0.0]) #match format: match[ team[ players[ [rating,[account,socket]]...], team rating ]
+                    # - Add the first player in the queue to our match -
+                    match[0][0].append([self.return_rating(player_queue[0][0], rating),player_queue[0]])
+                    match[0][1] += self.return_rating(player_queue[0][0], rating)
+                    # - Start adding other players into the match by seeing which team has the least rating, and adding the player there -
+                    #   - Usable variables for individual player rules:
+                    #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
+                    #           - It is used to promote quick(er) matches when there isn't really enough players in the queue.
+                    #       - first_player is a variable storing the rating of the first player added to the match.
+                    #       - player is a list containing this player's data: [rating, [account, socket]]
+                    #           - It usually has to be defined within the player evaluation loop because it needs to be changed for each player.
+                    for x in range(1,len(player_queue)): #we don't need to re-add the first player to the queue, which is why I start at 1.
+                        add = True #do we add this player or not??
+                        # - player is a list containing this player's data: [rating, [account, socket]] -
+                        player = [self.return_rating(player_queue[x][0],rating),player_queue[x]]
+                        for rule in self.PLAYER_RULES:
+                            if(eval(rule)):
+                                pass
+                            else:
+                                add = False
+                            if(not add):
+                                break
+                        if(add): #we're adding this player to the match!
+                            # - Now we need to check: Which team do we add this player to?? -
+                            #   - This is done by checking which team is the weakest by rating, and adding the player to that team.
+                            least_powerful_team = 0
+                            least_powerful_team_rating = match[0][1] #set this to the rating of the first team for now
+                            for team in range(0,len(match)):
+                                if(match[team][1] < least_powerful_team_rating): #we found a less powerful team?
+                                    least_powerful_team_rating = match[team][1] #make sure we remember this team.
+                                    least_powerful_team = team
+                            match[least_powerful_team][0].append([self.return_rating(player_queue[x][0],rating), player_queue[x]])
+                            match[least_powerful_team][1] += self.return_rating(player_queue[x][0],rating)
+                    matches.append(match) #add this to a list of *possible* matches
             else: #match failed.
+                print("[MATCH] Match failed on account of sub-optimal player count; Urgency=" + str(round(urgency,2)) + "; Player_queue=" + str(len(player_queue)) + "; Player_ct=" + str(player_ct) + ";")
                 match = None
         else: #match failed.
             match = None
+
+        # - Now we find which match is the most balanced, and use it to continue -
+        if(match != None):
+            balance = []
+            for x in range(0,len(matches)): #matches[x] = match.
+                rating = [] #find the imbalance in a particular potential match
+                for team in range(0,len(matches[x])):
+                    rating.append(matches[x][team][1])
+                diff = 0
+                for b in rating:
+                    for y in rating:
+                        if(abs(b - y) > diff):
+                            diff = abs(b - y)
+                balance.append(diff)
+            # - Find which value in balance[] is smallest, which gives us the index of the match we should proceed with -
+            smallest = balance[0]
+            ind = 0
+            for x in range(0, len(balance)):
+                if(balance[x] < smallest):
+                    smallest = balance[x]
+                    ind = x
+            # - Set match to matches[ind], as it is the most balanced -
+            match = matches[ind]
 
         #Player Format: [[rating, [account, socket]], [rating, [account, socket]]...]
         #Teams format: [[[[rating, [account, socket]], [rating, [account, socket]]...], rating], [players, rating]...]
@@ -1221,9 +1358,17 @@ class BattleEngine():
                     team[0].append([max_team_rating - team[1], [self.create_account(max_team_rating - team[1], "Bot -1"),"bot"]]) #get the bot in the game
             # - Now we also just add some bots to each team to make things interesting -
             team_counter = 0
+            bot_ct = self.OPTIMAL_MATCH_CT - player_ct #how many bots do we need to make things interesting?
+            if(bot_ct < 2): #no quantities of bots below 2, and especially below 0
+                bot_ct = 2
+            bot_ct = int(round(bot_ct,0)) #round the number so I can use it for iteration
+            # - Find what rating each bot should be based on the average rating of players in this match -
+            if(avg_player_rating * 0.95 < self.IMBALANCE_LIMIT): #if the players are gonna be this weak...we're just gonna have to make the bots a bit stronger
+                #since avg_player_rating isn't used ANYWHERE else, I can change the value here with NO consequence
+                avg_player_rating = self.IMBALANCE_LIMIT / 0.94 #make it so the bots just *barely* make it past self.IMBALANCE_LIMIT checks (minimum bot rating)
             for team in match:
-                for add in range(0,2):
-                    team[0].append([self.IMBALANCE_LIMIT, [self.create_account(self.IMBALANCE_LIMIT,"Bot T" + str(team_counter) + "P" + str(add)),"bot"]])
+                for add in range(0,bot_ct): #bot intelligence rating is chosen somewhere else...so it will have to be done based on the account rating given here.
+                    team[0].append([avg_player_rating * 0.95, [self.create_account(avg_player_rating * 0.95,"Bot T" + str(team_counter) + "P" + str(add)),"bot"]])
                 team_counter += 1
             #       - max_team_players is a variable storing the most players on a team
             max_team_players = 0
@@ -1287,7 +1432,7 @@ class BattleEngine():
             match_allowed = False
         # - Did the match succeed? -
         if(match_allowed):
-            print("[MATCH] Successful match made.")
+            print("[MATCH] Successful match made; Teams=" + str(len(match)) + "; Players=" + str(player_ct) + ".")
             # - Delete all the players in the match out of the player_queue[] before the match starts -
             for team in match:
                 for player in team[0]:
@@ -1301,11 +1446,113 @@ class BattleEngine():
         else: #...no =(
             return None
 
-    def anti_cheat(self): #checks old_data list and can see if any players are cheating based on that.
-        # - AC needs to check 2 things: -
-        # 1) Player speed: Is the player moving faster than allowed?
-        # 2) Player rotation: Is the player able to change direction faster than it should?
-        pass
+# - This class watches ONE Tank() object's movement patterns to see if the tank is using speedhax of any sort. It checks turning speed and movement speed - #
+class AntiCheater():
+    def __init__(self):
+        self.POS_RECORD_CT = 32
+        self.CHEATING_THRESHOLD = 1/25 #if a player is flagged as cheating for POS_RECORD_CT * CHEATING_THRESHOLD positions, they're in TROUBLE!!
+        self.last_positions = [] #this list records POS_RECORD_CT positions of the tank being watched. These are used to detect movement which is faster than should be allowed.
+        self.POS_RECORD_INTERVAL = 0.125 #Every X seconds we will record a new position for the tank we're watching.
+        self.last_record = time.time()
+        self.first_cheat = None #this stores the index of the first position where a player was flagged for cheating.
+        self.BEFORE_CHEAT = 8 #when we return the position speedhax cheaters should return to, we're going to return a position BEFORE_CHEAT indexes behind self.first_cheat.
+        #How much beyond a player's speed will we permit the tank being watched to go WITHOUT sending a sync() call to make it return to the last NON-CHEATING spot?
+        self.AC_THRESH = 1.25 #This is useful for helping people with inconsistent internet connections from always teleporting around.
+        self.speed_max = None #Since a tank's speed can change (speed boosts?), we need to know the MAXIMUM speed it is ALLOWED to go recently.
+        self.last_speed_update = time.time() #we only need a maximum speed allowance to last until all data samples holding that speed have been emptied from self.last_positions.
+        #This value is from Entity.py and needs to be the same as the value in Entity.py. It is used to detect when a player has rounded a corner without turning, which really throws off the Anti-Cheat without knowing this value.
+        self.POS_CORRECTION_MAX_THRESHOLD = 0.25
+
+    def clock(self, tank_object):
+        # - Only check speedhax every 1/POS_RECORD_INTERVAL times per second -
+        if(time.time() - self.last_record > self.POS_RECORD_INTERVAL):
+            # - Check what our top speed is at MAX, and record it for use when checking for speedhax -
+            if(self.speed_max == None or tank_object.speed > self.speed_max):
+                self.speed_max = tank_object.speed
+                self.last_speed_update = time.time()
+            elif(time.time() - self.last_speed_update > self.POS_RECORD_CT / self.POS_RECORD_INTERVAL):
+                self.speed_max = tank_object.speed
+            # - Update the timer which controls when we record new position data -
+            self.last_record = time.time()
+            # - Update self.last_positions with new tank position data -
+            self.last_positions.append([ tank_object.overall_location[:], time.time() ])
+            if(len(self.last_positions) > self.POS_RECORD_CT):
+                self.last_positions.pop(0)
+            if(len(self.last_positions) < 2): #we might not have enough data to make any good analysis...and division by zero happens with only one data sample.
+                return False
+            # - Calculate the maximum speed allowed when taking into account self.AC_THRESH -
+            max_speed = self.speed_max * self.AC_THRESH
+            # - Check each individual position record to the one next to it -
+            cheating_ct = [0, 0] #cheating, not cheating
+            self.first_cheat = None #this records the index of the first position which indicated cheating
+            for x in range(0,len(self.last_positions) - 1):
+                dist_x = abs(self.last_positions[x + 1][0][0] - self.last_positions[x][0][0])
+                dist_y = abs(self.last_positions[x + 1][0][1] - self.last_positions[x][0][1])
+                dist = dist_y + dist_x
+                diff_time = self.last_positions[x + 1][1] - self.last_positions[x][1]
+                if(dist_y <= self.POS_CORRECTION_MAX_THRESHOLD or dist_x <= self.POS_CORRECTION_MAX_THRESHOLD): #no turning occurred; We only need to check transport speed.
+                    speed = dist / diff_time
+                    if(speed > max_speed): #We're going too fast?
+                        cheating_ct[0] += 1 #CHEATER!!
+                        if(self.first_cheat == None):
+                            self.first_cheat = x
+                    else:
+                        cheating_ct[1] += 1 #You're fine...keep playing.
+                else: #turning occurred; We need to take into account turning time along with transport speed.
+                    remaining_time = diff_time - (0.5 / self.AC_THRESH) / max_speed #time is needed to turn; We take this time needed off of diff_time to see how much extra time there is to actually drive.
+                    speed = dist / remaining_time
+                    if(speed > max_speed or remaining_time < 0): #if we had no time to move, then we shouldn't have been able to move.
+                        cheating_ct[0] += 1 #CHEATER!!!
+                        if(self.first_cheat == None):
+                            self.first_cheat = x
+                    else:
+                        cheating_ct[1] += 1 #You're fine...keep playing (and win for me, will you?)
+            if(cheating_ct[0] > self.POS_RECORD_CT * self.CHEATING_THRESHOLD): #Was there a LOT of positions which indicated cheating?
+                #CHEATER!!!
+                return True
+            else: #We'll do ONE MORE check...seeing where we moved from the START to the END of self.last_positions and seeing if we OVERALL were going too fast...
+                min_xy = [self.last_positions[0][0][0], self.last_positions[0][0][1]]
+                max_xy = [self.last_positions[0][0][1], self.last_positions[0][0][1]]
+                for x in range(0,len(self.last_positions)):
+                    if(self.last_positions[x][0][0] < min_xy[0]):
+                        min_xy[0] = self.last_positions[x][0][0]
+                    if(self.last_positions[x][0][1] < min_xy[1]):
+                        min_xy[1] = self.last_positions[x][0][1]
+                    if(self.last_positions[x][0][0] > max_xy[0]):
+                        max_xy[0] = self.last_positions[x][0][0]
+                    if(self.last_positions[x][0][1] > max_xy[1]):
+                        max_xy[1] = self.last_positions[x][0][1]
+                # - Take our min/max XY values and use them to determine the amount of distance we traveled -
+                dist_x = abs(max_xy[0] - min_xy[0])
+                dist_y = abs(max_xy[1] - min_xy[0])
+                dist = dist_x + dist_y
+                diff_time = self.last_positions[0][1] - self.last_positions[len(self.last_positions) - 1][1]
+                if(dist_x <= self.POS_CORRECTION_MAX_THRESHOLD or dist_y <= self.POS_CORRECTION_MAX_THRESHOLD): #turning was not used, so we simply need to watch distance traveled to determine if the player is cheating
+                    speed = dist / diff_time
+                    if(speed > max_speed): #CHEATER!!!
+                        return True
+                    else: #Not cheating
+                        return False
+                else: #the player DID turn, so we need to take this into account when checking for speedhax
+                    remaining_time = diff_time - (0.5 / self.AC_THRESH) / max_speed
+                    speed = dist / remaining_time
+                    if(speed > max_speed): #CHEATER!!!
+                        return True
+                    else:
+                        return False
+        return False #we're not considered a cheater if we didn't even bother checking...
+
+    # - Returns the last position which did not indicate cheating. This can be used with the clock() function to help return cheating players to their last Non-Cheating position -
+    def find_last_uncheat_pos(self):
+        if(self.first_cheat != None): #we've got a position to give!
+            if(self.first_cheat >= self.BEFORE_CHEAT):
+                pos = self.last_positions[self.first_cheat - self.BEFORE_CHEAT][0]
+            else:
+                pos = self.last_positions[0][0]
+            self.last_positions = [[pos, time.time() - self.POS_RECORD_INTERVAL]] #we clear the last_positions list after getting the position we wanted so that the cheater has the chance to turn off speedhax and be treated as a regular player for the rest of the game.
+            return pos
+        else: #this player was not flagged for cheating
+            return None
 
 engine = BattleEngine()
 
@@ -1313,11 +1560,11 @@ engine = BattleEngine()
 ##engine = BattleEngine(False)
 ##power_differences = []
 ##
-##urgency = 0.65 #change this value lower (lowest=0.5) to make matches sloppier, or raise it (max=1) to make the match more strict.
+##urgency = 0.75 #change this value lower (lowest=0.5) to make matches sloppier, or raise it (max=1) to make the match more strict.
 ##
 ##for x in range(0,500):
 ##    accounts = []
-##    for x in range(0,random.randint(8,50)): #prepare (random # of) random accounts
+##    for x in range(0,random.randint(2,48)): #prepare (random # of) random accounts
 ##        accounts.append(engine.create_account(random.randint(100,2500) / 100,player_name="name"))
 ##
 ##    player_queue = []
@@ -1341,56 +1588,67 @@ engine = BattleEngine()
 ##        avg_power_differences += abs(greatest_imbalance)
 ##    else: #I also want to see how many matches got rejected...
 ##        failed_matches += 1
-##avg_power_differences /= len(power_differences)
+##if(len(power_differences) > 0):
+##    avg_power_differences /= len(power_differences)
+##else:
+##    avg_power_differences = 9999.99
 ##print("\n\n\n")
 ##print("Average imbalance: " + str(round(avg_power_differences,2)))
 ##print("Failed match count: " + str(failed_matches) + " Successful match count: " + str(500 - failed_matches))
 ##print("Percentage of rejected matches: " + str(round(failed_matches / 500 * 100,2)) + "%")
 ##
-### - Find the outliers (extremes), beginning with the battle most in favor of Team 0 -
-##power = 0
+##nones = None #see if any matches were made
 ##for x in range(0,len(power_differences)):
 ##    if(power_differences[x] != None):
-##        #find what the imbalance for this match actually was
-##        greatest_imbalance = 0.0
-##        for y in range(0,len(power_differences[x])):
-##            for b in range(0,len(power_differences[x])):
-##                if(power_differences[x][y][1] - power_differences[x][b][1] > greatest_imbalance):
-##                    greatest_imbalance = power_differences[x][y][1] - power_differences[x][b][1]
-##        if(power < greatest_imbalance):
-##            power = greatest_imbalance
-##            imbalance_index = x #needed to print out team specs
-##print("\n\n\n")
-##print("Greatest imbalance: " + str(power))
-###print out the teams for the specific match in which the inbalance occurred.
-##for team in range(0,len(power_differences[imbalance_index])):
-##    print("\n - Team " + str(team) + ":")
-##    for x in range(0,len(power_differences[imbalance_index][team][0])): #iterate through team 0's players
-##        print("Player " + str(x) + ": ", end="")
-##        print(power_differences[imbalance_index][team][0][x][0]) #print out the player's rating
-##        print(power_differences[imbalance_index][team][0][x][1][0]) #print out the player's account stats
-##        print("\n")
-##print("\n\n\n")
+##        nones = True
+##        break
+##if(nones == True): #if no matches were made, this just erupts into errors...
+##    # - Find the outliers (extremes), beginning with the battle most in favor of Team 0 -
+##    power = 0
+##    for x in range(0,len(power_differences)):
+##        if(power_differences[x] != None):
+##            #find what the imbalance for this match actually was
+##            greatest_imbalance = 0.0
+##            for y in range(0,len(power_differences[x])):
+##                for b in range(0,len(power_differences[x])):
+##                    if(power_differences[x][y][1] - power_differences[x][b][1] > greatest_imbalance):
+##                        greatest_imbalance = power_differences[x][y][1] - power_differences[x][b][1]
+##            if(power < greatest_imbalance):
+##                power = greatest_imbalance
+##                imbalance_index = x #needed to print out team specs
+##    print("\n\n\n")
+##    print("Greatest imbalance: " + str(power))
+##    #print out the teams for the specific match in which the inbalance occurred.
+##    for team in range(0,len(power_differences[imbalance_index])):
+##        print("\n - Team " + str(team) + ":")
+##        for x in range(0,len(power_differences[imbalance_index][team][0])): #iterate through team 0's players
+##            print("Player " + str(x) + ": ", end="")
+##            print(power_differences[imbalance_index][team][0][x][0]) #print out the player's rating
+##            print(power_differences[imbalance_index][team][0][x][1][0]) #print out the player's account stats
+##            print("\n")
+##    print("\n\n\n")
 ##
-### - Find the battle which is most in favor of Team 1 -
-##power = pow(10,10)
-##for x in range(0,len(power_differences)):
-##    if(power_differences[x] != None):
-##        #find what the imbalance for this match actually was
-##        greatest_imbalance = 0.0
-##        for y in range(0,len(power_differences[x])):
-##            for b in range(0,len(power_differences[x])):
-##                if(power_differences[x][y][1] - power_differences[x][b][1] > greatest_imbalance):
-##                    greatest_imbalance = power_differences[x][y][1] - power_differences[x][b][1]
-##        if(power > greatest_imbalance):
-##            power = greatest_imbalance
-##            imbalance_index = x #needed to print out team specs
-##print("Least imbalance: " + str(power))
-###print out the teams for the specific match in which the inbalance occurred.
-##for team in range(0,len(power_differences[imbalance_index])):
-##    print("\n - Team " + str(team) + ":")
-##    for x in range(0,len(power_differences[imbalance_index][team][0])): #iterate through team 0's players
-##        print("Player " + str(x) + ": ", end="")
-##        print(power_differences[imbalance_index][team][0][x][0]) #print out the player's rating
-##        print(power_differences[imbalance_index][team][0][x][1][0]) #print out the player's account stats
-##        print("\n")
+##    # - Find the battle which is most in favor of Team 1 -
+##    power = pow(10,10)
+##    for x in range(0,len(power_differences)):
+##        if(power_differences[x] != None):
+##            #find what the imbalance for this match actually was
+##            greatest_imbalance = 0.0
+##            for y in range(0,len(power_differences[x])):
+##                for b in range(0,len(power_differences[x])):
+##                    if(power_differences[x][y][1] - power_differences[x][b][1] > greatest_imbalance):
+##                        greatest_imbalance = power_differences[x][y][1] - power_differences[x][b][1]
+##            if(power > greatest_imbalance):
+##                power = greatest_imbalance
+##                imbalance_index = x #needed to print out team specs
+##    print("Least imbalance: " + str(power))
+##    #print out the teams for the specific match in which the inbalance occurred.
+##    for team in range(0,len(power_differences[imbalance_index])):
+##        print("\n - Team " + str(team) + ":")
+##        for x in range(0,len(power_differences[imbalance_index][team][0])): #iterate through team 0's players
+##            print("Player " + str(x) + ": ", end="")
+##            print(power_differences[imbalance_index][team][0][x][0]) #print out the player's rating
+##            print(power_differences[imbalance_index][team][0][x][1][0]) #print out the player's account stats
+##            print("\n")
+##else:
+##    print("\n\n[MATCH] All matches failed.")

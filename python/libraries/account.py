@@ -1,7 +1,7 @@
-##"account.py" library ---VERSION 0.33---
+##"account.py" library ---VERSION 0.35---
 ## - REQUIRES: "entity.py"
 ## - For managing account data in Tank Battalion Online -
-##Copyright (C) 2022  Lincoln V.
+##Copyright (C) 2023  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -19,12 +19,26 @@
 import entity
 import random
 import math
+import time
 
 class Account():
     def __init__(self,name="a name",password="123 is a bad password",bot=False): #this sets the beginning stats for any new account.
         #Account name and password
         self.name = name
         self.password = password
+
+        #Player settings (these are stored in the server so that different people don't overwrite saved settings locally)
+        #Settings list: ["Back","","Key config","Deadzone","KB/JS",
+        #   "Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1",
+        #   "Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6",
+        #   "Up","Left","Down","Right","Shoot",
+        #   "Escape Battle","Cursor Modifier","PTT Key","","GFX Quality",
+        #   "Music Volume","SFX Volume","Skip Back One Track","Skip Forward One Track"]
+        #NOTE: skip back & forward, blank entries, the "back" key all have undisplayed values in the settings menu...which I will save here to avoid indexing problems
+        self.settings = [None]
+
+        #Last time a player received free items is recorded so I can give them free hollow shells every 24 hrs.
+        self.last_free_stuff = time.time()
         
         #Currencies
         self.cash = 50.0 #50^ (^ can be decimal)
@@ -135,6 +149,7 @@ class Account():
             [self.shells,self.powerups,self.upgrades,self.specialization],
             round(self.damage_multiplier,precision),
             round(self.penetration_multiplier,precision),
+            self.settings[:]
             ]
 
     def enter_data(self,data): #Takes data returned from return_data() and inputs it into this Account() object.
@@ -147,6 +162,12 @@ class Account():
         self.specialization = data[2][3]
         self.damage_multiplier = data[3]
         self.penetration_multiplier = data[4]
+        self.settings = data[5][:]
+
+    def check_free_stuff(self): #gives a player a free stock of hollow shells every 24hrs. This is to keep players from becoming completely broke if they have some bad battles.
+        if(time.time() - self.last_free_stuff >= 24 * 60 * 60): #it's been 24hrs since last time we got free stuff? The player gets free hollow shells.
+            self.shells[0] = self.max_shells[0]
+            self.last_free_stuff = time.time()
 
     def randomize_account(self): #scrambles the account data to create a unique account. Good for testing matchmaking or creating bots.
         self.specialization = random.randint(-6, +6) #randomize our tank's specialization

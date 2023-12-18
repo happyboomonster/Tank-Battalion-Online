@@ -1,6 +1,6 @@
-##"save_admin_tool.py" ---VERSION 0.01---
+##"save_admin_tool.py" ---VERSION 0.02---
 ## - A small program to assist managing TBO accounts
-##Copyright (C) 2022  Lincoln V.
+##Copyright (C) 2023  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -68,6 +68,19 @@ def modify_account(data):
     if(not found):
         print("[MODIFY] Failed to locate account! Exiting...")
 
+def print_acct_data(data):
+    account_name = input("[PRINT] Which account do you want to print (name) ? ")
+    account_password = input("[PRINT] Which account do you want to print (password) ? ")
+    found = False
+    for x in range(0,len(data)):
+        if(data[x].name == account_name and data[x].password == account_password):
+            print("[PRINT] Account located.")
+            print(data[x])
+            found = True
+            break
+    if(not found):
+        print("[PRINT] Failed to locate account! Exiting...")
+
 def command_help(commands):
     for x in commands:
         print("Command name: " + x[0] + " \n - Command description: " + x[3])
@@ -80,6 +93,7 @@ commands.append(["delete account",delete_account,data,"Allows you to delete an a
 commands.append(["modify account",modify_account,data,"Allows you to modify any aspect of an account by utilizing the commands in account.py - Example: .purchase('shell',3)"])
 commands.append(["create account",create_account,data,"Allows you to create a new account without needing to utilize the server's account creation functionality"])
 commands.append(["help",command_help,commands,"Prints out this set of messages"])
+commands.append(["print account data",print_acct_data,data,"Prints the exact state of an account of your choice"])
 
 command = ""
 while command != "exit":

@@ -19,6 +19,7 @@ Make sure you have the following libraries installed for it to work:
 	Pygame v1.9.2 or later
 	pickle
 	sys
+	os
 	_thread
 	socket
 	time
@@ -30,9 +31,9 @@ Have fun! (hopefully there are no more bugs left in the game)
 
  --- Music Credits ---
 
-"Bit Quest","Bit Shift","Bleeping Demo","Blip Stream",
-"Blippy Trance","Digital Lemonade","Unwritten Return",
-"Overworld","Pixelland","Salty Ditty"
+"Unwritten Return",
+"Blip Stream",
+"Pixelland", "Wagon Wheel - Electronic"
 	Kevin MacLeod (incompetech.com)
 Licensed under Creative Commons: By Attribution 4.0 License
 http://creativecommons.org/licenses/by/4.0/

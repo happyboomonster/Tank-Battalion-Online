@@ -279,29 +279,29 @@ bot_player_managers = [None, None] #[entity.Bot(0, 0, 1.40), entity.Bot(1, 1, 1.
 huds = [hud, p2_hud]
 
 #add some extra bots to the game...LOL
-for x in range(0,12):
-    bot_player_managers.append(entity.Bot(x % 2, x + 2, [1.00,1.30][x % 2])) #create the bot manager
+for x in range(0,10):
+    bot_player_managers.append(entity.Bot(x % 2, x + 2, [2.00,0.85][x % 2])) #create the bot manager
     #create the bot account, and create a bot tank. Append that to the players list...
     bot_acct = battle_engine.create_account(15.0,"Bot Player " + str(x))
     players.append(bot_acct.create_tank([T1U,T2U][x % 2], ["Player Team","Bot Team"][x % 2]))
     bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
     bot_player_managers[x + 2].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
 # - Uncomment this to add a third team of only bots! -
-for x in range(0,7):
-    bot_player_managers.append(entity.Bot(2, x + 2 + 12, 1.00)) #create the bot manager
+for x in range(0,6):
+    bot_player_managers.append(entity.Bot(2, x + 2 + 10, 1.00)) #create the bot manager
     #create the bot account, and create a bot tank. Append that to the players list...
     bot_acct = battle_engine.create_account(15.0,"Bot Player " + str(x + 12))
     players.append(bot_acct.create_tank(T3U, "2nd Bot Team"))
     bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
-    bot_player_managers[x + 2 + 12].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
+    bot_player_managers[x + 2 + 10].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
 ### - Uncomment this to add a fourth team of only bots! -
-##for x in range(0,7):
-##    bot_player_managers.append(entity.Bot(3, x + 2 + 12 + 7, 1.15)) #create the bot manager
+##for x in range(0,6):
+##    bot_player_managers.append(entity.Bot(3, x + 2 + 10 + 6, 1.00)) #create the bot manager
 ##    #create the bot account, and create a bot tank. Append that to the players list...
-##    bot_acct = battle_engine.create_account(25.0,"Bot Player " + str(x + 12 + 7))
+##    bot_acct = battle_engine.create_account(15.0,"Bot Player " + str(x + 12 + 7))
 ##    players.append(bot_acct.create_tank(T4U, "3nd Bot Team"))
 ##    bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
-##    bot_player_managers[x + 2 + 12 + 7].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
+##    bot_player_managers[x + 2 + 10 + 6].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
 
 player_bar_hud_start = 17
 for x in range(0,len(players)): #add the HUD elements for all players to p1's and p2's HUD engines
@@ -310,6 +310,11 @@ for x in range(0,len(players)): #add the HUD elements for all players to p1's an
 
     hud.add_HUD_element("horizontal bar",[[0,-50],[20,5],[[0,255,0],[0,0,0],[0,0,255]],1.0],False)
     hud.add_HUD_element("text",[[0,-50],7,[[255,0,0],False,False],"100 HP"],False)
+
+### - Uncomment this script to turn on MINES game mode! -
+##for x in range(0,len(players)):
+##    players[x].penetration_multiplier = 0.01
+##    players[x].damage_multiplier += 100.0
 
 #this is a list of constants; unscaled mouse positions to click on p2 and p1's powerup items
 powerup_positions = [
