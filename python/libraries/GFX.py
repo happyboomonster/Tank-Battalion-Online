@@ -1,7 +1,6 @@
 ##"GFX.py" library ---VERSION 0.19---
-## - REQUIRES: "font.py" library
 ## - For creating basic graphical effects (usually based on particles) in the same scale as your screen in a game -
-##Copyright (C) 2023  Lincoln V.
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -327,7 +326,7 @@ def create_fire(particles,location,current_frame): #run this every frame you wan
             fire_color[2] = 0
         last_fire_time = time.time() #update the timing counter
 
-###short demo test for the Particle() class
+## - Short demo test for the Particle() class -
 ##screen = pygame.display.set_mode([640,480])
 ##
 ##particles = []
@@ -358,7 +357,7 @@ def create_fire(particles,location,current_frame): #run this every frame you wan
 ##pygame.quit()
 
         
-###short demo test for the GFX_Manager class
+### - Short demo test for the GFX_Manager class -
 ##screen = pygame.display.set_mode([640,480])
 ##
 ##particles = []

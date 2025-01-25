@@ -1,6 +1,6 @@
-##"SFX.py" library ---VERSION 0.06---
+##"SFX.py" library ---VERSION 0.09---
 ## - For creating basic audio effects with volume-based positional sound -
-##Copyright (C) 2023  Lincoln V.
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -26,12 +26,16 @@ pygame.mixer.init()
 # - How quickly does sound decrease through distance? -
 SOUND_DISPERSION = 0.075 #Xe2% volume lost per block
 
+# - How much longer than the actual sound file duration do we let Sound() objects sit in memory for? The less time, the more likely the effect will be played twice -
+TIMING_ERROR_THRESHOLD = 0.5
+
 # - We need ID numbers to keep track of all the sounds -
 ID_NUM = 0
 ID_NUM_MAX = 65535
 
 class Sound(): # - A sound playing class which takes into account position to make the sound's volume change -
     def __init__(self, sound, pos, volume, sound_id=None):
+        global TIMING_ERROR_THRESHOLD
         if(sound_id == None): #sound_id would only be None on the client
             self.ID = 0
         else: #this happens on a server
@@ -48,10 +52,12 @@ class Sound(): # - A sound playing class which takes into account position to ma
         self.playing = False
         self.track_length = self.sound.get_length() #seconds
         self.track_start = time.time()
+        self.server = False #this flag SHOULD NOT be transferred between client and server; it should stay local, as it enables TIMING_ERROR_THRESHOLD ONLY on clients.
 
     def play(self, player_pos, server=False): #This function starts the sound playing
         # - Make sure the sound is actually playing -
         if(self.playing == False):
+            self.server = server
             if(not server): #the sound only HAS to play if this is NOT the server ROFL
                 self.sound.play()
             self.playing = True
@@ -59,6 +65,7 @@ class Sound(): # - A sound playing class which takes into account position to ma
             self.clock(player_pos)
 
     def clock(self, player_pos): #This function ensures that the sound is played correctly. It should be called frequently.
+        global TIMING_ERROR_THRESHOLD
         if(self.playing):
             # - Calculate what volume it should be played at -
             x = abs(abs(player_pos[0]) - abs(self.pos[0]))
@@ -72,7 +79,11 @@ class Sound(): # - A sound playing class which takes into account position to ma
             self.sound.set_volume(volume)
 
             # - Check if the sound is still playing -
-            if(time.time() - self.track_start >= self.track_length):
+            if(self.server):
+                extra_time = 0
+            else:
+                extra_time = TIMING_ERROR_THRESHOLD
+            if(time.time() - self.track_start >= self.track_length + extra_time):
                 self.playing = False #the sound itself will end of its own accord.
 
             # - Return the volume this sound was set to -
@@ -120,6 +131,10 @@ class Music(): # - A basic music player which can queue tracks and play them in 
 
     def queue_track(self, track_file):
         self.music_queue.append(track_file)
+
+    def fadeout_track(self):
+        pygame.mixer.music.fadeout(1000)
+        self.music_file = None
 
     def transition_track(self, track_file): #fades out the current track, and starts a new one.
         pygame.mixer.music.fadeout(1000)
@@ -220,16 +235,20 @@ class SFX_Manager(): # - A manager for keeping track of multiple Sound() objects
                     self.sound_instances[len(self.sound_instances) - 1].play(player_pos)
                     ID_NUM = self.sound_instances[len(self.sound_instances) - 1].ID
                     #print("Added sound: " + str([identification.ID, identification.sound_id])) #debug I used to make sure the sounds were getting through
+            #else: #useful debug condition for checking what happens to sounds which are expected to be played
+            #    print("Discarded")
 
 ### - Quick test of the Music() class -
+##import random
 ##music_handler = Music()
 ##while True:
 ##    queue_tracks = music_handler.clock()
 ##    if(not queue_tracks):
-##        music_handler.queue_track("../../sfx/music/ingame/Oasis-CK4.ogg")
-##        music_handler.queue_track("../../sfx/music/ingame/Vegetables-CK4.ogg")
-##    pygame.time.delay(5000)
-##    music_handler.transition_track("../../sfx/music/ingame/Tank Force March.mp3")
+##        music_handler.queue_track("../../sfx/music/YourMusicHere3.mp3")
+##        music_handler.queue_track("../../sfx/music/YourMusicHere2.mp3")
+##        music_handler.queue_track("../../sfx/music/YourMusicHere1.mp3")
+##    if(random.randint(0,9999999) == 0):
+##        music_handler.transition_track("../../sfx/music/YourMusicHere" + str(random.randint(1,3)) + ".mp3")
 
 ### - Quick test for the Sound() class -
 ##import random

@@ -1,6 +1,6 @@
-##"battle_server.py" library ---VERSION 0.57---
+##"battle_server.py" library ---VERSION 0.63---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
-##Copyright (C) 2023  Lincoln V.
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -35,10 +35,25 @@ import arena as arena_lib
 import GFX #(yes, we're using particles on the server lol)
 import SFX #(yes, sound effects too)
 
+# - This is a global which tells us the path to find the directory battle_server is stored in -
+path = ""
+
+def init(path_str=""):
+    global path
+    path = path_str
+    entity.path = path_str
+    import_arena.path = path_str
+
 class BattleEngine():
     def __init__(self, autostart=True):
         # - Netcode constants -
         self.buffersize = 10
+
+        # - Enable Anti-Cheat? -
+        self.ac_enable = True
+
+        # - Are we using the server for a split-screen offline game? This will modify the behaviour of battle_server() slightly -
+        self.offline = False
 
         # - Sound reference constants -
         self.GUNSHOT = 0
@@ -69,14 +84,8 @@ class BattleEngine():
             self.accounts = self.load_save_data()
         except Exception as e:
             print("An exception occurred while loading save data: " + str(e) + " ...Resuming with standard save file...")
-            self.accounts.append(account.Account("boomonster","password"))
-            self.accounts.append(account.Account("muskoka","badtbo"))
-            self.accounts.append(account.Account("i","tyler"))
-            self.accounts.append(account.Account("blackfang","m41"))
-            self.accounts.append(account.Account("shadow","name11"))
-            self.accounts.append(account.Account("gubba","mylittledingus"))
-            self.accounts.append(account.Account("yeudler","diycandles"))
-            self.accounts.append(account.Account("allegheny1606","cabforward"))
+            self.accounts.append(account.Account("testaccta","pwda"))
+            self.accounts.append(account.Account("testacctb","pwdb"))
         self.logged_in = [] #list of ["player name","player password] lists to detect who is/isn't logged in
         self.logged_in_lock = _thread.allocate_lock()
         #player_queue: List of queues of [account,socket]s in different game modes.
@@ -88,39 +97,35 @@ class BattleEngine():
             self.player_queue.append([])
         self.player_queue_lock = _thread.allocate_lock()
         self.battle_type_functions = [self.unrated_battle_server,self.ranked_battle_server]
-        
-        #the IP/device name of our server
-        HOST_NAME = socket.gethostname()
-        self.IP = socket.gethostbyname(HOST_NAME + ".local")
-
-        #create a random port number
-        PORT = 5031
-        print("Port Number: " + str(PORT) + " IP: " + str(self.IP))
-        
-        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #create a socket object
-        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        self.s.bind((self.IP, PORT))
-        self.s.listen() #wait for connections
 
         # - Matchmaker constants -
-        self.EXP_WEIGHT = 0.0005 #this defines the overall power of a player (more EXP = more experienced player = more strategic = more dangerous)
-        self.UPGRADE_WEIGHT = 1.35 #this defines the overall power of a player (more upgrades = more powerful tank)
-        self.CASH_WEIGHT = 0.0 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
-        self.SHELLS_WEIGHT = [0.025, 0.05, 0.075, 0.15] #this defines the overall power of a player (more powerful shells = more dangerous)
-        self.POWERUP_WEIGHT = 0.85 #this defines the overall power of a player (more powerups = more dangerous)
-        self.SPECIALIZATION_WEIGHT = 1.125 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
+        self.EXP_WEIGHT = 0.00005 #this defines the overall power of a player (more EXP = more experienced player = more strategic = more dangerous)
+        self.UPGRADE_WEIGHTS = [2.1/6, 1.77/6, 1.71/6, 1.125/6] #this defines the overall power of a player (more upgrades = more powerful tank) [gun, rpm, armor, engine]
+        self.CASH_WEIGHT = 0.000001 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
+        self.SHELLS_WEIGHT = [1.17 / account.max_shells[0], 1.75 / account.max_shells[1], #hollow shells are 1.17 because I raised their D/P from 7/7 to 8/8.
+                              2.625 / account.max_shells[2], 2.625 / account.max_shells[3]] #this defines the overall power of a player (more shells = more dangerous)
+        self.POWERUP_WEIGHT = 1.24 #this defines the overall power of a player (more powerups = more dangerous)
+        self.SPECIALIZATION_WEIGHT = 0.025 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
+        # - All calculated ratings are divided by this number so that our numbers are within a certain range (I like between 0 and 30 roughly) -
+        self.MMCEF = 0
+        self.MMCEF += self.POWERUP_WEIGHT * len(account.Account().powerups) #powerups
+        self.MMCEF += self.SHELLS_WEIGHT[0] * account.max_shells[0] + self.SHELLS_WEIGHT[1] * account.max_shells[1] + \
+                      self.SHELLS_WEIGHT[2] * account.max_shells[2] + self.SHELLS_WEIGHT[3] * account.max_shells[3]
+        self.MMCEF += self.UPGRADE_WEIGHTS[0] * account.upgrade_limit + self.UPGRADE_WEIGHTS[1] * account.upgrade_limit + \
+                      self.UPGRADE_WEIGHTS[2] * account.upgrade_limit + self.UPGRADE_WEIGHTS[3] * account.upgrade_limit
+        self.MMCEF += self.SPECIALIZATION_WEIGHT * account.upgrade_limit
+        self.MMCEF = self.MMCEF / 30 #get MMCEF so that any rating can be divided by it to bring all ratings closer to X, where X is the value after the division sign in this assignment expression.
         # - This value MUST be larger than a single rating value (e.g. the rating of owning 1 disk shell).
         #   - If a match gets past this imbalance, bots get created to help out a bit.
-        self.IMBALANCE_LIMIT = 1.35 #(this is larger than self.SPECIALIZATION_WEIGHT, which is 1.125)
+        self.IMBALANCE_LIMIT = 1.25 / self.MMCEF #self.POWERUP_WEIGHT
         #How many players (not including bots) can be put into a battle? [min, max]
-        self.PLAYER_CT = [2, 16]
+        self.PLAYER_CT = [1, 25]
         #How many teams can a single battle have? -
         self.TEAM_CT = [2,4]
         # - How long should it take before a minimum player match attempts to take place?
         #   - (These matchmaking delays are really just here to reduce server CPU load now that match restrictions are built into the...
         #   - ...matchmaker)
-        self.IMMEDIATE_MATCH = 35 #X/60 minutes = maximum wait time
+        self.IMMEDIATE_MATCH = 45 #X/60 minutes = maximum wait time
         # - This isn't really the maximum match time, it's the maximum match time during which all matchmaking rules apply.
         #   - After X number of seconds have passed, the restrictions on matchmaking will begin to slacken to encourage a quick match.
         self.MAXIMUM_MATCH_TIME = 30 #seconds
@@ -132,6 +137,8 @@ class BattleEngine():
         self.FORCED_MATCH_URGENCY = 0.625
         # - The lower this constant is, the faster the matchmaker will make matches at the expense of being more unbalanced. Values less than 1 and greater than 0 only -
         self.MIN_URGENCY = 0.25
+        # - This constant helps determine how much imbalance the matchmaker will allow in a match to get more players into it -
+        self.MIN_WAIT_ADD_URGENCY = self.MIN_URGENCY * 1.25
         # - Matchmaker rules -
         #   - Usable variables:
         #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
@@ -166,33 +173,55 @@ class BattleEngine():
             ]
 
         # - Map picker constants -
-        self.SQUARES_PER_PERSON = 9 #3x3 per person is a decent space I think.
+        self.MAX_SQUARES_PER_PERSON = 7.0 #if all the free space on the map was evenly divided between every player in it, how much space should each player get (at max)?
+        self.MIN_SQUARES_PER_PERSON = 6.0 #if all the free space on the map was evenly divided between every player in it, how much space should each player get (at max)?
 
         # - How long should the compute thread of a battle last AFTER game over has occurred? -
         self.BATTLE_TIMER = 30.0 #seconds
 
         # - How long do players have to COMPLETE a battle? (remember: battle_time is different from battle_timer [see above]) -
-        self.BATTLE_TIME = 5 * 60 #5 minutes is adequate?
+        self.BATTLE_TIME = 6 * 60 #X minutes is adequate?
+        self.BATTLE_TIME_PLAYER_COEFFICIENT = 30.0 #How many seconds do we add to a battle for each additional player in it?
 
         if(autostart):
+            # - Set up our networking stuff; This has to be done here since we don't want to make real IP connections when playing in offline mode -
+            #the IP/device name of our server
+            HOST_NAME = socket.gethostname()
+            self.IP = socket.gethostbyname(HOST_NAME + ".local")
+
+            #create a random port number
+            PORT = 5031
+            print("Port Number: " + str(PORT) + " IP: " + str(self.IP))
+            
+            self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #create a socket object
+            self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.s.bind((self.IP, PORT))
+            self.s.listen() #wait for connections
+
+            # - Start the matchmaker script and the client connection script -
             _thread.start_new_thread(self.matchmaker_loop,())
             self.connect_players() #begin the connection script
 
     # - Logs out a player, so their data is saved when they leave the game. This function returns True if the data was saved successfully -
     def logout_player(self, player_data): #player_data format: [account.Account() object, socket object]
         found = False
-        for x in range(0,len(self.accounts)):
-            if(self.accounts[x].name == player_data[0].name): #we found the account we need to sync data with?
-                self.accounts[x] = player_data[0]
-                found = True
-                self.save_data()
-        if(found == True): #remove the player from the logged_in list
-            with self.logged_in_lock:
-                for x in range(0,len(self.logged_in)):
-                    if(self.logged_in[x] == [player_data[0].name, player_data[0].password]):
-                        del(self.logged_in[x])
-                        print("[LOGIN] Successfully deleted login data")
-                        break
+        try:
+            for x in range(0,len(self.accounts)):
+                if(self.accounts[x].name == player_data[0].name): #we found the account we need to sync data with?
+                    self.accounts[x] = player_data[0]
+                    found = True
+                    self.save_data()
+            if(found == True): #remove the player from the logged_in list
+                with self.logged_in_lock:
+                    for x in range(0,len(self.logged_in)):
+                        if(self.logged_in[x] == [player_data[0].name, player_data[0].password]):
+                            del(self.logged_in[x])
+                            print("[LOGIN] Successfully deleted login data")
+                            break
+        except Exception as e:
+            print("[SAVE] Failed to save player data - Error message: " + str(e))
+            found = False
         return found
 
     def connect_players(self):
@@ -255,7 +284,7 @@ class BattleEngine():
         return data
 
     #handles player requests while a player is in the lobby still
-    def lobby_server(self, player_data, special_window=None): #player_data format: [account.Account() object, socket object]
+    def lobby_server(self, player_data, special_window=None, running=None): #player_data format: [account.Account() object, socket object]; Running is a list which allows an external process to halt this thread. Format: [True/False]
         netcode.clear_socket(player_data[1]) #clear the data within the socket to make sure there are no leftover packets from something else...
         in_lobby = True
         disconnect_packets = 0 #counter of packets disconnected
@@ -272,6 +301,10 @@ class BattleEngine():
             if(disconnect_packets > 3):
                 in_lobby = False
 
+            # - Check if running[] says we should exit -
+            if(running != None):
+                in_lobby = running[0]
+
             # - Print out any errors that occurred -
             for x in range(0,len(client_data_pack[2])):
                 print(client_data_pack[2][x])
@@ -285,7 +318,7 @@ class BattleEngine():
                     if(valid):
                         break
                 if(valid): #IF the data verification passes, then we process the data we recieved.
-                    #print(client_data, player_data[0].name)
+                    #print(client_data, player_data[0].name) #debug
                     if(client_data[0] == "buy"): #purchasing an item?
                         reply = [player_data[0].purchase(client_data[1],client_data[2])]
                     elif(client_data[0] == "refund"): #refunding an item?
@@ -329,7 +362,7 @@ class BattleEngine():
         # - Make sure that the client receives free hollow shells if they haven't got any for 24+ hrs -
         player_data[0].check_free_stuff()
                 
-        if(len(reply) > 1 and reply[1] == "battle"): #entered battle?
+        if(len(reply) > 1 and reply[1] == "battle" and running == None): #entered battle?
             print("[IN QUEUE] Player " + player_data[0].name + " has entered queue in mode: " + str(client_data[1]))
         else: #save the player's data if the player disconnected
             #print out a disconnect message, move the player data back into its place inside self.accounts so that it is saved for later...
@@ -447,19 +480,26 @@ class BattleEngine():
             time.sleep(0.15) #~4PPS sounds good to me... (I'm accounting for 100ms ping)
 
     # - Typical battle with no stakes except losing silver - server side -
-    def unrated_battle_server(self, players):
+    def unrated_battle_server(self, players, forced_map=None, special_window_return=None, external_running=[True]):
         # - Start by setting up the game state: Players in their starting position, no bullets, no powerups spawned on the map -
         #Player Format: [[rating, [account, socket]], [rating, [account, socket]]...]
         #Teams format: [[[[rating, [account, socket]], [rating, [account, socket]]...], rating], [players, rating]...]
         game_objects = []
         game_objects_lock = _thread.allocate_lock()
         # - Which map are we playing on? -
-        map_name = self.pick_map(players)
-        if(map_name == False): #we didn't get a map? (0 players in match)
-            print("[BATTLE] NO MAP! Escaping battle routine...")
-            return None #exit this battle!
+        if(forced_map == None):
+            map_name = self.pick_map(players)
+            if(map_name == False): #we didn't get a map? (0 players in match)
+                print("[BATTLE] NO MAP! Escaping battle routine...")
+                return None #exit this battle!
+        else:
+            map_name = forced_map
         # - How much time should the players (and bots) have to finish the bots? -
-        time_remaining = [self.BATTLE_TIME] #this HAS to be a list for it to be shared between threads
+        player_ct = 0
+        for teams in range(0,len(players)):
+            for player in range(0,len(players[teams][0])):
+                player_ct += 1
+        time_remaining = [self.BATTLE_TIME + self.BATTLE_TIME_PLAYER_COEFFICIENT * player_ct] #this HAS to be a list for it to be shared between threads
         # - This is for holding all particle effects. This lets people know where gunfights are happening easily because everyone gets to see them -
         particles = []
         particles_lock = _thread.allocate_lock()
@@ -473,7 +513,7 @@ class BattleEngine():
         # - Grab our arena data -
         #   Format: [arena, tiles, shuffle_pattern, blocks, bricks, destroyed_brick, flags]
         arena_data = import_arena.return_arena(map_name)
-        arena = arena_lib.Arena(arena_data[0], arena_data[1], arena_data[2])
+        arena = arena_lib.Arena(arena_data[0], arena_data[1], arena_data[2], server=True)
         arena.set_flag_locations(arena_data[6])
         arena_lock = _thread.allocate_lock()
         # - Create a GFX manager to reduce netcode load -
@@ -481,17 +521,17 @@ class BattleEngine():
         # - Create a SFX_Manager() so that the client has sound effects occurring at the right times -
         sfx = SFX.SFX_Manager()
         sfx.server = True
-        sfx.add_sound("../../sfx/gunshot_01.wav")
-        sfx.add_sound("../../sfx/driving.wav")
-        sfx.add_sound("../../sfx/thump.wav")
-        sfx.add_sound("../../sfx/explosion_large.wav")
-        sfx.add_sound("../../sfx/crack.wav")
+        sfx.add_sound(path + "../../sfx/gunshot_01.wav")
+        sfx.add_sound(path + "../../sfx/driving.wav")
+        sfx.add_sound(path + "../../sfx/thump.wav")
+        sfx.add_sound(path + "../../sfx/explosion_large.wav")
+        sfx.add_sound(path + "../../sfx/crack.wav")
         # - Set players in the right position -
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])):
                 if(player == 0): #add the team bookmark to the eliminated[] list.
                     eliminated.append(["Team " + str(teams), False])
-                #print(players[teams][0][player])
+                #print(players[teams][0][player]) #debug info
                 game_objects.append(players[teams][0][player][1][0].create_tank("image replacement", "Team " + str(teams), upgrade_offsets=[0,0,0,0], skip_image_load=False, team_num=teams, team_ct=len(players)))
                 # - Set the position our player should go to -
                 game_objects[len(game_objects) - 1].goto(arena.flag_locations[teams])
@@ -499,25 +539,32 @@ class BattleEngine():
         player_number = 0
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])):
-                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, time_remaining, False, teams, gfx, sfx))
+                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, time_remaining, False, teams, gfx, sfx, special_window_return, external_running))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
-        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, gfx, sfx, time_remaining, False))
+        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, gfx, sfx, time_remaining, False, external_running))
 
     # - This battle mode allows you to lose experience, which is needed to unlock new tanks -
-    def ranked_battle_server(self, players):
+    def ranked_battle_server(self, players, forced_map=None, special_window_return=None, external_running=[True]):
         # - Start by setting up the game state: Players in their starting position, no bullets, no powerups spawned on the map -
         #Player Format: [[rating, [account, socket]], [rating, [account, socket]]...]
         #Teams format: [[[[rating, [account, socket]], [rating, [account, socket]]...], rating], [players, rating]...]
         game_objects = []
         game_objects_lock = _thread.allocate_lock()
         # - Which map are we playing on? -
-        map_name = self.pick_map(players)
-        if(map_name == False): #we didn't get a map? (0 players in match)
-            print("[BATTLE] NO MAP! Escaping battle routine...")
-            return None #exit this battle!
+        if(forced_map == None):
+            map_name = self.pick_map(players)
+            if(map_name == False): #we didn't get a map? (0 players in match)
+                print("[BATTLE] NO MAP! Escaping battle routine...")
+                return None #exit this battle!
+        else:
+            map_name = forced_map
         # - How much time should the players (and bots) have to finish the bots? -
-        time_remaining = [self.BATTLE_TIME] #this HAS to be a list for it to be shared between threads
+        player_ct = 0
+        for teams in range(0,len(players)):
+            for player in range(0,len(players[teams][0])):
+                player_ct += 1
+        time_remaining = [self.BATTLE_TIME + self.BATTLE_TIME_PLAYER_COEFFICIENT * player_ct] #this HAS to be a list for it to be shared between threads
         # - This is for holding all particle effects. This lets people know where gunfights are happening easily because everyone gets to see them -
         particles = []
         particles_lock = _thread.allocate_lock()
@@ -531,7 +578,7 @@ class BattleEngine():
         # - Grab our arena data -
         #   Format: [arena, tiles, shuffle_pattern, blocks, bricks, destroyed_brick, flags]
         arena_data = import_arena.return_arena(map_name)
-        arena = arena_lib.Arena(arena_data[0], arena_data[1], arena_data[2])
+        arena = arena_lib.Arena(arena_data[0], arena_data[1], arena_data[2], server=True)
         arena.set_flag_locations(arena_data[6])
         arena_lock = _thread.allocate_lock()
         # - Create a GFX manager to reduce netcode load -
@@ -539,11 +586,11 @@ class BattleEngine():
         # - Create a SFX_Manager() so that the client has sound effects occurring at the right times -
         sfx = SFX.SFX_Manager()
         sfx.server = True
-        sfx.add_sound("../../sfx/gunshot_01.wav")
-        sfx.add_sound("../../sfx/driving.wav")
-        sfx.add_sound("../../sfx/thump.wav")
-        sfx.add_sound("../../sfx/explosion_large.wav")
-        sfx.add_sound("../../sfx/crack.wav")
+        sfx.add_sound(path + "../../sfx/gunshot_01.wav")
+        sfx.add_sound(path + "../../sfx/driving.wav")
+        sfx.add_sound(path + "../../sfx/thump.wav")
+        sfx.add_sound(path + "../../sfx/explosion_large.wav")
+        sfx.add_sound(path + "../../sfx/crack.wav")
         # - Set players in the right position -
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])):
@@ -557,13 +604,13 @@ class BattleEngine():
         player_number = 0
         for teams in range(0,len(players)):
             for player in range(0,len(players[teams][0])): #the True at the end is to let all threads know that this battle is for more stakes then just cash!
-                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, time_remaining, True, teams, gfx, sfx))
+                _thread.start_new_thread(self.battle_server, (game_objects, game_objects_lock, players[teams][0][player][1], player_number, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, time_remaining, True, teams, gfx, sfx, special_window_return, external_running))
                 player_number += 1
         # - Start this thread to handle most CPU based operations -
-        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, gfx, sfx, time_remaining, True))
+        _thread.start_new_thread(self.battle_server_compute, (game_objects, game_objects_lock, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, gfx, sfx, time_remaining, True, external_running))
 
     # - Handles most of the computation for battles, excluding packet exchanging -
-    def battle_server_compute(self, game_objects, game_objects_lock, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, gfx, sfx, time_remaining, experience=False):
+    def battle_server_compute(self, game_objects, game_objects_lock, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, gfx, sfx, time_remaining, experience=False, external_running=[True]):
         battle = True #this goes false when the battle is finished.
         TILE_SIZE = 20 #this is a constant which we don't *really* need...
         framecounter = 0 #we need a framecounter for handling particle generation
@@ -584,6 +631,12 @@ class BattleEngine():
                 framecounter = 0
             else:
                 framecounter += 1
+
+            # - Update whether we still need to run this thread (this thread can be killed externally via the external_running parameter -
+            if(battle):
+                battle = external_running[0]
+                if(not battle):
+                    print("[BATTLE] Main compute thread ending through external killing of this process...")
 
             # - Update time_remaining for the battle -
             time_remaining[0] -= time.time() - compute_timer
@@ -732,9 +785,10 @@ class BattleEngine():
                         # - Check if the powerup has been collected -
                         for y in range(0,len(game_objects)):
                             if(game_objects[y].type == "Tank"): #only tanks can collect powerups
-                                if(entity.check_collision(game_objects[x - decrement], game_objects[y], arena.TILE_SIZE, tank_collision_offset=5)[0]): #the tank got the powerup?
-                                    game_objects[x - decrement].use(game_objects[y]) #it will despawn automatically from the code below...
-                                    break
+                                if(game_objects[y].destroyed != True): #tanks MAY NOT collect powerups if they're dead
+                                    if(entity.check_collision(game_objects[x - decrement], game_objects[y], arena.TILE_SIZE, tank_collision_offset=5)[0]): #the tank got the powerup?
+                                        game_objects[x - decrement].use(game_objects[y]) #it will despawn automatically from the code below...
+                                        break
                         game_objects[x - decrement].clock() #update the powerup's state
                         if(game_objects[x - decrement].despawn == True): #despawn the powerup?
                             del(game_objects[x - decrement])
@@ -782,7 +836,7 @@ class BattleEngine():
 
     # - Player_data is a list of [account, socket].
     # - This function exchanges packets between client and server, AND stuffs the client's data into the game_objects list. It can also function as a dummy client, with a bot controlling the tank. -
-    def battle_server(self, game_objects, game_objects_lock, player_data, player_index, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, time_remaining, experience=False, team_num=0, gfx=None, sfx=None):
+    def battle_server(self, game_objects, game_objects_lock, player_data, player_index, map_name, particles, particles_lock, team_particles, team_particles_lock, arena, eliminated, time_remaining, experience=False, team_num=0, gfx=None, sfx=None, special_window_return=None, external_running=[True]):
         #Send packet description: All packets start with a "prefix", a small string describing what the packet does and the format corresponding to it.
         # - Type A) Setup packet. Very long packet, used to setup the client's game state. (Not entity related stuff; Account data, arena data, etc.)
         #       Format: ["setup", account.return_data(), map_name]
@@ -809,13 +863,24 @@ class BattleEngine():
         packet_phase = "init" #defines which type of packet we send - "setup","sync","end","end2","packet","init", OR "bot", which is used to signify that no one actually needs any data sent through this thread...
         if(player_data[1] == "bot"):
             packet_phase = "bot"
-            bot_computer = entity.Bot(team_num,player_index,player_rating=1.15)
-        else: #If we're NOT dealing with a bot, we need to set up a speedhax anti-cheat system.
+            try:
+                intelligence_rating = player_data[0].requested_rating
+                print("[BOT] Found requested bot rating of: " + str(round(intelligence_rating, 1)))
+            except Exception as e:
+                print("[BOT] Could not locate a requested rating value. Continuing based on upgrade rating...")
+                intelligence_rating = pow(self.return_rating(player_data[0], experience),0.10)
+            bot_computer = entity.Bot(team_num,player_index,player_rating=intelligence_rating)
+            game_objects[player_index].shells[0] = 999999 #make sure bots NEVER run out of shells (by giving them lots of the worst kind: hollow)
+        elif(self.ac_enable == True): #If we're NOT dealing with a bot, we need to set up a speedhax anti-cheat system.
             ac = AntiCheater()
 
         packet_counter = 0 #this counts packets; I use this to help tell which packets we send packet data through.
 
         disconnect_packets = 0 #this counts packets we sent during which the client was disconnected.
+
+        # - This variable holds the outcome of the battle. In online mode, it is sent as a parameter to lobby_server to be displayed by the client.
+        #   In offline mode, this value is copied to the special_window_return parameter so that an external process can handle displaying this value.
+        special_window_str = None
         
         packets = True #are we still exchanging packets?
         #***NOTE: Sometimes this thread will get started to handle a bot client: Player_data format: [self.create_account(potential_match * 0.75),"bot"]***
@@ -913,8 +978,9 @@ class BattleEngine():
                         if(verify): # - The player left to the lobby? -
                             print("[BATTLE] Connecting player " + str(player_data[0].name) + " to lobby...")
                             with game_objects_lock:
-                                if(packet_phase != "end"): #we only punish the player for leaving if the battle's not over AND he's not already dead (you can't die twice)
+                                if(packet_phase != "end"): #we only punish the player for leaving if the battle's not over
                                     game_objects[player_index].destroyed = True
+                                    player_data[0].cash *= 0.85 #decrease the player's cash by 15%
                                 outcome = player_data[0].return_tank(game_objects[player_index],rebuy=True,bp_to_cash=True,experience=experience, verbose=True)
                             special_window_str = self.generate_outcome_menu(outcome, game_objects[player_index], eliminated, "- Battle Complete -")
                             _thread.start_new_thread(self.lobby_server,(player_data, special_window_str))
@@ -961,13 +1027,15 @@ class BattleEngine():
                                         packet_phase = "packet" #if the player does not sync, the server continues to ignore the player's new coordinates.
                                 elif(data[0] == "end"): #the client wants to leave now?
                                     with game_objects_lock:
-                                        if(packet_phase != "end"): #we only punish the player for leaving if the battle's not over AND he's not already dead (you can't die twice)
+                                        if(packet_phase != "end"): #we only punish the player for leaving if the battle's not over
                                             game_objects[player_index].destroyed = True
+                                            player_data[0].cash *= 0.85 #decrease the player's cash by 15%
                                         outcome = player_data[0].return_tank(game_objects[player_index],rebuy=True,bp_to_cash=True,experience=experience, verbose=True)
                                     special_window_str = self.generate_outcome_menu(outcome,  game_objects[player_index], eliminated, "- Battle Complete -")
-                                    _thread.start_new_thread(self.lobby_server, (player_data[1], special_window_str)) #back to the lobby...
-                                    print("[BATTLE] Removed player " + str(player_data[1].name) + " from the battle successfully")
-                                    del(player_data)
+                                    if(not self.offline):
+                                        _thread.start_new_thread(self.lobby_server, (player_data[1], special_window_str)) #back to the lobby...
+                                        del(player_data)
+                                    print("[BATTLE] Removed player " + str(player_data[0].name) + " from the battle successfully")
                                     packets = False #then it is time to leave...
                                 else: #either setup packet stuff or standard packets are coming through...
                                     if(packet_phase == "setup" or data[0] == "setup"):
@@ -984,13 +1052,32 @@ class BattleEngine():
                 else: #client disconnected? Log him out...but we're gonna decrease his $$$ a bit first...
                     disconnect_packets += 1
                     if(disconnect_packets >= 15): #the client really disconnected? (15 lost packets in a row???)
-                        player_data[0].cash *= 0.85 #decrease the player's cash by 15%
-                        saved = self.logout_player(player_data) #try to log out the player
-                        if(saved):
-                            print("[BATTLE] Successfully disconnected/saved player data from user " + str(player_data[0].name) + " during battle")
+                        with game_objects_lock: #we'll still rebuy stuff for him that he spent in battle, and generate a battle outcome string (this is NEEDED in offline mode)
+                            if(packet_phase != "end"): #we only punish the player for leaving if the battle's not over
+                                player_data[0].cash *= 0.85 #decrease the player's cash by 15%
+                                game_objects[player_index].destroyed = True
+                            outcome = player_data[0].return_tank(game_objects[player_index],rebuy=True,bp_to_cash=True,experience=experience, verbose=True)
+                        special_window_str = self.generate_outcome_menu(outcome,  game_objects[player_index], eliminated, "- Battle Complete -")
+                        if(not self.offline):
+                            saved = self.logout_player(player_data) #try to log out the player
+                            if(saved):
+                                print("[BATTLE] Successfully disconnected/saved player data from user " + str(player_data[0].name) + " during battle")
+                            else:
+                                print("[BATTLE] Failed to save player data from user " + str(player_data[0].name) + " during battle")
                         else:
-                            print("[BATTLE] Failed to save player data from user " + str(player_data[0].name) + " during battle")
+                            print("[BATTLE] Disconnected player data from user " + str(player_data[0].name) + " during battle")
                         packets = False #this thread can die now...
+
+            # - This is for offline split-screen mode only: I need a way to end this thread and reward players & bots what they have earned as well. This happens here and is triggered when external_running[0] == False -
+            if(not external_running[0]): #the client wants to leave now?
+                with game_objects_lock:
+                    if(packet_phase != "end"): #we only punish the player for leaving if the battle's not over AND he's not already dead (you can't die twice)
+                        game_objects[player_index].destroyed = True
+                        player_data[0].cash *= 0.85 #decrease the player's cash by 15%
+                    outcome = player_data[0].return_tank(game_objects[player_index],rebuy=True,bp_to_cash=True,experience=experience, verbose=True)
+                special_window_str = self.generate_outcome_menu(outcome,  game_objects[player_index], eliminated, "- Battle Complete -")
+                print("[BATTLE] Removed player " + str(player_data[0].name) + " from the battle successfully by external ending of this server process")
+                packets = False #then it is time to leave...
 
             # - Check if we should switch packet_phase to "end" (game over). This can happen EITHER if we are eliminated, if we win, OR if we run out of time. -
             win = 0
@@ -1032,9 +1119,12 @@ class BattleEngine():
                         game_objects.append(potential_bullet)
                         # - Create a gunshot sound effect so that this bot actually makes sound -
                         sfx.play_sound(self.GUNSHOT, game_objects[player_index].overall_location[:], [0,0])
-            else: #ONLY if this player is NOT a bot, we need to do some Anti-Cheat stuff to prevent speedhax...
+            elif(self.ac_enable == True): #ONLY if this player is NOT a bot, we need to do some Anti-Cheat stuff to prevent speedhax...
+                all_blocks = blocks[:] #grab all blocks the bot cannot move through
+                for x in bricks:
+                    all_blocks.append(x)
                 with game_objects_lock:
-                    cheater = ac.clock(game_objects[player_index])
+                    cheater = ac.clock(game_objects[player_index], arena, all_blocks)
                     if(cheater): #We did catch this player cheating?
                         return_pos = ac.find_last_uncheat_pos() #Get the last position he was in where he WASN'T using speedhax
                         if(return_pos != None): #If we could get a position, we're gonna use it to force him to return to the last position he was in BEFORE using speedhax
@@ -1044,6 +1134,10 @@ class BattleEngine():
                             print("[BATTLE] Player " + str(player_data[0].name) + " has cheated - New position: [" + str(round(game_objects[player_index].overall_location[0],1)) + ", " + str(round(game_objects[player_index].overall_location[1],1)) + "]")
                         
             clock.tick(20) #limit PPS to 20
+
+        # - IF we're trying to get our special_window_str value to somewhere outside of this function...(offline mode) we need to make that possible here -
+        if(self.offline):
+            special_window_return.append([player_data[0].name, player_data[0].password, special_window_str])
 
     def generate_outcome_menu(self, rebuy_data, tank, eliminated_order, title): #generates the menu string which needs to be transmitted to the client to form a "special menu/window".
         # - Calculate some statistics about player performance -
@@ -1077,16 +1171,16 @@ class BattleEngine():
             "Battle Outcome - " + team_pos,
             "",
             "Earnings",
-            "^ before rebuy - " + str(round(rebuy_data[0],2)),
-            "Shell costs - " + str(round(rebuy_data[1],2)),
-            "Powerup costs - " + str(round(rebuy_data[2],2)),
-            "Net ^ - " + str(round(rebuy_data[3],2)),
-            "Net experience - " + str(round(rebuy_data[4],2)),
+            "^ before rebuy - " + str(round(rebuy_data[0],2)) + "^",
+            "Shell costs - " + str(round(rebuy_data[1],2)) + "^",
+            "Powerup costs - " + str(round(rebuy_data[2],2)) + "^",
+            "Net ^ - " + str(round(rebuy_data[3],2)) + "^",
+            "Net experience - " + str(round(rebuy_data[4],2)) + " EXP",
             "Hollow shells used - " + str(tank.shells_used[0]),
             "Regular shells used - " + str(tank.shells_used[1]),
             "Explosive shells used - " + str(tank.shells_used[2]),
             "Disk shells used -  " + str(tank.shells_used[3]),
-            "Powerups used: " + str(total_powerups),
+            "Powerups used - " + str(total_powerups),
             "",
             "Performance Stats",
             "Total damage - " + str(round(tank.total_damage,2)),
@@ -1110,11 +1204,26 @@ class BattleEngine():
             potential_map = import_arena.return_arena_numerical(map_counter) #get our potential map
             map_counter += 1 #increment our map counter
             
-            if(potential_map != None): #this is a valid map; NOW we need to check whether it will host as many players as we want.
+            if(potential_map != None): #this is a valid map; NOW we need to check whether it will host as many players as we want & if it has the correct amount of teams.
+                if(len(potential_map[0][6]) == len(players)): #do we have the right number of teams?
+                    pass
+                else:
+                    continue #Next...this map is unsuitable
                 # - Get the total area of the map in tiles -
-                # - Potential_map[0][0] is the map itself, potential_map[0][1] is the map's tiles, potential_map[1] is the map's name
-                tiles = len(potential_map[0][0]) * len(potential_map[0][0][0]) #get the map's area
-                if(player_ct != 0 and tiles / player_ct >= self.SQUARES_PER_PERSON): #will it host as many players as we want????????
+                # - Potential_map[0][0] is the map itself, potential_map[0][1] is the map's tiles, potential_map[1] is the map's name, and potential_map[0][3, 4] give the tiles the player can not run through.
+                tiles = 0 #we're going to count...how many tiles of FREE SPACE does this map have?
+                blocks = []
+                for x in range(0,len(potential_map[0][3])):
+                    blocks.append(potential_map[0][3][x])
+                for x in range(0,len(potential_map[0][4])):
+                    blocks.append(potential_map[0][4][x])
+                for y in range(0,len(potential_map[0][0])):
+                    for x in range(0,len(potential_map[0][0][y])):
+                        if(potential_map[0][0][y][x] in blocks):
+                            pass
+                        else:
+                            tiles += 1
+                if(player_ct != 0 and tiles / player_ct >= self.MIN_SQUARES_PER_PERSON and tiles / player_ct <= self.MAX_SQUARES_PER_PERSON): #will it host as many players as we want????????
                     #YES!
                     if(len(potential_map[0][6]) == len(players)): #we have the right amount of bases for the amount of teams we have?
                         #YES!
@@ -1155,7 +1264,7 @@ class BattleEngine():
         player_stat += self.CASH_WEIGHT * player_account.cash #add player cash to predicted performance
         # - Find the player's individual upgrade levels, and add player rating from them -
         for b in range(0,len(player_account.upgrades)):
-            player_stat += pow(self.UPGRADE_WEIGHT, player_account.upgrades[b]) - 1
+            player_stat += self.UPGRADE_WEIGHTS[b] * player_account.upgrades[b]
         # - Add the player's number of shells of each type to the player's predicted performance -
         for x in range(0,len(player_account.shells)):
             player_stat += player_account.shells[x] * self.SHELLS_WEIGHT[x]
@@ -1164,24 +1273,29 @@ class BattleEngine():
             if(player_account.powerups[x] == True):
                 player_stat += self.POWERUP_WEIGHT
         # - Add the player's specialization number to the player's predicted performance -
-        player_stat += pow(self.SPECIALIZATION_WEIGHT, abs(player_account.specialization)) - 1
-        return player_stat
+        player_stat += self.SPECIALIZATION_WEIGHT * abs(player_account.specialization)
+        return player_stat / self.MMCEF
 
-    def create_account(self,rating,player_name="Bot Player"): #creates an account with upgrades which correspond roughly to the rating value you input.
-        bot_account = account.Account(player_name,"pwd",True) #create a bot account
+    # - Creates an account with upgrades which correspond roughly to the rating value you input. NOTE: target_bot_rating is for intelligence rating, not normal rating -
+    def create_account(self,rating,player_name="Bot Player",target_bot_rating=None):
+        bot_account = account.Account(player_name,"pwd",True,target_bot_rating) #create a bot account
         # - This variable makes sure that this while loop does not run forever -
         run_ct = 0
-        while self.return_rating(bot_account) < rating and run_ct < 30 or self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT and run_ct < 30:
+        while (self.return_rating(bot_account) < rating and run_ct < 30) or (self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT and run_ct < 30):
             run_ct += 1 #increment our runtime counter (keeps us from running these loops infinitely)
-            while self.return_rating(bot_account) < rating:
+            int_runct = 0 #each of these smaller loops can also encounter issues where they can't finish without a finite timeout.
+            while self.return_rating(bot_account) < rating and int_runct < 10:
                 bot_account.bot_purchase()
-            while self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT:
+                int_runct += 1
+            int_runct = 0 #each of these smaller loops can also encounter issues where they can't finish without a finite timeout.
+            while self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT and int_runct < 10:
                 bot_account.bot_refund()
+                int_runct += 1
         return bot_account
 
     #***Player_queue MUST be locked while matchmaking to avoid index errors***
     #player_queue is a list: [ [account, client socket], [account, client socket] ... ]
-    def matchmake(self, player_queue, odd_allowed=False, rating=False, urgency=1.0): #creates a match from the player queue
+    def matchmake(self, player_queue, odd_allowed=False, rating=False, urgency=1.0, target_bot_ct=None, forced_team_ct=None, target_bot_rating=None): #creates a match from the player queue
         # - self.PLAYER_RULES is a list of rules which EACH player has to meet to be added to a match -
         #   - Usable variables:
         #       - urgency is a variable which starts at 1, and decreases downwards to 0 (but never ends up below 0.5).
@@ -1192,8 +1306,9 @@ class BattleEngine():
 
         # - How matches are made -
         # 1) Sort players according to strength. Strongest are first, weakest are last.
-        # 2) Create a certain amount of teams (between 2 and 4) based on the number of players which could be added to the match.
-        # 3) Add players to the teams as evenly as possible, starting with the strongest player and ending with the weakest player
+        # 2) Create matches with every possible number of teams.
+        # 3) Add players to the teams as evenly as possible, starting with the strongest player and ending with the weakest player.
+        # 4) Use the match where players are balanced as evenly as possible between teams, and discard the others.
 
         # - Start by seeing if there's enough players for a match! -
         match = []
@@ -1228,10 +1343,11 @@ class BattleEngine():
                     # - Also add this player's rating to the average -
                     avg_player_rating = (avg_player_rating * avr_ct + player[0])/(avr_ct + 1)
                     avr_ct += 1
-                # - Check whether the player *could* enter this match IF urgency = 0.5 (used to help the matchmaker whether to make the first available match or wait longer) -
+                # - Check whether the player *could* enter this match IF urgency = self.MIN_WAIT_ADD_URGENCY
+                #   (used to help the matchmaker whether to make the first available match or wait longer) -
                 potential_add = True
                 old_urgency = urgency
-                urgency = 0.5
+                urgency = self.MIN_WAIT_ADD_URGENCY
                 for rule in self.PLAYER_RULES:
                     if(eval(rule)):
                         pass
@@ -1245,11 +1361,17 @@ class BattleEngine():
             # - Was there enough players for a match? ANNND...is there enough to get a GOOD match going if we wait a little longer? -
             if(player_ct >= self.OPTIMAL_MATCH_CT or player_ct >= potential_players and player_ct >= self.PLAYER_CT[0] and urgency <= self.FORCED_MATCH_URGENCY):
                 #print("[MATCH] Phase I Complete: Found " + str(player_ct) + " players...Beginning Phase II: Add players to teams.") #debug
+                min_teams = self.TEAM_CT[0] #figure out how many teams we can have
                 max_teams = player_ct
                 if(max_teams > self.TEAM_CT[1]):
                     max_teams = self.TEAM_CT[1]
+                if(max_teams < self.TEAM_CT[0]): #this can occur if only 1 player is in queue.
+                    max_teams = self.TEAM_CT[0]
+                if(forced_team_ct != None): #if this parameter is set to a number, we MUST have that number of teams in this match (used for offline mode)
+                    min_teams = forced_team_ct
+                    max_teams = forced_team_ct
                 matches = []
-                for generate_matches in range(self.TEAM_CT[0], max_teams + 1): #try generating matches with ANY number of teams possible (1 player per team minimum, 4 teams maximum)
+                for generate_matches in range(min_teams, max_teams + 1): #try generating matches with ANY number of teams possible (1 player per team minimum, 4 teams maximum)
                     # - Start adding players to a new match! -
                     match = []
                     for x in range(0,generate_matches): #prepare a match list with space for teams
@@ -1352,24 +1474,60 @@ class BattleEngine():
                 counter += 1
             # - BREAK from defining rules temporarily: Now that we have the player ratings of all teams, it is a good time to add bots! -
             #   - The teams other than the strongest always gets a bot to help them out, provided that the bot can be created greater than self.IMBALANCE_LIMIT.
-            for team in match:
-                if(max_team_rating - team[1] > self.IMBALANCE_LIMIT):
-                    # - Index 1 of the bot player data MUST be equal to "bot" to make the bot scripts begin in the game's main loop -
-                    team[0].append([max_team_rating - team[1], [self.create_account(max_team_rating - team[1], "Bot -1"),"bot"]]) #get the bot in the game
+            #   - A bot will be added to the match on all teams with NO real players even if the bot must be of rating LESSER than self.IMBALANCE_LIMIT.
+            created_bot = 0 #we record how many bots we add to preserve match integrity so that we can TRY hitting target_bot_ct number of bots.
+            for team in range(0,len(match)):
+                total_team_players = len(match[team][0])
+                if(max_team_rating - match[team][1] > self.IMBALANCE_LIMIT or total_team_players == 0):
+                    if(total_team_players == 0 and max_team_rating - match[team][1] < self.IMBALANCE_LIMIT):
+                        if(max_team_rating - match[team][1] <= 0): #we WILL NOT create a 0-rating bot.
+                            continue
+                        planned_rating = self.IMBALANCE_LIMIT
+                    else:
+                        planned_rating = max_team_rating - match[team][1]
+                    # - Index 1 of the bot player data MUST be equal to "bot" to make the bot scripts begin in the game's main loop
+                    #   The bot's reported rating is less than the ACTUAL rating so that the bots have an advantage over players through resources, if not in skill -
+                    match[team][0].append([planned_rating, [self.create_account(planned_rating * self.IMBALANCE_LIMIT, "Bot BT" + str(team),target_bot_rating),"bot"]]) #get the bot in the game
+                    match[team][1] += planned_rating #update the team's rating so that it represents the bot being added to the match
+                    player_counts[team] += 1 #update the player_counts list to match the amount of players in each team now
+                    created_bot += 1
             # - Now we also just add some bots to each team to make things interesting -
             team_counter = 0
-            bot_ct = self.OPTIMAL_MATCH_CT - player_ct #how many bots do we need to make things interesting?
-            if(bot_ct < 2): #no quantities of bots below 2, and especially below 0
-                bot_ct = 2
-            bot_ct = int(round(bot_ct,0)) #round the number so I can use it for iteration
+            bot_ct = (self.OPTIMAL_MATCH_CT - player_ct) / len(match) #how many bots do we need per team to make things interesting?
+            if(bot_ct < 0): #no quantities of bots below 0 (this can be overridden with the target_bot_ct parameter)
+                bot_ct = 0
+            bot_ct = int(math.ceil(bot_ct)) #round the number up to the nearest large integer so I can use it for iteration
+            # - IF an override is given, we CAN end up in a situation where we want 0 bots. We'll calculate how many bots we should have in the game in THAT case here -
+            if(target_bot_ct != None):
+                bot_ct = int(math.ceil((target_bot_ct - created_bot) / len(match)))
             # - Find what rating each bot should be based on the average rating of players in this match -
             if(avg_player_rating * 0.95 < self.IMBALANCE_LIMIT): #if the players are gonna be this weak...we're just gonna have to make the bots a bit stronger
                 #since avg_player_rating isn't used ANYWHERE else, I can change the value here with NO consequence
                 avg_player_rating = self.IMBALANCE_LIMIT / 0.94 #make it so the bots just *barely* make it past self.IMBALANCE_LIMIT checks (minimum bot rating)
             for team in match:
                 for add in range(0,bot_ct): #bot intelligence rating is chosen somewhere else...so it will have to be done based on the account rating given here.
-                    team[0].append([avg_player_rating * 0.95, [self.create_account(avg_player_rating * 0.95,"Bot T" + str(team_counter) + "P" + str(add)),"bot"]])
+                    team[0].append([avg_player_rating * 0.95, [self.create_account(avg_player_rating * 0.95,"Bot T" + str(team_counter) + "P" + str(add),target_bot_rating),"bot"]])
                 team_counter += 1
+            # - Now that I have added bots to all teams, I have to recalculate several rule variables since the team ratings have changed -
+            #       - team_ratings[] is a list which holds the rating of each team
+            team_ratings = []
+            for teams in match:
+                team_ratings.append(teams[1])
+            #       - max_team_rating is a variable storing the most powerful team rating
+            max_team_rating = 0
+            for most_powerful in team_ratings:
+                if(most_powerful > max_team_rating):
+                    max_team_rating = most_powerful
+            #       - min_team_rating is a variable storing the least powerful team rating
+            min_team_rating = team_ratings[0]
+            min_team_rating_index = 0 #this is required so that I know which team gets a bot.
+            counter = 0
+            for least_powerful in team_ratings:
+                if(least_powerful < min_team_rating):
+                    min_team_rating = least_powerful
+                    min_team_rating_index = counter
+                counter += 1
+            # - END RATING VARIABLE RECALCULATIONS -
             #       - max_team_players is a variable storing the most players on a team
             max_team_players = 0
             for most_players in player_counts:
@@ -1409,7 +1567,7 @@ class BattleEngine():
                                 bot_rating[0] = player[0] #well now all eyes are on IT!
                                 bot_rating[1] = team_index
                 team_index += 1
-            if(not found): #We don't have a bot in the game?
+            if(not found or player_ct == 1): #We don't have a bot in the game? OR, did we INTENTIONALLY add a bot with a low rating because there was only 1 real player in this game?
                 bot_rating[0] = self.IMBALANCE_LIMIT #just ensure that the bot rating will pass the requirements
             #       - player_ratings[] is a list of lists: [ [team 0 players: 0.9, 5.5, 6.2], team 1 players: [5.1, 8.9, 9.1]... ]
             #           - The first player rating is always the strongest player,
@@ -1446,24 +1604,27 @@ class BattleEngine():
         else: #...no =(
             return None
 
-# - This class watches ONE Tank() object's movement patterns to see if the tank is using speedhax of any sort. It checks turning speed and movement speed - #
+# - This class watches ONE Tank() object's movement patterns to see if the tank is using speedhax of any sort. It checks turning speed and movement speed.
+#   - It also checks whether the tank is allowed to be in the location it currently is in. If it is outside the maze, it is teleported back to a permitted location - #
 class AntiCheater():
     def __init__(self):
         self.POS_RECORD_CT = 32
-        self.CHEATING_THRESHOLD = 1/25 #if a player is flagged as cheating for POS_RECORD_CT * CHEATING_THRESHOLD positions, they're in TROUBLE!!
+        self.CHEATING_THRESHOLD = 1/16 #if a player is flagged as cheating for POS_RECORD_CT * CHEATING_THRESHOLD positions, they're in TROUBLE!!
         self.last_positions = [] #this list records POS_RECORD_CT positions of the tank being watched. These are used to detect movement which is faster than should be allowed.
         self.POS_RECORD_INTERVAL = 0.125 #Every X seconds we will record a new position for the tank we're watching.
         self.last_record = time.time()
         self.first_cheat = None #this stores the index of the first position where a player was flagged for cheating.
         self.BEFORE_CHEAT = 8 #when we return the position speedhax cheaters should return to, we're going to return a position BEFORE_CHEAT indexes behind self.first_cheat.
         #How much beyond a player's speed will we permit the tank being watched to go WITHOUT sending a sync() call to make it return to the last NON-CHEATING spot?
-        self.AC_THRESH = 1.25 #This is useful for helping people with inconsistent internet connections from always teleporting around.
+        self.AC_THRESH = 1.325 #This is useful for helping people with inconsistent internet connections from always teleporting around.
         self.speed_max = None #Since a tank's speed can change (speed boosts?), we need to know the MAXIMUM speed it is ALLOWED to go recently.
         self.last_speed_update = time.time() #we only need a maximum speed allowance to last until all data samples holding that speed have been emptied from self.last_positions.
         #This value is from Entity.py and needs to be the same as the value in Entity.py. It is used to detect when a player has rounded a corner without turning, which really throws off the Anti-Cheat without knowing this value.
         self.POS_CORRECTION_MAX_THRESHOLD = 0.25
+        #This value sets how strict the cheater detection is on when players try to drive through walls. NEVER set it higher than 0.49; The game will malfunction. Higher numbers are more strict.
+        self.CLIP_THRESHOLD = 0.40
 
-    def clock(self, tank_object):
+    def clock(self, tank_object, arena, blocks):
         # - Only check speedhax every 1/POS_RECORD_INTERVAL times per second -
         if(time.time() - self.last_record > self.POS_RECORD_INTERVAL):
             # - Check what our top speed is at MAX, and record it for use when checking for speedhax -
@@ -1500,7 +1661,10 @@ class AntiCheater():
                         cheating_ct[1] += 1 #You're fine...keep playing.
                 else: #turning occurred; We need to take into account turning time along with transport speed.
                     remaining_time = diff_time - (0.5 / self.AC_THRESH) / max_speed #time is needed to turn; We take this time needed off of diff_time to see how much extra time there is to actually drive.
-                    speed = dist / remaining_time
+                    if(remaining_time > 0):
+                        speed = dist / remaining_time
+                    else:
+                        speed = 0
                     if(speed > max_speed or remaining_time < 0): #if we had no time to move, then we shouldn't have been able to move.
                         cheating_ct[0] += 1 #CHEATER!!!
                         if(self.first_cheat == None):
@@ -1532,15 +1696,57 @@ class AntiCheater():
                     if(speed > max_speed): #CHEATER!!!
                         return True
                     else: #Not cheating
-                        return False
+                        pass
                 else: #the player DID turn, so we need to take this into account when checking for speedhax
                     remaining_time = diff_time - (0.5 / self.AC_THRESH) / max_speed
-                    speed = dist / remaining_time
+                    if(remaining_time > 0):
+                        speed = dist / remaining_time
+                    else:
+                        speed = 0
                     if(speed > max_speed): #CHEATER!!!
                         return True
                     else:
-                        return False
-        return False #we're not considered a cheater if we didn't even bother checking...
+                        pass
+        # - Also check whether we exited the arena boundaries (position reset if we do?) -
+        if(tank_object.overall_location[0] < len(arena.arena[0]) - 1): #this lets us technically clip into the far-right boundary of the arena, but I need to let players do that to accomodate slow machines (which let players clip sometimes).
+            if(tank_object.overall_location[0] > 0): #we can also clip into the far-left boundary of the arena...but as soon as we exit it...
+                if(tank_object.overall_location[1] > 0): #again, we *can* clip into the top boundary of the arena; As soon as we leave the boundary though, we're in trouble.
+                    if(tank_object.overall_location[1] < len(arena.arena) - 1): #again, we *can* clip into the bottom boundary of the arena. As soon as we go beyond it, we'll be TPed back into the game though...
+                        pass #not cheating
+                    else: #we cheated; we're outside the map
+                        if(self.first_cheat == None):
+                            self.first_cheat = len(self.last_positions) - 1
+                        return True
+                else: #we cheated; we're outside the map
+                    if(self.first_cheat == None):
+                        self.first_cheat = len(self.last_positions) - 1
+                    return True
+            else: #we cheated; we're outside the map
+                if(self.first_cheat == None):
+                    self.first_cheat = len(self.last_positions) - 1
+                return True
+        else: #we cheated; we're outside the map
+            if(self.first_cheat == None):
+                self.first_cheat = len(self.last_positions) - 1
+            return True
+        # - Also check if we tried to glitch into a wall -
+        rounded_position = [
+            int(round(tank_object.overall_location[0],0)),
+            int(round(tank_object.overall_location[1],0))
+            ]
+        # - If these values are BELOW self.CLIP_THRESHOLD, and rounded_position has a block on it, we're (1.0 - self.CLIP_THRESHOLD) * 100% embedded in a block (blatant cheating) -
+        round_diff = [abs(rounded_position[0] - tank_object.overall_location[0]), abs(rounded_position[1] - tank_object.overall_location[1])]
+        if(rounded_position[0] >= 0 and rounded_position[0] < len(arena.arena[0]) and rounded_position[1] >= 0 and rounded_position[1] < len(arena.arena)):
+            if(arena.arena[rounded_position[1]][rounded_position[0]] in blocks):
+                if(round_diff[0] <= self.CLIP_THRESHOLD or round_diff[1] <= self.CLIP_THRESHOLD): #WE'RE CHEATING!!!
+                    if(self.first_cheat == None):
+                        self.first_cheat = len(self.last_positions) - 1
+                    return True
+        else: #we're not even in the map borders!
+            if(self.first_cheat == None):
+                self.first_cheat = len(self.last_positions) - 1
+            return True
+        return False #we're not considered a cheater if we didn't bother checking speedhax and didn't get flagged on locationhax...
 
     # - Returns the last position which did not indicate cheating. This can be used with the clock() function to help return cheating players to their last Non-Cheating position -
     def find_last_uncheat_pos(self):
@@ -1554,17 +1760,18 @@ class AntiCheater():
         else: #this player was not flagged for cheating
             return None
 
-engine = BattleEngine()
-
 ### - A quick test which shows the average battle unbalance from my matchmaker -
 ##engine = BattleEngine(False)
+##engine.MIN_URGENCY = 0.0005
+##engine.MIN_WAIT_ADD_URGENCY = 0.001
 ##power_differences = []
 ##
-##urgency = 0.75 #change this value lower (lowest=0.5) to make matches sloppier, or raise it (max=1) to make the match more strict.
+##urgency = 0.65 #change this value lower (lowest=engine.MIN_URGENCY) to make matches sloppier, or raise it (max=1) to make the match more strict.
+##engine.MIN_WAIT_ADD_URGENCY = urgency * 1.5
 ##
 ##for x in range(0,500):
 ##    accounts = []
-##    for x in range(0,random.randint(2,48)): #prepare (random # of) random accounts
+##    for x in range(0,random.randint(0,50)): #prepare (random # of) random accounts (yes, my matchmaker can handle 0 and 1-player scenarios without crashing!)
 ##        accounts.append(engine.create_account(random.randint(100,2500) / 100,player_name="name"))
 ##
 ##    player_queue = []
@@ -1572,7 +1779,7 @@ engine = BattleEngine()
 ##        player_queue.append([accounts[x], "client socket"])
 ##
 ##    #Although we can matchmake with an odd amount of players, generally odd matches are less balanced then ones with even numbers of players.
-##    power_differences.append(engine.matchmake(player_queue, odd_allowed=True, rating=False, urgency=urgency))
+##    power_differences.append(engine.matchmake(player_queue, odd_allowed=True, rating=False, urgency=urgency, target_bot_ct=random.randint(0,8)))
 ##
 ### - Find the average power difference in matches, as well as how many matches were rejected due to imbalance -
 ##avg_power_differences = 0
@@ -1605,6 +1812,7 @@ engine = BattleEngine()
 ##if(nones == True): #if no matches were made, this just erupts into errors...
 ##    # - Find the outliers (extremes), beginning with the battle most in favor of Team 0 -
 ##    power = 0
+##    imbalance_index = 0
 ##    for x in range(0,len(power_differences)):
 ##        if(power_differences[x] != None):
 ##            #find what the imbalance for this match actually was
@@ -1620,7 +1828,7 @@ engine = BattleEngine()
 ##    print("Greatest imbalance: " + str(power))
 ##    #print out the teams for the specific match in which the inbalance occurred.
 ##    for team in range(0,len(power_differences[imbalance_index])):
-##        print("\n - Team " + str(team) + ":")
+##        print("\n --- *** Team " + str(team) + ": *** ---\n")
 ##        for x in range(0,len(power_differences[imbalance_index][team][0])): #iterate through team 0's players
 ##            print("Player " + str(x) + ": ", end="")
 ##            print(power_differences[imbalance_index][team][0][x][0]) #print out the player's rating
@@ -1630,6 +1838,7 @@ engine = BattleEngine()
 ##
 ##    # - Find the battle which is most in favor of Team 1 -
 ##    power = pow(10,10)
+##    imbalance_index = 0
 ##    for x in range(0,len(power_differences)):
 ##        if(power_differences[x] != None):
 ##            #find what the imbalance for this match actually was
@@ -1644,7 +1853,7 @@ engine = BattleEngine()
 ##    print("Least imbalance: " + str(power))
 ##    #print out the teams for the specific match in which the inbalance occurred.
 ##    for team in range(0,len(power_differences[imbalance_index])):
-##        print("\n - Team " + str(team) + ":")
+##        print("\n --- *** Team " + str(team) + ": *** ---\n")
 ##        for x in range(0,len(power_differences[imbalance_index][team][0])): #iterate through team 0's players
 ##            print("Player " + str(x) + ": ", end="")
 ##            print(power_differences[imbalance_index][team][0][x][0]) #print out the player's rating

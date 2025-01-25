@@ -1,6 +1,6 @@
-##"arena.py" library ---VERSION 0.21---
+##"arena.py" library ---VERSION 0.24---
 ## - For drawing (and manipulating) maps within Tank Battalion Online -
-##Copyright (C) 2023  Lincoln V.
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -19,22 +19,21 @@ import pygame
 import time
 import _thread
 
-#path to images: ../.. (brings into main directory)
-#                   /pix/blocks/ground
-#                   / (images in this directory)
-#                   File names: asphalt.png, cement.png, dirt.png, forest.png
-#                               grass.png, water-1.png, water-2.png,
-#                               water-3.png, water-4.png;
-
 class Arena():
-    def __init__(self,initial_map,tiles,shuffle_patterns): #pass this class the initial map, and the tiles to draw the map.
+    def __init__(self,initial_map,tiles,shuffle_patterns,server=False): #pass this class the initial map, and the tiles (they should NOT have .convert()/.convert_alpha() run on them) to draw the map.
         self.TILE_SIZE = 20 #constant which tells how large (in pixels) our tiles are
         self.arena = initial_map[:] #holds the full arena
         self.tiles = tiles[:] #the tiles which make the arena
         self.stretch = True #should we stretch the arena to draw it on our screen without any clipping?
 
         #    --- Tile SCALING stuff ---
-        self.scaled_tiles = tiles[:]
+        self.scaled_tiles = []
+        for x in range(0,len(self.tiles)):
+            newsurf = pygame.Surface([tiles[x].get_width(), tiles[x].get_height()])
+            newsurf.blit(tiles[x], [0,0])
+            if(not server):
+                newsurf = newsurf.convert()
+            self.scaled_tiles.append(newsurf)
         self.last_screen_size = [-1,-1] #whenever the screen size does not equal this, the tiles need to be rescaled.
 
         #    --- Tile Shuffling stuff ---
@@ -66,12 +65,16 @@ class Arena():
             if(flag_found == False):
                 self.flag_locations.append(None)
 
-    def update_tile_scale(self, screen_dimensions, scale_x, scale_y): #updates the scaled tiles we use to draw our screen more quickly than scaling EVERY frame
-        if(screen_dimensions[0] != self.last_screen_size[0] or screen_dimensions[1] != self.last_screen_size[1]):
+    def clear_flag_locations(self):
+        self.flag_locations = []
+
+    def update_tile_scale(self, screen_dimensions, scale_x, scale_y, override=False): #updates the scaled tiles we use to draw our screen more quickly than scaling EVERY frame
+        if(screen_dimensions[0] != self.last_screen_size[0] or screen_dimensions[1] != self.last_screen_size[1] or override):
             self.last_screen_size = screen_dimensions[:] #update our last_screen_size to reflect the fact that we updated our texture scale
             for x in range(0,len(self.tiles)):
-                scaled_tile = pygame.transform.scale(self.tiles[x],[int(self.TILE_SIZE * scale_x), int(self.TILE_SIZE * scale_y)])
-                self.scaled_tiles[x] = scaled_tile
+                #convert() the tiles AFTER scaling, not before. Converting BEFORE scaling makes image corruption happen...
+                scaled_tile = pygame.transform.scale(self.tiles[x],[int(self.TILE_SIZE * scale_x) + 1, int(self.TILE_SIZE * scale_y) + 1]) #+1 is here so that no seams between tiles appear due to rounding in scaling and position errors
+                self.scaled_tiles[x] = scaled_tile.convert()
 
     def shuffle_tiles(self): #if we set any tiles to be shuffled, let's do it here...
         if(self.old_time + 1 / self.shuffle_speed < time.time()): #have we hit another time to shuffle tiles?
@@ -209,66 +212,96 @@ class Arena():
                     minimap.set_at([x,y],[0,0,0]) #black for a wall
                 else:
                     minimap.set_at([x,y],[255,255,255]) #white for open space
+                    for b in range(0,len(self.flag_locations)): #fill in flags with grey
+                        if(y == self.flag_locations[b][1] and x == self.flag_locations[b][0]):
+                            minimap.set_at([x,y], [135,135,135])
+                            break
         return minimap
 
-###NOT so quick demo; Display some blocks on a resizable window and scrolls them at your will (use the arrow keys). Also displays a minimap in the corner of the screen.
+### - NOT so quick demo; Display some blocks on a resizable window and scrolls them at your will (use the arrow keys). Also displays a minimap in the corner of the screen -
 ##
 ###create a pygame screen
 ##screen = pygame.display.set_mode([100,100], pygame.RESIZABLE)
 ##
 ###our arena map we will be drawing
-##my_map = [[ 5, 6, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2],
-##          [ 8, 7, 2, 1, 0, 0, 2, 1, 0, 0, 2, 1],
-##          [ 4, 4, 3, 3, 4, 4, 3, 3, 4, 4, 3, 3],
-##          [ 4, 4, 3, 3, 4, 4, 3, 3, 4, 4, 3, 3],
-##          [ 5, 6, 7, 8, 0, 0, 1, 2, 0, 8, 7, 6],
-##          [ 0, 0, 2, 7, 0, 0, 2, 5, 6, 7, 2, 1],
-##          [ 4, 4, 3, 6, 5, 6, 3, 6, 4, 4, 3, 3],
-##          [ 4, 4, 3, 3, 4, 7, 8, 7, 4, 4, 3, 3],
-##          [ 0, 0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2],
-##          [ 0, 0, 2, 1, 0, 0, 2, 1, 0, 0, 2, 1],
-##          [ 4, 4, 3, 3, 4, 4, 3, 3, 4, 4, 3, 3],
-##          [ 4, 4, 3, 3, 4, 4, 3, 3, 4, 4, 3, 3]]
+##my_map = [[31, 26, 26, 26, 26, 26, 26, 22, 22, 26, 26, 26, 26, 26, 26, 28],
+##          [27, 5, 9, 5, 2, 1, 4, 30, 29, 3, 2, 1, 8, 7, 6, 27],
+##          [27, 9, 34, 26, 26, 35, 3, 2, 1, 4, 34, 26, 26, 35, 5, 27],
+##          [27, 9, 5, 6, 9, 9, 36, 18, 36, 18, 1, 5, 6, 9, 9, 27],
+##          [27, 0, 16, 19, 16, 9, 18, 11, 11, 11, 11, 16, 7, 16, 17, 27],
+##          [27, 0, 0, 0, 19, 11, 11, 11, 11, 18, 11, 19, 9, 9, 9, 27],
+##          [27, 0, 19, 0, 16, 11, 18, 18, 18, 18, 11, 16, 9, 19, 10, 27],
+##          [27, 37, 17, 0, 19, 11, 19, 19, 19, 19, 11, 19, 9, 17, 38, 27],
+##          [27, 9, 19, 0, 16, 11, 18, 18, 18, 18, 11, 16, 10, 19, 10, 27],
+##          [27, 9, 9, 9, 19, 11, 18, 11, 11, 11, 11, 19, 10, 10, 10, 27],
+##          [27, 17, 16, 8, 16, 11, 11, 11, 11, 18, 9, 16, 19, 16, 10, 27],
+##          [27, 9, 9, 5, 6, 7, 18, 36, 18, 36, 6, 5, 9, 10, 10, 27],
+##          [27, 9, 34, 26, 26, 35, 4, 3, 2, 7, 34, 26, 26, 35, 10, 27],
+##          [27, 5, 6, 7, 3, 2, 1, 31, 28, 1, 7, 6, 5, 9, 9, 27],
+##          [30, 26, 26, 26, 26, 26, 26, 23, 23, 26, 26, 26, 26, 26, 26, 29]]
 ##
-##collideable_tiles = [5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
+##collideable_tiles = [16,17,18,19,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36]
 ##
 ###all the tiles we can draw in the arena
-##my_tiles = [pygame.image.load("../../pix/blocks/ground/asphalt.png"), #0
-##            pygame.image.load("../../pix/blocks/ground/forest.png"),
-##            pygame.image.load("../../pix/blocks/ground/grass.png"),
-##            pygame.image.load("../../pix/blocks/ground/dirt.png"),
-##            pygame.image.load("../../pix/blocks/ground/cement.png"),
-##            pygame.image.load("../../pix/blocks/ground/water-1.png"), #5
-##            pygame.image.load("../../pix/blocks/ground/water-2.png"),
-##            pygame.image.load("../../pix/blocks/ground/water-3.png"),
-##            pygame.image.load("../../pix/blocks/ground/water-4.png"), #8
-##            pygame.image.load("../../pix/blocks/brick/brick0h.png"), #9
-##            pygame.image.load("../../pix/blocks/brick/brick1h.png"),
-##            pygame.image.load("../../pix/blocks/brick/brick2h.png"),
-##            pygame.image.load("../../pix/blocks/brick/brick3h.png"),
-##            pygame.image.load("../../pix/blocks/brick/brick_destroyed.png"), #13
-##            pygame.image.load("../../pix/blocks/wall/wall.png"), #14
-##            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-top.png"),
-##            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-bottom.png"),
-##            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-left.png"),
-##            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-right.png"), #18
-##            pygame.image.load("../../pix/blocks/wall/wall-double-edge/wall-double-edge-horizontal.png"),
-##            pygame.image.load("../../pix/blocks/wall/wall-double-edge/wall-double-edge-vertical.png"), #20
-##            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-top-right.png"),
-##            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-bottom-right.png"),
-##            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-bottom-left.png"),
-##            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-top-left.png"), #24
-##            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-top.png"),
-##            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-bottom.png"),
-##            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-left.png"),
-##            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-right.png"), #28
-##            pygame.image.load("../../pix/blocks/wall/wall-island.png")] #29
+##path = ""
+##my_tiles = [pygame.image.load(path + "../../pix/blocks/original_20x20/ground/asphalt.png"), #0
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-1.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-2.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-1.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-3.png"), #4
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-1.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-2.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-1.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-3.png"), #8
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/dirt.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/cement.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-1.png"), #11
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-2.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-3.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-4.png"), #14
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-5.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick0h.png"), #16
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick1h.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick2h.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick3h.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick_destroyed.png"), #20
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall.png"), #21
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-top.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-bottom.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-left.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-right.png"), #25
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-double-edge/wall-double-edge-horizontal.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-double-edge/wall-double-edge-vertical.png"), #27
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-top-right.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-bottom-right.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-bottom-left.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-top-left.png"), #31
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-top.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-bottom.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-left.png"),
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-right.png"), #35
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-island.png"), #36
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-1.png"), #37
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-2.png"), #38
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-3.png"), #39
+##             pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-4.png") #40
+##            ]
 ##
 ###define our tile shuffle system
-##my_shuffle = [[5,6],
-##              [6,7],
-##              [7,8],
-##              [8,5]]
+##my_shuffle = [
+##        [11,12], #water
+##        [12,13],
+##        [13,14],
+##        [14,15],
+##        [15,11],
+##        [1,2], #forest
+##        [2,3],
+##        [3,4],
+##        [4,1],
+##        [5,6], #grass
+##        [6,7],
+##        [7,8],
+##        [8,5]]
 ##
 ###create an arena
 ##my_arena = Arena(my_map, my_tiles, my_shuffle)
@@ -285,24 +318,24 @@ class Arena():
 ##running = True
 ##
 ##while running:
-##    #shift over the arena we're drawing a bit (uncomment this for this to work)
-##    #if X is not greater than the length of the X axis of our arena * my_arena.TILE_SIZE
-##    #if(x / my_arena.TILE_SIZE < len(my_map[0])):
-##    #    x += 0.1 #then increment X to continue scrolling the arena!
-##    #else: #else reset X to 0
-##    #    x = 0
+##    # - Scrolls over the arena we're drawing a bit (uncomment this for this to work)
+####    if(x < len(my_map[0])):
+####        x += 0.025 #then increment X to continue scrolling the arena!
+####    else: #else reset X to 0
+####        x = 0
 ##
-##    #test out modify_tiles()
-##    #if(int(x%2) == 0):
-##    #    my_arena.modify_tiles([[[5,5],9]])
-##    #else:
-##    #    my_arena.modify_tiles([[[5,5],0]])
+##    # - Test out modify_tiles(). Tile [5,5] in the map will blink between two tile images when the viewport is moved over it -
+####    if(int(x%2) == 0):
+####        my_arena.modify_tiles([[[5,5],9]])
+####    else:
+####        my_arena.modify_tiles([[[5,5],0]])
 ##
 ##    #draw the arena
 ##    my_arena.shuffle_tiles()
 ##    my_arena.draw_arena([6,6],[x,y],screen)
 ##    screen.blit(my_arena.draw_minimap(collideable_tiles), [0,0])
 ##    pygame.display.flip() #update the display
+##    pygame.time.delay(5) #I don't want this running TOO fast; the scrolling demo code won't work then.
 ##    screen.fill([0,0,0]) #clear the display for next frame
 ##
 ##    #make sure we can exit this demo

@@ -1,5 +1,6 @@
 ##"2_player_demo.py" demo ---VERSION 0.02---
-##Copyright (C) 2022  Lincoln V.
+## - A two-player offline version of TBO with no bots, menus, or store, but with configurable settings -
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -25,74 +26,99 @@ p1_screen = pygame.Surface([screen.get_width() / 2, screen.get_height() / 2])
 p2_screen = pygame.Surface([screen.get_width() / 2, screen.get_height() / 2])
 
 #tank images
-T1U = pygame.image.load("../../pix/Characters(gub)/p1U.png")
-T2U = pygame.image.load("../../pix/Characters(gub)/p2U.png")
+T1U = [pygame.image.load("../../pix/tanks/P1U1.png"),pygame.image.load("../../pix/tanks/P1U2.png")]
+T2U = [pygame.image.load("../../pix/tanks/P2U1.png"),pygame.image.load("../../pix/tanks/P2U2.png")]
 
 #list of all blocks we cannot run through
-blocks = []
-for x in range(9,30):
-    blocks.append(x)
-blocks.remove(13) #destroyed bricks can be driven through!
+blocks = blocks = [15,16,17,18,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35]
 
 #our arena map we will be drawing
-my_map = [[24,19,19,19,19,19,19,19,19,19,19,21],
-          [20,33, 2, 1, 0, 0, 2, 1, 0, 0,32,20],
-          [20, 4, 3,11, 9, 9,27,19,21, 4, 3,20],
-          [20, 4, 3,11, 4, 4, 3, 3,20, 4, 3,20],
-          [20, 6, 7,11, 0, 0,29, 9,20, 8, 7,20],
-          [20, 0, 2, 7, 0, 0, 2, 5,20, 7, 2,20],
-          [20, 4, 3, 6, 5, 6, 3, 6,26, 9, 3,20],
-          [20, 4, 3, 3, 4, 7, 9, 7, 4, 9, 3,20],
-          [20, 0, 1, 2, 0, 0, 9, 9, 0, 9, 1,20],
-          [20, 0, 2, 1, 0, 0, 2, 9, 9, 9, 2,20],
-          [20,30, 3, 3, 4, 4, 3, 3, 4, 4,31,20],
-          [23,19,19,19,19,19,19,19,19,19,19,22]]
+my_map = [[30,25,25,25,25,25,25,25,25,25,25,27],
+          [26,36, 5, 6,10,11,11,11,11,11,37,26],
+          [26, 0, 7, 8,10,11, 1, 1,10,10,10,26],
+          [26, 1, 7,11,30,21,27,10,10, 5, 6,26],
+          [26, 2,11,11,23,20,24, 1, 2, 6, 7,26],
+          [26,11,11, 6,29,22,28, 2, 3, 7, 8,26],
+          [26, 4, 2, 7, 9, 9, 9, 3, 4, 8, 5,26],
+          [26, 1,35, 8,31, 9, 9,30,25,34, 6,26],
+          [26, 2, 1,33,35,34, 9,26, 2, 6, 7,26],
+          [26, 3, 2, 6,32, 0, 0,32, 3, 4, 1,26],
+          [26,39, 3, 7, 0, 0, 0, 3, 4, 1,38,26],
+          [29,25,25,25,25,25,25,25,25,25,25,28]]
 
 #all the tiles we can draw in the arena
-my_tiles = [pygame.image.load("../../pix/blocks/ground/asphalt.png"), #0
-            pygame.image.load("../../pix/blocks/ground/forest.png"),
-            pygame.image.load("../../pix/blocks/ground/grass.png"),
-            pygame.image.load("../../pix/blocks/ground/dirt.png"),
-            pygame.image.load("../../pix/blocks/ground/cement.png"),
-            pygame.image.load("../../pix/blocks/ground/water-1.png"), #5
-            pygame.image.load("../../pix/blocks/ground/water-2.png"),
-            pygame.image.load("../../pix/blocks/ground/water-3.png"),
-            pygame.image.load("../../pix/blocks/ground/water-4.png"), #8
-            pygame.image.load("../../pix/blocks/brick/brick0h.png"), #9
-            pygame.image.load("../../pix/blocks/brick/brick1h.png"),
-            pygame.image.load("../../pix/blocks/brick/brick2h.png"),
-            pygame.image.load("../../pix/blocks/brick/brick3h.png"),
-            pygame.image.load("../../pix/blocks/brick/brick_destroyed.png"), #13
-            pygame.image.load("../../pix/blocks/wall/wall.png"), #14
-            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-top.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-bottom.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-left.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-right.png"), #18
-            pygame.image.load("../../pix/blocks/wall/wall-double-edge/wall-double-edge-horizontal.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-double-edge/wall-double-edge-vertical.png"), #20
-            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-top-right.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-bottom-right.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-bottom-left.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-top-left.png"), #24
-            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-top.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-bottom.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-left.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-right.png"), #28
-            pygame.image.load("../../pix/blocks/wall/wall-island.png"), #29
-            pygame.image.load("../../pix/fortresses/team-blue.png"), #30
-            pygame.image.load("../../pix/fortresses/team-green.png"), #31
-            pygame.image.load("../../pix/fortresses/team-red.png"), #32
-            pygame.image.load("../../pix/fortresses/team-yellow.png") #33
-            ]
+path = "./"
+my_tiles = [pygame.image.load(path + "../../pix/blocks/original_20x20/ground/asphalt.png"), #0
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-1.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-2.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-1.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-3.png"), #4
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-1.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-2.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-1.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-3.png"), #8
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/dirt.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/cement.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-1.png"), #11
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-2.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-3.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-4.png"), #14
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-5.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick0h.png"), #16
+            pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick1h.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick2h.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick3h.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick_destroyed.png"), #20
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall.png"), #21
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-top.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-bottom.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-left.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-right.png"), #25
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-double-edge/wall-double-edge-horizontal.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-double-edge/wall-double-edge-vertical.png"), #27
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-top-right.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-bottom-right.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-bottom-left.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-top-left.png"), #31
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-top.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-bottom.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-left.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-right.png"), #35
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-island.png"), #36
+            pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-1.png"), #37
+            pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-2.png"), #38
+            pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-3.png"), #39
+            pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-4.png") #40
+           ]
+
+#define our flag tiles
+flag_tiles = [36,37,38,39]
+
+#way in which bricks change to destroyed - listed from least to most destroyed
+bricks = [
+    15, #0 hits
+    16,
+    17,
+    18, #3 hits
+    19 #destroyed
+    ]
 
 #define our tile shuffle system
-my_shuffle = [[5,6],
+my_shuffle = [[11,12], #water
+              [12,13],
+              [13,14],
+              [14,11],
+              [1,2], #forest
+              [2,3],
+              [3,4],
+              [4,1],
+              [5,6], #grass
               [6,7],
               [7,8],
               [8,5]]
 
 # - Import an external map -
-arena_data = import_arena.return_arena("t2_Arena02")
+arena_data = import_arena.return_arena("t2_Arena01")
 my_map = arena_data[0]
 my_tiles = arena_data[1]
 my_shuffle = arena_data[2]
@@ -122,11 +148,11 @@ p2_mh.default_display_size = [p2_screen.get_width(), p2_screen.get_height()]
 
 #create our tank object
 tank = entity.Tank(T1U, ["P1","The Good Guys"])
-#increase the tank's RPM
-tank.RPM = 200.0
+#Tank stats hacks!
+#tank.RPM = 200.0
 ##tank.damage_multiplier = 30.0
 ##tank.penetration_multiplier = 0.01
-tank.speed = 1.75
+#tank.speed = 1.75
 #set its location onscreen
 tank.screen_location = [screen.get_width() / 4, screen.get_height() / 4]
 tank.goto(my_arena.flag_locations[0], my_arena.TILE_SIZE, my_arena.get_scale(visible_arena,screen))
@@ -142,12 +168,12 @@ hud.add_HUD_element("text",[[1,p1_screen.get_height() / 2 + 4],3,[[100,100,100],
 mh.create_menu(["","","","","","","","","",""],
                [
                 #start by adding our powerup items to the menu
-                ["../../pix/blocks/powerups/fuel.png",[10,0]],
-                ["../../pix/blocks/powerups/fire-extinguisher.png",[10,20]],
-                ["../../pix/blocks/powerups/dangerous-loading.png",[10,40]],
-                ["../../pix/blocks/powerups/explosive-tip.png",[10,60]],
-                ["../../pix/blocks/powerups/amped-gun.png",[10,80]],
-                ["../../pix/blocks/powerups/makeshift-armor.png",[10,100]],
+                ["../../pix/powerups/fuel.png",[10,0]],
+                ["../../pix/powerups/fire-extinguisher.png",[10,20]],
+                ["../../pix/powerups/dangerous-loading.png",[10,40]],
+                ["../../pix/powerups/explosive-tip.png",[10,60]],
+                ["../../pix/powerups/amped-gun.png",[10,80]],
+                ["../../pix/powerups/makeshift-armor.png",[10,100]],
                 #add our shells to the menu
                 ["../../pix/ammunition/hollow_shell_button.png",[40,0]],
                 ["../../pix/ammunition/regular_shell_button.png",[60,0]],
@@ -178,11 +204,11 @@ bullets = []
 
 #spawn P2...
 p2_tank = entity.Tank(T2U, ["P2","The Enemy Team (in other words The Bad Guys)"])
-#increase the tank's RPM
-p2_tank.RPM = 80.0
+#Tank stats hacks!
+#p2_tank.RPM = 80.0
 ##p2_tank.damage_multiplier = 30.0
 ##p2_tank.penetration_multiplier = 0.01
-p2_tank.speed = 1.35
+#p2_tank.speed = 1.35
 #set the tank's screen location
 p2_tank.screen_location = [screen.get_width() / 4, screen.get_height() / 4]
 #set the tank's map location
@@ -199,12 +225,12 @@ p2_hud.add_HUD_element("text",[[1,p2_screen.get_height() / 2 + 4],3,[[100,100,10
 p2_mh.create_menu(["","","","","","","","","",""],
                [
                 #start by adding our powerup items to the menu
-                ["../../pix/blocks/powerups/fuel.png",[10,0]],
-                ["../../pix/blocks/powerups/fire-extinguisher.png",[10,20]],
-                ["../../pix/blocks/powerups/dangerous-loading.png",[10,40]],
-                ["../../pix/blocks/powerups/explosive-tip.png",[10,60]],
-                ["../../pix/blocks/powerups/amped-gun.png",[10,80]],
-                ["../../pix/blocks/powerups/makeshift-armor.png",[10,100]],
+                ["../../pix/powerups/fuel.png",[10,0]],
+                ["../../pix/powerups/fire-extinguisher.png",[10,20]],
+                ["../../pix/powerups/dangerous-loading.png",[10,40]],
+                ["../../pix/powerups/explosive-tip.png",[10,60]],
+                ["../../pix/powerups/amped-gun.png",[10,80]],
+                ["../../pix/powerups/makeshift-armor.png",[10,100]],
                 #add our shells to the menu (index 6-9)
                 ["../../pix/ammunition/hollow_shell_button.png",[40,0]],
                 ["../../pix/ammunition/regular_shell_button.png",[60,0]],
@@ -238,15 +264,6 @@ powerup_positions = [
     [10,60],
     [10,80],
     [10,100]
-    ]
-
-#way in which bricks change to destroyed - listed from least to most destroyed
-bricks = [
-    9, #0 hits
-    10,
-    11,
-    12, #3 hits
-    13 #destroyed
     ]
 
 #list of GFX particles
@@ -339,7 +356,7 @@ while running:
     #tank controls handling
     for x in range(0,len(tank_move)):
         if(tank_move[x] in keypresses):
-            tank.move(x * 90, my_arena.TILE_SIZE) #move in whatever direction needed
+            tank.move(x * 90, my_arena.TILE_SIZE, screen_scale) #move in whatever direction needed
     for x in range(0,len(tank_bullets)):
         if(tank_bullets[x] in keypresses):
             tank.use_shell(x) #change bullets
@@ -354,7 +371,7 @@ while running:
     #P2 control handling
     for x in range(0,len(p2_tank_move)):
         if(p2_tank_move[x] in keypresses):
-            p2_tank.move(x * 90, my_arena.TILE_SIZE) #move in whatever direction needed
+            p2_tank.move(x * 90, my_arena.TILE_SIZE, screen_scale) #move in whatever direction needed
     for x in range(0,len(p2_tank_bullets)):
         if(p2_tank_bullets[x] in keypresses):
             p2_tank.use_shell(x) #change bullets
@@ -387,20 +404,26 @@ while running:
                 #print(damage_outcome[1][0]) #damage number: Index [1][0]
                 #b[2] is the tile position in the arena (index)
                 if(tmp_brick.armor < 2): #the brick took at least 13HP of damage? Destroyed!! (only shell that does this is disk, 20 damage)
-                    #brick is destroyed (ID 13)
-                    my_arena.modify_tiles([[b[2],13]])
+                    #brick is destroyed (*was* ID 13)
+                    my_arena.modify_tiles([[b[2],bricks[len(bricks) - 1]]])
+                    tank.clear_unmove_flag()
+                    p2_tank.clear_unmove_flag()
                 elif(tmp_brick.armor < 7): #the brick took ~10HP of damage (a little less to make sure explosive and regular shells damage bricks)
-                    #shuffle tiles by 2! (if b[0] <= 13 - 2 then we can increment b[0] by 2, otherwise block is destroyed.)
-                    if(b[0] <= 13 - 2):
+                    #shuffle tiles by 2! (if b[0] <= bricks[len(bricks) - 1] - 2 then we can increment b[0] by 2, otherwise block is destroyed.)
+                    if(b[0] <= bricks[len(bricks) - 1] - 2):
                         my_arena.modify_tiles([[b[2],b[0] + 2]])
                     else: #Destroyed!!
-                        my_arena.modify_tiles([[b[2],13]])
-                elif(tmp_brick.armor < 10): #the brick took ~5HP of damage (comment this out if hollow shell brick damage should be disabled).
+                        my_arena.modify_tiles([[b[2],bricks[len(bricks) - 1]]])
+                        tank.clear_unmove_flag()
+                        p2_tank.clear_unmove_flag()
+                elif(tmp_brick.armor < 12): #the brick took ~3HP of damage (comment this out if hollow shell brick damage should be disabled).
                     #shuffle brick tile by 1! (if b[0] <= 13 - 1 then increment b[0] by 1, else block is destroyed.)
-                    if(b[0] <= 13 - 1):
+                    if(b[0] <= bricks[len(bricks) - 1] - 1):
                         my_arena.modify_tiles([[b[2],b[0] + 1]])
                     else: #Destroyed!
-                        my_arena.modify_tiles([[b[2],13]])
+                        my_arena.modify_tiles([[b[2],bricks[len(bricks) - 1]]])
+                        tank.clear_unmove_flag()
+                        p2_tank.clear_unmove_flag()
             elif(b[0] in blocks): #if the bullet hits a wall, it is most definitely destroyed.
                 bullets[x].destroyed = True
         if(bullets[x].destroyed == True): #if the bullet is destroyed, delete it
@@ -585,12 +608,14 @@ while running:
     collided_tiles = my_arena.check_collision(visible_arena,tank.map_location,tank_collision_position)
     for x in collided_tiles: #iterate through all collision boxes we hit (every tile we're touching)
         if(x[0] in blocks): #we're touching something Not Allowed?
-            tank.unmove()
+            tank.unmove() #a tank should only unmove() once per frame.
+            break
     #handle moving the tank and repositioning the map (P2)
     collided_tiles = my_arena.check_collision(visible_arena,p2_tank.map_location,p2_tank_collision_position)
     for x in collided_tiles: #iterate through all collision boxes we hit (every tile we're touching)
         if(x[0] in blocks): #we're touching something Not Allowed?
             p2_tank.unmove()
+            break #a tank should only unmove() once per frame.
 
     #check if any tanks are DEAD
     if(p2_tank.HP <= 0):

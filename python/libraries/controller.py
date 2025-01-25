@@ -1,6 +1,6 @@
-##"controller.py" library ---VERSION 0.10---
-## - use this library to easily make a game compatible with both controllers and keyboards!
-##Copyright (C) 2023  Lincoln V.
+##"controller.py" library ---VERSION 0.15---
+## - Use this library to easily make a game compatible with both controllers and keyboards! -
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -81,6 +81,7 @@ def get_keys(): #this should be run once per frame/compute tick in a game's code
     global keycodes
     wants_quit = False #quick boolean value which tells us whether it's time to quit
     resize = None
+    other = []
     for event in pygame.event.get():
         if(event.type == pygame.QUIT): #if someone clicks the "X", we're going to return "True" from this function.
             wants_quit = True
@@ -92,10 +93,13 @@ def get_keys(): #this should be run once per frame/compute tick in a game's code
                 del(keycodes[keycodes.index(event.key)])
         elif(event.type == pygame.VIDEORESIZE):
             resize = event.size[:]
-    return [wants_quit, resize] #return whether we want to quit
+        else:
+            other.append(event)
+    return [wants_quit, resize, other] #return whether we want to quit
 
 class Controls():
-    def __init__(self, buttons_ct=8, kb_ctrl="kb", js_num=0):
+    def __init__(self, buttons_ct=8, kb_ctrl="kb", js_num=-1):
+        self.last_seen_buttons = None #this is a list of buttons which are depressed at the START of configuring a key. I need this to detect when a CHANGE in keypresses occur for key configuration as opposed to when a key is pressed.
         self.default_buttons = []
         self.buttons = [] #this is a list of all our buttons, which holds the corresponding keycode/button code number.
         for x in range(0,buttons_ct): #add key/buttoncode 0 to all our buttons at the moment
@@ -104,7 +108,7 @@ class Controls():
         self.kb_ctrl = kb_ctrl #make sure we set a variable telling us if we're using a "kb" (keyboard) or controller "ctrl"
         self.js_num = js_num #which joystick are we using, if any?
         self.js_ct = pygame.joystick.get_count() #update our joystick count
-        if(self.js_num < self.js_ct):
+        if(self.js_num < self.js_ct and self.js_num >= 0):
             self.joystick = pygame.joystick.Joystick(self.js_num) #set up a joystick object on our joystick ID IF we are using joysticks
             self.joystick.init()
 
@@ -114,7 +118,7 @@ class Controls():
 
     def joystick_request(self, js_num=0):
         self.js_ct = pygame.joystick.get_count() #update our joystick count
-        if(self.js_num < self.js_ct):
+        if(js_num < self.js_ct):
             self.kb_ctrl = "ctrl"
             if(self.js_num != js_num): #if we need to reconfigure our JS...
                 self.js_num = js_num
@@ -153,9 +157,21 @@ class Controls():
     def configure_key(self, key_num):
         global keycodes
         self.js_ct = pygame.joystick.get_count() #update our joystick count
-        if(keycodes != [] and self.kb_ctrl == "kb"): #we pressed a key?
-            self.buttons[key_num] = keycodes[0] #the first key pressed gets configuration priority.
-            return True
+        if(self.kb_ctrl == "kb"):
+            if(self.last_seen_buttons == None):
+                self.last_seen_buttons = eval(str(keycodes))
+            else:
+                if(keycodes != self.last_seen_buttons): #we changed a key? Now we need to find WHICH one(s) changed.
+                    key_pressed = None
+                    for x in range(0,len(self.last_seen_buttons)):
+                        if(self.last_seen_buttons[x] not in keycodes): #key released?
+                            key_pressed = self.last_seen_buttons[x]
+                    for x in range(0,len(keycodes)):
+                        if(keycodes[x] not in self.last_seen_buttons): #key pressed?
+                            key_pressed = keycodes[x]
+                    self.buttons[key_num] = key_pressed #the last key changed gets configuration priority.
+                    self.last_seen_buttons = None
+                    return True
         elif(self.kb_ctrl == "ctrl"): #joystick?
             js_buttons = check_joystick_buttons(self.joystick)
             js_dpads = check_joystick_dpads(self.joystick)
@@ -165,9 +181,20 @@ class Controls():
                 js_buttons.append(x)
             for x in js_axes:
                 js_buttons.append(x)
-            if(js_buttons != []):
-                self.buttons[key_num] = js_buttons[0]
-                return True
+            if(self.last_seen_buttons == None):
+                self.last_seen_buttons = js_buttons[:]
+            else:
+                if(js_buttons != self.last_seen_buttons): #we changed a button's state? We need to find which one changed.
+                    button_pressed = None
+                    for x in range(0,len(self.last_seen_buttons)):
+                        if(self.last_seen_buttons[x] not in js_buttons): #button released?
+                            button_pressed = self.last_seen_buttons[x]
+                    for x in range(0,len(js_buttons)):
+                        if(js_buttons[x] not in self.last_seen_buttons): #key pressed?
+                            button_pressed = js_buttons[x]
+                    self.buttons[key_num] = button_pressed #the last button changed gets configuration priority.
+                    self.last_seen_buttons = None
+                    return True
         return False
 
     # - This returns a list which can be entered as a parameter into enter_settings() to restore previous settings -
@@ -176,7 +203,7 @@ class Controls():
         return [
             self.kb_ctrl, #we better know what input device we're using
             self.js_num,
-            DEADZONE,
+            float(DEADZONE),
             self.buttons #all our keyconfigs
             ]
 
@@ -184,7 +211,7 @@ class Controls():
     def enter_data(self, settings):
         global DEADZONE
         DEADZONE = settings[2]
-        if(settings[0] == "js"): #we want a JS? Can we get the one we want?
+        if(settings[0] == "ctrl"): #we want a JS? Can we get the one we want?
             success = self.joystick_request(settings[1])
             if(success): #we should be able to just preload our controls then
                 self.buttons = settings[3][:]
@@ -195,14 +222,19 @@ class Controls():
             self.buttons = settings[3][:]
 
 ### - Brief demo program of how to use this library effectively -
+###   Plug in a joystick to try it!
 ##screen = pygame.display.set_mode([200,200])
-##player_1_controls = Controls(8, "ctrl") #joystick/controller player
+##player_1_controls = Controls(8, "ctrl", 0) #joystick/controller player
 ##for x in range(0,8): #configure all controls
 ##    print("Configure button " + str(x))
-##    while not player_1_controls.configure_key(x):
+##    try:
+##        while not player_1_controls.configure_key(x):
+##            get_keys()
+##        pygame.time.delay(350)
 ##        get_keys()
-##    pygame.time.delay(350)
-##    get_keys()
+##    except AttributeError:
+##        print("ERROR: You need a joystick plugged in to test this!")
+##        exit()
 ##while True:
 ##    get_keys() #grab all keys pressed
 ##    print(player_1_controls.get_input())

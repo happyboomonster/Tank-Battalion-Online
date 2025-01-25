@@ -1,6 +1,6 @@
-##"battle_client.py" library ---VERSION 0.65---
-## - Handles battles (main game loops, lobby stuff, and game setup) for CLIENT ONLY -
-##Copyright (C) 2023  Lincoln V.
+##"battle_client.py" library ---VERSION 0.71---
+## - Handles client stuff (battles, main game loops, lobby stuff, and game setup) -
+##Copyright (C) 2025  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -16,11 +16,11 @@
 ##along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #Python external libraries:
-import _thread, socket, pygame, time, sys, os, random, math
+import _thread, socket, pygame, time, sys, os, random, math, pickle
 #set up external directories
 sys.path.insert(0, "../maps")
 #My own proprietary libraries (I just realized that there's a lot of them):
-import account, menu, HUD, netcode, font, arena, GFX, SFX, import_arena, entity, arena as arena_lib, controller
+import account, menu, HUD, netcode, font, arena, GFX, SFX, import_arena, entity, arena as arena_lib, controller, pygame_multithread, battle_server
 # - Netcode.py sets its default socket timeout to 5 seconds. However, we MUST take longer than the server does, so I will increase it to 7.5 seconds -
 netcode.DEFAULT_TIMEOUT = 7.5 #seconds
 
@@ -32,6 +32,7 @@ def init(path_str=""):
     path = path_str
     entity.path = path_str
     import_arena.path = path_str
+    battle_server.init(path)
 
 class BattleEngine():
     def __init__(self,IP,PORT,autostart=True):
@@ -153,22 +154,46 @@ class BattleEngine():
             "Insanely Light",
             "SuperLight"]
 
+        # - Import tank images (these should NOT have .convert() run on them, since we still need to manipulate them before blitting) -
+        self.team_images = [[pygame.image.load(path + "../../pix/tanks/P1U1.png"),pygame.image.load(path + "../../pix/tanks/P1U2.png")],
+                            [pygame.image.load(path + "../../pix/tanks/P2U1.png"),pygame.image.load(path + "../../pix/tanks/P2U2.png")],
+                            [pygame.image.load(path + "../../pix/tanks/P3U1.png"),pygame.image.load(path + "../../pix/tanks/P3U2.png")],
+                            [pygame.image.load(path + "../../pix/tanks/P4U1.png"),pygame.image.load(path + "../../pix/tanks/P4U2.png")]
+                            ]
+
         # - Matchmaker constants -
-        self.EXP_WEIGHT = 0.0005 #this defines the overall power of a player (more EXP = more experienced player = more strategic = more dangerous)
-        self.UPGRADE_WEIGHT = 1.35 #this defines the overall power of a player (more upgrades = more powerful tank)
-        self.CASH_WEIGHT = 0.0 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
-        self.SHELLS_WEIGHT = [0.025, 0.05, 0.075, 0.15] #this defines the overall power of a player (more powerful shells = more dangerous)
-        self.POWERUP_WEIGHT = 0.85 #this defines the overall power of a player (more powerups = more dangerous)
-        self.SPECIALIZATION_WEIGHT = 1.125 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
+        self.EXP_WEIGHT = 0.00005 #this defines the overall power of a player (more EXP = more experienced player = more strategic = more dangerous)
+        self.UPGRADE_WEIGHTS = [2.1/6, 1.77/6, 1.71/6, 1.125/6] #this defines the overall power of a player (more upgrades = more powerful tank) [gun, rpm, armor, engine]
+        self.CASH_WEIGHT = 0.000001 #this defines the overall power of a player (more cash = more disk shells the player can buy = more dangerous)
+        self.SHELLS_WEIGHT = [1.17 / account.max_shells[0], 1.75 / account.max_shells[1], #hollow shells are 1.17 because I raised their D/P from 7/7 to 8/8.
+                              2.625 / account.max_shells[2], 2.625 / account.max_shells[3]] #this defines the overall power of a player (more shells = more dangerous)
+        self.POWERUP_WEIGHT = 1.24 #this defines the overall power of a player (more powerups = more dangerous)
+        self.SPECIALIZATION_WEIGHT = 0.025 #this defines the overall power of a player (more specialized = potentially more dangerous...?)
+        # - All calculated ratings are divided by this number so that our numbers are within a certain range (I like between 0 and 30 roughly) -
+        self.MMCEF = 0
+        self.MMCEF += self.POWERUP_WEIGHT * len(account.Account().powerups) #powerups
+        self.MMCEF += self.SHELLS_WEIGHT[0] * account.max_shells[0] + self.SHELLS_WEIGHT[1] * account.max_shells[1] + \
+                      self.SHELLS_WEIGHT[2] * account.max_shells[2] + self.SHELLS_WEIGHT[3] * account.max_shells[3]
+        self.MMCEF += self.UPGRADE_WEIGHTS[0] * account.upgrade_limit + self.UPGRADE_WEIGHTS[1] * account.upgrade_limit + \
+                      self.UPGRADE_WEIGHTS[2] * account.upgrade_limit + self.UPGRADE_WEIGHTS[3] * account.upgrade_limit
+        self.MMCEF += self.SPECIALIZATION_WEIGHT * account.upgrade_limit
+        self.MMCEF = self.MMCEF / 30 #get MMCEF so that any rating can be divided by it to bring all ratings closer to X, where X is the value after the division sign in this assignment expression.
         # - This value MUST be larger than a single rating value (e.g. the rating of owning 1 disk shell).
         #   - If a match gets past this imbalance, bots get created to help out a bit.
-        self.IMBALANCE_LIMIT = 1.35 #(this is larger than self.SPECIALIZATION_WEIGHT, which is 1.125)
+        self.IMBALANCE_LIMIT = 1.35 / self.MMCEF
         
         # - Battle constants -
         self.EXPLOSION_TIMER = 1.0 #seconds; how long between each explosion when game over occurs?
         self.WORDS_QTY = 15 #how many words to spawn in each self.EXPLOSION_TIMER interval?
         # - How long does the server's compute thread of a battle last AFTER game over has occurred? -
         self.BATTLE_TIMER = 30.0 #seconds
+
+        # - Offline Play Constants -
+        self.CASH_MULTIPLIER = 1000.0 #this value influences the amount of cash/EXP each player can have and the precision with which the leader can select everyone's cash/EXP amount
+        self.MAX_OFFLINE_CASH = 50 #int value; this * self.CASH_MULTIPLIER = the amount of cash each player starts with in offline mode
+        self.MAX_OFFLINE_EXP = 50 #int value; this * self.CASH_MULTIPLIER = the amount of experience each player starts with in offline mode
+        self.MAX_OFFLINE_PLAYERS = 25 #int value; this controls the maximum number of players we can have in an offline battle
+        self.MAX_OFFLINE_BOTS = 25 #int value; this controls the *approximate* maximum number of players we can have in an offline battle
 
         # - Autostart -
         if(autostart):
@@ -213,10 +238,22 @@ class BattleEngine():
                     resize_dimensions[1] = self.min_screen_size[1]
                 self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
 
+            # - Move cursor based on keypresses (WASD+E) -
             for x in keys:
                 if(x in directions):
                      cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * login_menu.menu_scale
                      cursorpos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * login_menu.menu_scale
+
+            # - Check for mouse movement or mouse click -
+            for x in event_pack[2]:
+                if(x.type == pygame.MOUSEMOTION):
+                    cursorpos[0] = x.pos[0]
+                    cursorpos[1] = x.pos[1]
+                elif(x.type == pygame.MOUSEBUTTONDOWN and shoot not in keys):
+                    keys.append(shoot) #we're going to insert shoot into keys...this is a quick way to use the same code as pressing E for choosing a menu option with the mouse.
+                elif(x.type == pygame.MOUSEBUTTONUP):
+                    if(shoot in keys):
+                        keys.remove(shoot)
                 
             if(shoot in keys and time.time() - shoot_cooldown > 0.35): #click?
                 shoot_cooldown = time.time() #reset our shooting cooldown
@@ -253,6 +290,10 @@ class BattleEngine():
 
             self.screen.fill([0,0,0]) #draw everything
             login_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,cursorpos)
+            # - Draw GPL notice and attribution for music -
+            surf = menu.draw_message("Tank Battalion Online - Copyright 2024 Lincoln V. This program is free software. You can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY, even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details. A copy of the GNU General Public License is distributed with this program in the base directory.",
+                                     int(self.screen.get_width() * 0.95),14 * login_menu.menu_scale)
+            self.screen.blit(surf, [int(self.screen.get_width() * 0.025), int(self.screen.get_height() / 3)])
             # - Draw crosshair -
             pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] - int(8 * login_menu.menu_scale)],[cursorpos[0],cursorpos[1] - int(4 * login_menu.menu_scale)],int(3 * login_menu.menu_scale))
             pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] + int(8 * login_menu.menu_scale)],[cursorpos[0],cursorpos[1] + int(4 * login_menu.menu_scale)],int(3 * login_menu.menu_scale))
@@ -302,7 +343,7 @@ class BattleEngine():
             else: #exit this loop...
                 break
         if(str(type(login)) == "<class 'str'>"): #we wanted to play offline!!
-            offline_play() #this function is at the BOTTOM of battle_client so that it's not in the way...
+            self.offline_play() #this function is at the BOTTOM of battle_client so that it's not in the way...
 
     def connect_server(self,IP,PORT,username,password,login):
         #create a connection to the server
@@ -406,12 +447,23 @@ class BattleEngine():
         self.Cs.close() #close our socket connection and delete it so the server will save our data
         del(self.Cs)
 
-    def lobby_frontend(self): #this is the GUI for the lobby.
+    def lobby_frontend(self, ph=None, socket=None, running=None, thread_num=None, threads_running=None): #this is the GUI for the lobby. ph is short for PygameHandler(), which is a class which is used with this game in offline mode to accomodate n-thread splitscreen.
+        # - IF we're using a PygameHandler(), we need to get our screen object from it ASAP. While we do that, we'd better get our socket as well so that the netcode side of the lobby can function -
+        if(ph != None):
+            self.Cs = socket
+            self.thread_num = thread_num
+            self.screen = ph.get_surface(self.thread_num)
+            self.sfx.server = True #change the SFX_Manager() so that it doesn't try to play sounds. It only queues them so that the main PygameHandler() thread can play them.
+
         _thread.start_new_thread(self.lobby_client,()) #start up the netcode for the lobby!!
+        
         lobby_menu = menu.Menuhandler() #create a menu handler
         lobby_menu.default_display_size[0] += 275 #make the scale for menu text slightly smaller so I have more room for displaying text
         # - Create the various lobby menus -
-        lobby_menu.create_menu(["Battle","Store","Settings","Exit"],[["",""],["",""],["",""],["",""]],[[1,1],[0,6],[2,7]],[],"Tank Battalion Online Lobby")
+        main_menu_setting_vectors = [[1,1],[0,6]]
+        if(ph == None):
+            main_menu_setting_vectors.append([2,7])
+        lobby_menu.create_menu(["Battle","Store","Settings","Exit"],[["",""],["",""],["",""],["",""]],main_menu_setting_vectors,[],"Tank Battalion Online Lobby")
         lobby_menu.create_menu(["Purchase Mode","Shells","Upgrades","Specialization","Powerups","Back"],[["buy","refund"],["",""],["",""],["",""],["",""],["",""]],[[5,0],[1,2],[2,3],[3,4],[4,5]],[],"Tank Battalion Online Store")
         lobby_menu.create_menu(["^ Available","Hollow","Regular","Explosive","Disk","Back"],[["",""],["0","0"],["0","0"],["0","0"],["0","0"],["",""]],[[5,1]],[],"Tank Battalion Online Store - Shells")
         lobby_menu.create_menu(["^ Available","Gun","Loading Mechanism","Armor","Engine","Back"],[["",""],["0","0"],["0","0"],["0","0"],["0","0"],["",""]],[[5,1]],[],"Tank Battalion Online Store - Upgrades")
@@ -445,18 +497,26 @@ class BattleEngine():
         damage_numbers = entity.Bullet(None, "", 0, 0, [1,1,1,1,1], None)
         damage_numbers = damage_numbers.shell_specs[:]
         button_descriptions = [
-            ["Choose a battle mode   -","Purchase items for battle   -","Change your settings   -","Are you sure you want to leave..."],
-            ["Choose whether you are planning to refund or purchase items   -","","","","",""],
-            ["^ can be earned in battles. You will also be gifted maximum hollow shells every 24 hrs.","Hollow shell - Deals " + str(damage_numbers[0][0]) + " damage at " + str(damage_numbers[0][1]) + " penetration",
-                 "Regular shell - Deals " + str(damage_numbers[1][0]) + " damage at " + str(damage_numbers[1][1]) + " penetration",
-                 "Explosive shell - Deals " + str(damage_numbers[2][0]) + " damage at " + str(damage_numbers[2][1]) + " penetration",
-                 "Disk shell - Deals " + str(damage_numbers[3][0]) + " damage at " + str(damage_numbers[3][1]) + " penetration",""],
-            ["^ can be earned in battles. You will also be gifted maximum hollow shells every 24 hrs, which can be sold to get money.","Increases damage multiplier and penetration multiplier.","Increases tank RPM.","Increases total armor.","Increases tank speed.",""],
-            ["EXP can be earned by playing experience battles.","This is the current state of your tank   -","Make your tank faster, shoot with more RPM and penetration but with less damage and armor.","Make your tank slower, decrease RPM and penetration, but increase damage and armor significantly.",""],
-            ["^ can be earned in battles. You will also be gifted maximum hollow shells every 24 hrs, which can be sold to get money.","","","","","","This powerup acts a little strangely - If you have armor left, that armor gets increased by 50% temporarily. If you have no armor left, you will recieve no benefit from using this powerup, because 0 armor times 1.5 equals 0 armor.",""],
+            ["Enter a battle mode. Remember to purchase shells before entering battle   -","Purchase items for battle   -","Change your settings   -","Are you sure you want to leave..."],
+            ["Choose whether you are planning to refund or purchase items   -","","","Please note, you can not change your tank specialization status without selling your shells first   -","",""],
+            ["^ can be earned in battles. You will also be gifted maximum hollow shells every 24 hrs, which can be sold to get money   -","Hollow shell - Deals " + str(damage_numbers[0][0]) + " damage at " + str(damage_numbers[0][1]) + " penetration   -",
+                 "Regular shell - Deals " + str(damage_numbers[1][0]) + " damage at " + str(damage_numbers[1][1]) + " penetration   -",
+                 "Explosive shell - Deals " + str(damage_numbers[2][0]) + " damage at " + str(damage_numbers[2][1]) + " penetration   -",
+                 "Disk shell - Deals " + str(damage_numbers[3][0]) + " damage at " + str(damage_numbers[3][1]) + " penetration   -",""],
+            ["^ can be earned in battles. You will also be gifted maximum hollow shells every 24 hrs, which can be sold to get money   -","Increases damage multiplier and penetration multiplier   -","Increases tank firing rate   -","Increases tank armor   -","Increases tank speed   -",""],
+            ["EXP can be earned by playing experience battles   -","This is the current state of your tank   -","Makes your tank faster, increases firing rate and bullet penetration, but decreases bullet damage and tank armor   -","Makes your tank slower, decreases firing rate and bullet penetration, but increases bullet damage and tank armor significantly   -",""],
+            ["^ can be earned in battles. You will also be gifted maximum hollow shells every 24 hrs, which can be sold to get money   -","","Extinguishes fire in your tank   -","Increases firing rate at the expense of losing some health points   -","Marginally decreases firing rate and bullet penetration while significantly increasing bullet damage. This powerup also inflicts fire on any tank which is shot while active   -","Increases bullet penetration at the expense of losing some health points   -","This powerup behaves strangely. It multiplies the amount of armor your tank has upon activation by 1.5, and then divides the amount of armor your tank has upon deactivation by 1.5   -",""],
             ["Back to the lobby menu   -","Change the type of battle you want to enter   -","Enter the battle queue   -"],
-            ["","","","","Are you going to play on a joystick or a keyboard","","","","","","","","","","","","","","","","","","","","Graphical Effects Quality","","","Do you like the music track you are listening to...","Do you like the music track you are listening to..."]
+            ["","","","","Are you going to play on a joystick or a keyboard   -","","","","","","","","","","","","","","","","","","","","Graphical Effects Quality   -","","","Do you like the music track you are listening to...","Do you like the music track you are listening to..."]
             ]
+        if(ph != None): #correct some of the button descriptions for offline gameplay
+            button_descriptions[0][2] = "Settings can not be changed in local multiplayer mode here   -"
+            button_descriptions[0][3] = "Beware, clicking this button will make you enter battle rather than exit the game unless everyone clicks exit   -"
+            button_descriptions[0][0] = "Enter battle when you are ready. Remember to purchase shells first   -"
+            button_descriptions[2][0] = "Additional ^ can be earned in battles if Keep Battle Revenue is set to True   -"
+            button_descriptions[3][0] = "Additional ^ can be earned in battles if Keep Battle Revenue is set to True   -"
+            button_descriptions[4][0] = "Additional EXP can only be earned if you are playing Experience Battles with Keep Battle Revenue set to True   -"
+            button_descriptions[5][0] = "Additional ^ can be earned in battles if Keep Battle Revenue is set to True   -"
 
         # - Create an HUD to display the descriptions of menu items -
         hud = HUD.HUD()
@@ -485,13 +545,8 @@ class BattleEngine():
         # - This flag is to make sure that we don't get the red X the first thing we get into the lobby -
         first_entry = True
 
-        #Things that will need to be changed when I add 2/3p split screen online modes:
-        # - Multiple players' lobby data being transmitted through one socket (perhaps use a list with all player connections for data?)
-        # - pygame.display.set_caption() may only happen in one thread
-        # - pygame.display.flip() may only get called by one thread
-        # - All threads need to draw to a pygame.Surface() not pygame.display.set_mode() returned object.
-
-        pygame.display.set_caption("Tank Battalion Online Lobby") #this will need to be disabled for 2/3 player modes, because otherwise this will not be stable...
+        if(ph == None):
+            pygame.display.set_caption("Tank Battalion Online Lobby") #this will need to be disabled for 2/3 player modes, because otherwise this will not be stable...
 
         # - Timing stuff for keypress/cursor management and shooting -
         debounce = time.time()
@@ -503,12 +558,18 @@ class BattleEngine():
         #get da fps
         clock = pygame.time.Clock()
 
-        # - Start the MUSIC! -
-        music_track = random.randint(0,len(self.music_files[0]) - 1)
-        self.music.transition_track(self.music_files[0][music_track])
+        # - Start the MUSIC! (unless we're using a PygameHandler() -
+        if(ph == None):
+            if(len(self.music_files[0]) > 0):
+                music_track = random.randint(0,len(self.music_files[0]) - 1) #which track do we start with...?
+            music_timer = time.time() #we wait until 2.25x netcode.DEFAULT_TIMEOUT. THEN we start the music...
 
         while self.running:
-            #update our menu's scale
+            # - Obtain our screen surface for this frame IF we're using a PygameHandler() -
+            if(ph != None):
+                self.screen = ph.get_surface(self.thread_num)
+            
+            # - Update our menu's scale -
             lobby_menu.update(self.screen)
 
             # - Check if time.time() - request_pending is greater than our maximum ping allowance (2 seconds? I'm gonna reference the constant in netcode.py) -
@@ -518,10 +579,13 @@ class BattleEngine():
                      
             if(self.special_window == None): #this stuff only needs to happen if we're not currently utilizing the special menu.
                 # - Update bullet damage strings -
-                button_descriptions[2] = ["^ can be earned in battles. You will also be gifted maximum hollow shells every 24 hrs.","Hollow shell - Deals " + str(int(self.acct.damage_multiplier * damage_numbers[0][0])) + " damage at " + str(int(self.acct.penetration_multiplier * damage_numbers[0][1])) + " penetration",
-                     "Regular shell - Deals " + str(int(self.acct.damage_multiplier * damage_numbers[1][0])) + " damage at " + str(int(self.acct.penetration_multiplier * damage_numbers[1][1])) + " penetration",
-                     "Explosive shell - Deals " + str(int(self.acct.damage_multiplier * damage_numbers[2][0])) + " damage at " + str(int(self.acct.penetration_multiplier * damage_numbers[2][1])) + " penetration",
-                     "Disk shell - Deals " + str(int(self.acct.damage_multiplier * damage_numbers[3][0])) + " damage at " + str(int(self.acct.penetration_multiplier * damage_numbers[3][1])) + " penetration",""]
+                phrase1 = "^ can be earned in battles. You will also be gifted maximum hollow shells every 24 hrs   -"
+                if(ph != None):
+                    phrase1 = "Additional ^ can be earned in battles if Keep Battle Revenue is set to True   -"
+                button_descriptions[2] = [phrase1,"Hollow shell - Deals " + str(int(self.acct.damage_multiplier * damage_numbers[0][0])) + " damage at " + str(int(self.acct.penetration_multiplier * damage_numbers[0][1])) + " penetration   -",
+                     "Regular shell - Deals " + str(int(self.acct.damage_multiplier * damage_numbers[1][0])) + " damage at " + str(int(self.acct.penetration_multiplier * damage_numbers[1][1])) + " penetration   -",
+                     "Explosive shell - Deals " + str(int(self.acct.damage_multiplier * damage_numbers[2][0])) + " damage at " + str(int(self.acct.penetration_multiplier * damage_numbers[2][1])) + " penetration   -",
+                     "Disk shell - Deals " + str(int(self.acct.damage_multiplier * damage_numbers[3][0])) + " damage at " + str(int(self.acct.penetration_multiplier * damage_numbers[3][1])) + " penetration   -",""]
                 
                 # - If we're in the battle menu, make sure the battle command is configured properly -
                 if(lobby_menu.current_menu == 6): #we're in the battle selection screen?
@@ -555,8 +619,8 @@ class BattleEngine():
                             opt_str = "Owned - " + str(owned) + "/1, " + "Refund amt - " + str(round(self.acct.refund("powerup",x,True)[0],2)) + "^"
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,powerup_names[x])
 
-                # - I know that the controls, sound volume, SFX, and GFX get updated below...but they also need to be updated HERE because you don't start the client in menu #7 -
-                if(self.acct.settings != [None]):
+                # - I know that the controls, sound volume, SFX, and GFX get updated below...but they also need to be updated HERE because you don't start the client in menu #7 (this doesn't need to happen in split-screen mode tho) -
+                if(self.acct.settings != [None] and ph == None):
                     # - Music volume (self.acct.settings[0]) -
                     self.music.set_volume(int(self.acct.settings[0]) / 10)
                     # - SFX volume (self.acct.settings[1]) -
@@ -566,8 +630,8 @@ class BattleEngine():
                     self.WORDS_QTY = int(int(self.acct.settings[2]) / 2)
                     self.controls.enter_data(self.acct.settings[3]) #controls
 
-                # - Update our key configuration menu -
-                if(lobby_menu.current_menu == 7):
+                # - Update our key configuration menu (again, this doesn't need to happen in split-screen mode) -
+                if(lobby_menu.current_menu == 7 and ph == None):
                     # - Load the lobby_menu with settings sent from the server, which then get transferred to all the variables they need to influence below -
                     if(self.acct.settings != [None]):
                         lobby_menu.reconfigure_setting([0,10],self.acct.settings[0],int(self.acct.settings[0]),"Music Volume")
@@ -615,8 +679,8 @@ class BattleEngine():
                     opt_str = self.specialization_mapper[self.acct.specialization + self.specialization_offset] #specialization settings
                     lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"Current Specialization")
                     # - Update the costs for specializing heavy/light -
-                    light = str(self.acct.purchase("specialize",1,True)[0]) + " EXP"
-                    heavy = str(self.acct.purchase("specialize",-1,True)[0]) + " EXP"
+                    light = str(round(self.acct.purchase("specialize",1,True)[0],2)) + " EXP"
+                    heavy = str(round(self.acct.purchase("specialize",-1,True)[0],2)) + " EXP"
                     lobby_menu.reconfigure_setting([light,light],light,0,"Specialize Light")
                     lobby_menu.reconfigure_setting([heavy,heavy],heavy,0,"Specialize Heavy")
 
@@ -626,9 +690,9 @@ class BattleEngine():
                     lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"^ Available")
                     for x in range(0,len(self.acct.upgrades)): #configure the upgrades counter
                         if(purchase_mode == "buy"):
-                            opt_str = "Owned - " + str(self.acct.upgrades[x]) + "/" + str(self.acct.upgrade_limit) + ", " + self.acct.purchase("upgrade",x,True)[1] + ", Cost - " + str(round(self.acct.purchase("upgrade",x,True)[0],2)) + "^"
+                            opt_str = "Owned - " + str(self.acct.upgrades[x]) + "/" + str(account.upgrade_limit) + ", " + self.acct.purchase("upgrade",x,True)[1] + ", Cost - " + str(round(self.acct.purchase("upgrade",x,True)[0],2)) + "^"
                         else:
-                            opt_str = "Owned - " + str(self.acct.upgrades[x]) + "/" + str(self.acct.upgrade_limit) + ", " + self.acct.refund("upgrade",x,True)[1] + ", Refund amt - " + str(round(self.acct.refund("upgrade",x,True)[0],2)) + "^"
+                            opt_str = "Owned - " + str(self.acct.upgrades[x]) + "/" + str(account.upgrade_limit) + ", " + self.acct.refund("upgrade",x,True)[1] + ", Refund amt - " + str(round(self.acct.refund("upgrade",x,True)[0],2)) + "^"
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,upgrade_names[x])
 
                 # - Update the value of shells + ^ counter -
@@ -637,9 +701,9 @@ class BattleEngine():
                     lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"^ Available")
                     for x in range(0,len(self.acct.shells)): #configure the shells counter
                         if(purchase_mode == "buy"):
-                            opt_str = "Owned - " + str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + ", " + self.acct.purchase("shell",x,True)[1] + ", Cost - " + str(round(self.acct.purchase("shell",x,True)[0],2)) + "^"
+                            opt_str = "Owned - " + str(self.acct.shells[x]) + "/" + str(account.max_shells[x]) + ", " + self.acct.purchase("shell",x,True)[1] + ", Cost - " + str(round(self.acct.purchase("shell",x,True)[0],2)) + "^"
                         else:
-                            opt_str = "Owned - " + str(self.acct.shells[x]) + "/" + str(self.acct.max_shells[x]) + ", " + self.acct.refund("shell",x,True)[1] + ", Refund amt - " + str(round(self.acct.refund("shell",x,True)[0],2)) + "^"
+                            opt_str = "Owned - " + str(self.acct.shells[x]) + "/" + str(account.max_shells[x]) + ", " + self.acct.refund("shell",x,True)[1] + ", Refund amt - " + str(round(self.acct.refund("shell",x,True)[0],2)) + "^"
                         lobby_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,shell_names[x])
             else: #we need to configure our special window/menu...which is always just a set of strings, with no settings you can change lol
                 if(self.special_window != special_window_backup):
@@ -653,13 +717,15 @@ class BattleEngine():
                         special_menu.create_menu(self.special_window[:len(self.special_window) - 1],options_settings,[],[],self.special_window[len(self.special_window) - 1])
                 special_menu.update(self.screen)
 
-            # - Update our Music() manager, and check if we need to queue more tracks -
-            queue = not self.music.clock() #returns False if we need to queue more tracks
-            if(queue): #queue a new random track
-                music_track += 1
-                if(music_track > len(self.music_files[0]) - 1):
-                    music_track = 0
-                self.music.queue_track(self.music_files[0][music_track])
+            # - Update our Music() manager, and check if we need to queue more tracks (this MAY NOT happen in split-screen mode, since this thread would hang then) -
+            if(ph == None):
+                if(time.time() - music_timer > netcode.DEFAULT_TIMEOUT * 2.25 and len(self.music_files[0]) > 1): #wait until we hear from the server whether we want music on or not before starting it.
+                    queue = not self.music.clock() #returns False if we need to queue more tracks
+                    if(queue): #queue a new random track
+                        music_track += 1
+                        if(music_track > len(self.music_files[0]) - 1):
+                            music_track = 0
+                        self.music.queue_track(self.music_files[0][music_track])
 
             # - Make sure our cursor stays onscreen -
             if(cursorpos[0] < 0): #no negative locations allowed!
@@ -672,27 +738,45 @@ class BattleEngine():
                 cursorpos[1] -= self.screen.get_height()
 
             # - Check if we have clicked any buttons -
-            event_pack = controller.get_keys()
-            with self.running_lock:
-                self.running = not event_pack[0]
-            if(event_pack[1] != None): #we requested a window resize?
-                resize_dimensions = list(event_pack[1])
-                if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
-                    resize_dimensions[0] = self.min_screen_size[0]
-                if(resize_dimensions[1] < self.min_screen_size[1]):
-                    resize_dimensions[1] = self.min_screen_size[1]
-                self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
-            keys = self.controls.get_input()
-            # - Check if we need to engage our backup controller -
-            if(self.controls.kb_ctrl == "ctrl"): #we're using a joystick? We may need to help out the player a bit so that he can still use the lobby while configuring his controller.
-                backup_keys = self.controls_backup.get_input()
-                for x in backup_keys:
-                    keys.append(x)
+            if(ph == None): #There are two ways of getting input: The first is WITHOUT the PygameHandler(), which we will be using for single-player online play. The second is WITH the PygameHandler(), which is for split-screen play only.
+                event_pack = controller.get_keys()
+                with self.running_lock:
+                    self.running = not event_pack[0]
+                if(event_pack[1] != None): #we requested a window resize?
+                    resize_dimensions = list(event_pack[1])
+                    if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                        resize_dimensions[0] = self.min_screen_size[0]
+                    if(resize_dimensions[1] < self.min_screen_size[1]):
+                        resize_dimensions[1] = self.min_screen_size[1]
+                    self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
+                keys = self.controls.get_input()
+                # - Check if we need to engage our backup controller -
+                if(self.controls.kb_ctrl == "ctrl"): #we're using a joystick? We may need to help out the player a bit so that he can still use the lobby while configuring his controller.
+                    backup_keys = self.controls_backup.get_input()
+                    for x in backup_keys:
+                        keys.append(x)
+            else: #We're using the PygameHandler() to get input
+                keys = ph.get_input(thread_num)
+                with self.running_lock:
+                    self.running = running[0]
+            
             # - Move the cursor based on the keys we've pressed -
             for x in directions:
                 if(x in keys):
                     cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * lobby_menu.menu_scale
                     cursorpos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * lobby_menu.menu_scale
+
+            # - Check if the mouse moved @ all, or if the player clicked -
+            if(ph == None):
+                for x in event_pack[2]: #check for mouse movement or mouse click
+                    if(x.type == pygame.MOUSEMOTION):
+                        cursorpos[0] = x.pos[0]
+                        cursorpos[1] = x.pos[1]
+                    elif(x.type == pygame.MOUSEBUTTONDOWN and shoot not in keys):
+                        keys.append(shoot) #we're going to insert shoot into keys...this is a quick way to use the same code as pressing E for choosing a menu option with the mouse.
+                    elif(x.type == pygame.MOUSEBUTTONUP):
+                        if(shoot in keys):
+                            keys.remove(shoot)
 
             if(shoot in keys and time.time() - debounce > 0.2 and str(type(self.request_pending)) != "<class 'float'>"): #shoot? And we're not still connecting to server?
                 debounce = time.time()
@@ -705,8 +789,8 @@ class BattleEngine():
                         with self.request_pending_lock:
                             if(self.request != [None]):
                                 self.request_pending = time.time()
-                        # - Check if the button we pressed was in menu # 7 (key config) -
-                        if(lobby_menu.current_menu == 7 and clicked_button[1] == 7 and clicked_button[0][0] - 5 >= 0 and clicked_button[0][0] <= last_keyconfig): #we didn't change into this menu?? We were already here when we clicked?
+                        # - Check if the button we pressed was in menu # 7 (key config). This check is bypassed if we are using a PygameHandler(), since our controls *should* have been already configured -
+                        if(ph == None and lobby_menu.current_menu == 7 and clicked_button[1] == 7 and clicked_button[0][0] - 5 >= 0 and clicked_button[0][0] <= last_keyconfig): #we didn't change into this menu?? We were already here when we clicked?
                             config = True
                             pygame.display.set_caption("Configure key number " + str(clicked_button[0][0] - 4))
                             pygame.time.delay(250) #delay 250ms to ensure that we don't configure our shoot button as whatever this button is going to be
@@ -721,17 +805,27 @@ class BattleEngine():
                                 word_scale = (self.screen.get_width() / (len("Press any key...") * font.SIZE))
                                 font.draw_words("Press any key...", [(self.screen.get_width() / 2 - len("Press any key...") * font.SIZE * word_scale * 0.5),10], [0,0,255], word_scale, self.screen)
                                 pygame.display.flip()
+                            pygame.time.delay(250) #250ms
                             controller.get_keys() #empty the event queue
                             controller.empty_keys() #empty the key list, and delay a small amount...
-                            pygame.time.delay(250) #250ms
-                        # - Check if the player requested a different music track -
-                        if(lobby_menu.current_menu == 7 and clicked_button[1] == 7):
-                            if(clicked_button[0][0] == 27): #skip back a track
+                        # - Check if the player requested using a joystick. If the player did, we need to get that handled BEFORE our controller data is sent to the server in the self.settings[] list -
+                        if(ph == None and lobby_menu.current_menu == 7 and clicked_button[0][0] == 4):
+                            # - Find out whether we're planning on using a keyboard or joystick -
+                            keyboard_joystick = lobby_menu.grab_settings(["KB/JS"])[0][0] #get the string format
+                            if(keyboard_joystick == "Joystick"):
+                                success = self.controls.joystick_request(js_num=0) #we ALWAYS use JS 0 for this game since it is only 1-player
+                                if(not success): #if we can't switch to joystick, make sure it doesn't let us.
+                                    lobby_menu.reconfigure_setting(["Keyboard","Joystick"],"Keyboard",0,"KB/JS")
+                            else:
+                                self.controls.kb_ctrl = "kb"
+                        # - Check if the player requested a different music track (music is not handled by the client thread in split-screen mode, so these buttons do not respond in this mode) -
+                        if(ph == None and lobby_menu.current_menu == 7 and clicked_button[1] == 7):
+                            if(clicked_button[0][0] == 27 and len(self.music_files[0]) > 0): #skip back a track
                                 music_track -= 1
                                 if(music_track < 0):
                                     music_track = len(self.music_files[0]) - 1
                                 self.music.transition_track(self.music_files[0][music_track])
-                            if(clicked_button[0][0] == 28): #skip forward a track
+                            if(clicked_button[0][0] == 28 and len(self.music_files[0]) > 0): #skip forward a track
                                 music_track += 1
                                 if(music_track > len(self.music_files[0]) - 1):
                                     music_track = 0
@@ -740,13 +834,20 @@ class BattleEngine():
                         if(lobby_menu.current_menu == 0 and clicked_button[1] == 0 and clicked_button[0][0] == 3): #time to go?
                             with self.running_lock:
                                 self.running = False
-                        if(lobby_menu.current_menu == 7 and clicked_button[1] == 7): #we need to be IN the settings menu before a click makes a settings save worthwhile.
+                        # - Check if the player clicked battle & we're using split-screen mode; This will result in this client script ending so that the main thread can start a match with our account data -
+                        if(clicked_button[1] == 0 and clicked_button[0][0] == 0 and ph != None):
+                            threads_running[thread_num] = None #False = exit game; True = still in menu; None = battle?
+                            break #exit this thread
+                        # - Send our settings to the server so they are saved between play sessions (this is not needed in split-screen mode since settings are not saved on a "server") -
+                        if(ph == None and lobby_menu.current_menu == 7 and clicked_button[1] == 7): #we need to be IN the settings menu before a click makes a settings save worthwhile.
                             # - We save some of our settings to a list * only if* we've changed any settings...this way, the server can save them for us -
                             self.settings_data = []
                             #order: [music volume, SFX volume, GFX quality, control data]
                             self.settings_data.append(lobby_menu.grab_settings(["Music Volume"])[0][0])
                             self.settings_data.append(lobby_menu.grab_settings(["SFX Volume"])[0][0])
                             self.settings_data.append(lobby_menu.grab_settings(["GFX Quality"])[0][0])
+                            # - Get our most up-to-date DEADZONE value from the menu since if we don't save it here, the server will overwrite it next time it sends us our saved settings -
+                            controller.DEADZONE = int(lobby_menu.grab_settings(["Deadzone"])[0][0]) / 10
                             self.settings_data.append(self.controls.return_data()) #we also save our control scheme
                             # - Now we request to have that data saved -
                             with self.request_lock:
@@ -772,12 +873,14 @@ class BattleEngine():
                 with self.waiting_for_queue_lock:
                     self.waiting_for_queue = True
                 self.battle_queue(battle_settings[0][0])
-                controller.empty_keys()
+                if(ph == None): #this can only happen if we're in single player mode. I haven't implemented an equivalent function in the PygameHandler() class for threads to utilize.
+                    controller.empty_keys()
                 self.waiting_for_queue = False
                 with self.request_lock:
                     self.request[0] = None #clear the halt on the packets thread for the lobby client.
                 first_entry = True #this is so we don't get the red X when we leave the battle queue/leave a battle.
-                self.music.transition_track(self.music_files[0][random.randint(0,len(self.music_files[0]) - 1)]) #start the music up again...
+                if(ph == None and len(self.music_files[0]) > 0): #NO music in multi-player mode!
+                    self.music.transition_track(self.music_files[0][random.randint(0,len(self.music_files[0]) - 1)]) #start the music up again...
             elif(str(type(self.waiting_for_queue)) == "<class 'float'>" and time.time() - self.waiting_for_queue < netcode.DEFAULT_TIMEOUT and self.request_pending == False): #We didn't make it?
                 with self.request_lock:
                     self.request[0] = None
@@ -804,9 +907,14 @@ class BattleEngine():
                 first_entry = False
 
             # - Update our SFX_Manager() -
+            if(ph != None): #we need to send our SFX data to the PygameHandler() for it to be played.
+                ph.add_sounds(thread_num, self.sfx.return_data())
             self.sfx.clock([0,0])
                 
             #draw everything
+            if(ph != None): #wait until the PygameHandler() has drawn our previous frame so that we don't end up with a half-drawn frame onscreen
+                while not ph.surface_flipped(thread_num):
+                    pass
             self.screen.fill([0,0,0]) #draw our menu stuff onscreen
             if(self.special_window == None):
                 if(self.request_pending != True and self.request_pending != False): #draw the menu, but do not highlight options since we are awaiting a response from the server.
@@ -833,7 +941,11 @@ class BattleEngine():
                 pygame.draw.line(self.screen,[255,0,0],[cursorpos[0] - int(8 * lobby_menu.menu_scale),cursorpos[1] + int(8 * lobby_menu.menu_scale)],[cursorpos[0] + int(8 * lobby_menu.menu_scale),cursorpos[1] - int(8 * lobby_menu.menu_scale)],int(3 * lobby_menu.menu_scale))
             #draw the HUD
             hud.draw_HUD(self.screen)
-            pygame.display.flip() #update the display
+            #update the display: There are different ways needed depending on whether a PygameHandler() is being used.
+            if(ph == None):
+                pygame.display.flip() #update the display
+            else:
+                ph.surface_flip(thread_num)
 
             if(self.lobby_connected > 4): #5 lost packets in a row?
                 break #exit if we're not connected to the server
@@ -841,15 +953,16 @@ class BattleEngine():
             #get da FPS
             clock.tick(900)
             fps = clock.get_fps()
-            pygame.display.set_caption("Tank Battalion Online Lobby - FPS: " + str(int(fps)))
+            if(ph == None): #NO caption setting if there's multiple client threads running @ once!
+                pygame.display.set_caption("Tank Battalion Online Lobby - FPS: " + str(int(fps)))
 
-        if(self.lobby_connected > 4): #Did we disconnect/get kicked from the server?
+        if(self.lobby_connected > 4 and ph == None): #Did we disconnect/get kicked from the server? (this menu doesn't need to be here in offline mode)
             # - Reconfigure lobby_menu -
             lobby_menu = menu.Menuhandler()
             lobby_menu.create_menu(["Exit"],[["",""]],[],[],"Disconnected")
             running = True
+            font_size = 10
             cursorpos = [0,0]
-            chars_per_line = 25
             while running:
                 # - Check if we have clicked any buttons -
                 event_pack = controller.get_keys()
@@ -867,6 +980,17 @@ class BattleEngine():
                         cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * lobby_menu.menu_scale
                         cursorpos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * lobby_menu.menu_scale
 
+                # - Check for mouse movement or mouse click -
+                for x in event_pack[2]:
+                    if(x.type == pygame.MOUSEMOTION):
+                        cursorpos[0] = x.pos[0]
+                        cursorpos[1] = x.pos[1]
+                    elif(x.type == pygame.MOUSEBUTTONDOWN and shoot not in keys):
+                        keys.append(shoot) #we're going to insert shoot into keys...this is a quick way to use the same code as pressing E for choosing a menu option with the mouse.
+                    elif(x.type == pygame.MOUSEBUTTONUP):
+                        if(shoot in keys):
+                            keys.remove(shoot)
+
                 # - Check if we clicked exit -
                 if(shoot in keys): #shoot?
                     if(self.special_window == None):
@@ -879,19 +1003,19 @@ class BattleEngine():
                 lobby_menu.update(self.screen)
 
                 # - Grab the message we are trying to blit onto the screen -
-                message = menu.draw_message("An error occurred. Most likely, you entered bad account credentials, or tried to create an account with a name which has already been used. However, there is a chance that the server is down, in which case please try again in a few minutes.",self.screen.get_width(),chars_per_line)
+                message = menu.draw_message("An error occurred. Most likely, you entered bad account credentials, tried to log into an account which is currently logged in, or tried to create an account with a name which either starts with bot or has already been used. However, there is a chance that the server is down, in which case please try again in a few minutes.",int(self.screen.get_width() * 0.95),font_size)
                 if(message.get_height() > self.screen.get_height() - lobby_menu.menu_scale * font.SIZE * 3):
-                    chars_per_line += 1
+                    font_size -= 1
                     message = pygame.transform.scale(message,[message.get_width(), self.screen.get_height() - lobby_menu.menu_scale * font.SIZE * 3])
-                elif(message.get_height() < self.screen.get_height() - lobby_menu.menu_scale * font.SIZE * 10):
-                    chars_per_line -= 1
+                elif(message.get_height() < self.screen.get_height() - lobby_menu.menu_scale * font.SIZE * 14):
+                    font_size += 1
 
                 # - Draw everything onscreen -
                 self.screen.fill([0,0,0]) #fill the screen black
                 # - Draw the menu onscreen -
                 lobby_menu.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,cursorpos)
                 # - Draw the error message onscreen -
-                self.screen.blit(message,[0,font.SIZE * lobby_menu.menu_scale * 3])
+                self.screen.blit(message,[int(self.screen.get_width() / 2 - message.get_width() / 2),font.SIZE * lobby_menu.menu_scale * 3])
                 # - Draw the cursor onscreen -
                 pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] - int(8 * lobby_menu.menu_scale)],[cursorpos[0],cursorpos[1] - int(4 * lobby_menu.menu_scale)],int(3 * lobby_menu.menu_scale))
                 pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] + int(8 * lobby_menu.menu_scale)],[cursorpos[0],cursorpos[1] + int(4 * lobby_menu.menu_scale)],int(3 * lobby_menu.menu_scale))
@@ -914,8 +1038,15 @@ class BattleEngine():
                 clock.tick(900)
                 fps = clock.get_fps()
                 pygame.display.set_caption("Disconnnected! FPS: " + str(int(fps)))
-            
-        pygame.quit() #quit pygame when we're out of here...
+
+        if(ph == None): #pygame does NOT need to be quit if we're using a PygameHandler().
+            pygame.quit() #quit pygame when we're out of here...
+        else:
+            self.screen = ph.get_surface(self.thread_num)
+            self.screen.fill([0,0,0])
+            ph.surface_flip(thread_num)
+            if(threads_running[thread_num] != None):
+                threads_running[thread_num] = False #let the main thread know we've exited the game.
 
     def battle_queue(self, battle_queue_str): #this handles the socket connection + the pygame stuff in the same thread. Lowers the FPS while in queue, but that's OK.
         #create a menu object for player queue stuff
@@ -980,8 +1111,9 @@ class BattleEngine():
         shoot_timeout = time.time()
 
         # - Start the music! -
-        music_track = random.randint(0,len(self.music_files[1]) - 1)
-        self.music.transition_track(self.music_files[1][music_track]) #start the music up again...
+        if(len(self.music_files[1]) > 0):
+            music_track = random.randint(0,len(self.music_files[1]) - 1)
+            self.music.transition_track(self.music_files[1][music_track]) #start the music up again...
 
         #...queueing is taking a long time, eh?
         queueing = True
@@ -1026,7 +1158,7 @@ class BattleEngine():
 
             # - Update our Music() manager, and check if we need to queue more tracks -
             queue = not self.music.clock() #returns False if we need to queue more tracks
-            if(queue): #queue a new random track
+            if(queue and len(self.music_files[1]) > 0): #queue a new random track
                 music_track += 1
                 if(music_track >= len(self.music_files[1])):
                     music_track = 0
@@ -1059,6 +1191,17 @@ class BattleEngine():
                     cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * queue_menu.menu_scale
                     cursorpos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * queue_menu.menu_scale
 
+            # - Check for mouse motion or mouse click -
+            for x in event_pack[2]:
+                if(x.type == pygame.MOUSEMOTION):
+                    cursorpos[0] = x.pos[0]
+                    cursorpos[1] = x.pos[1]
+                elif(x.type == pygame.MOUSEBUTTONDOWN and shoot not in keys):
+                    keys.append(shoot) #we're going to insert shoot into keys...this is a quick way to use the same code as pressing E for choosing a menu option with the mouse.
+                elif(x.type == pygame.MOUSEBUTTONUP):
+                    if(shoot in keys):
+                        keys.remove(shoot)
+
             if(shoot in keys and str(type(self.request_pending)) == "<class 'bool'>" and time.time() - shoot_timeout > 0.20): #we shot?
                 shoot_timeout = time.time()
                 self.sfx.play_sound(self.GUNSHOT, [0,0],[0,0]) #play the gunshot sound effect
@@ -1072,12 +1215,12 @@ class BattleEngine():
                             player_view_index += 1
                         elif(clicked_button[0][0] == 0): #return to lobby??
                             exit_queue = True
-                        elif(clicked_button[0][0] == 9): #skip 1 track backward?
+                        elif(clicked_button[0][0] == 9 and len(self.music_files[1]) > 0): #skip 1 track backward?
                             music_track -= 1
                             if(music_track < 0):
                                 music_track = len(self.music_files[1]) - 1
                             self.music.transition_track(self.music_files[1][music_track])
-                        elif(clicked_button[0][0] == 10): #skip 1 track forward?
+                        elif(clicked_button[0][0] == 10 and len(self.music_files[1]) > 0): #skip 1 track forward?
                             music_track += 1
                             if(music_track >= len(self.music_files[1])):
                                 music_track = 0
@@ -1114,7 +1257,7 @@ class BattleEngine():
                     queue_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"Name")
                     #Shells
                     for x in range(0,len(shell_names)):
-                        opt_str = str(tmp_acct.shells[x]) + "/" + str(tmp_acct.max_shells[x])
+                        opt_str = str(tmp_acct.shells[x]) + "/" + str(account.max_shells[x])
                         queue_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,shell_names[x])
                     #Powerups
                     for x in range(0,len(powerup_names)):
@@ -1125,7 +1268,7 @@ class BattleEngine():
                         queue_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,powerup_names[x])
                     #Upgrades
                     for x in range(0,len(upgrade_names)):
-                        opt_str = str(tmp_acct.upgrades[x]) + "/" + str(tmp_acct.upgrade_limit)
+                        opt_str = str(tmp_acct.upgrades[x]) + "/" + str(account.upgrade_limit)
                         queue_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,upgrade_names[x])
                     #Specialization
                     opt_str = self.specialization_mapper[tmp_acct.specialization + self.specialization_offset]
@@ -1174,20 +1317,24 @@ class BattleEngine():
         elif(exit_queue): #leaving the matchmaking queue?
             pass #we will automatically exit back to the main menu when this happens.
 
-    def battle_client(self):
+    def battle_client(self, ph=None, Cs=None, thread_num=None, thread_running=None, external_running=None):
         global path
+        # - Get our screen surface and client socket (if we don't have one, which can happen in split-screen mode) -
+        if(ph != None):
+            self.Cs = Cs
+            self.screen = ph.get_surface(thread_num)
         # - Menu stuff -
         battle_menu = menu.Menuhandler()
         battle_menu.default_display_size = [160, 120]
         battle_menu.create_menu(["","","","","","","","","",""],
                        [
                         #start by adding our powerup items to the menu
-                        [path + "../../pix/blocks/powerups/fuel.png",[10,0]],
-                        [path + "../../pix/blocks/powerups/fire-extinguisher.png",[10,20]],
-                        [path + "../../pix/blocks/powerups/dangerous-loading.png",[10,40]],
-                        [path + "../../pix/blocks/powerups/explosive-tip.png",[10,60]],
-                        [path + "../../pix/blocks/powerups/amped-gun.png",[10,80]],
-                        [path + "../../pix/blocks/powerups/makeshift-armor.png",[10,100]],
+                        [path + "../../pix/powerups/fuel.png",[10,0]],
+                        [path + "../../pix/powerups/fire-extinguisher.png",[10,20]],
+                        [path + "../../pix/powerups/dangerous-loading.png",[10,40]],
+                        [path + "../../pix/powerups/explosive-tip.png",[10,60]],
+                        [path + "../../pix/powerups/amped-gun.png",[10,80]],
+                        [path + "../../pix/powerups/makeshift-armor.png",[10,100]],
                         #add our shells to the menu
                         [path + "../../pix/ammunition/hollow_shell_button.png",[40,0]],
                         [path + "../../pix/ammunition/regular_shell_button.png",[60,0]],
@@ -1196,6 +1343,15 @@ class BattleEngine():
                         ],
                        [],buttonindexes=[],name="")
         battle_menu.create_menu(["Continue","Leave Match","","Music Volume","SFX Volume","","Skip Back One Track","Skip Forward One Track"], [["",""],["",""],["",""],[0,10],[0,10],["",""],["",""],["",""]], [[0,0]], buttonindexes=[], name="Ingame Options")
+        # - Update our SFX and music volume in Menu 1 so that it doesn't mute as soon as use press ESC_KEY -
+        battle_menu.current_menu = 1
+        battle_menu.reconfigure_setting([0,10], str(int(round(pygame.mixer.music.get_volume() * 10))), int(round(pygame.mixer.music.get_volume() * 10)), "Music Volume")
+        if(ph == None):
+            input_volume = self.sfx.sound_volume
+        else:
+            input_volume = ph.get_volume(thread_num)
+        battle_menu.reconfigure_setting([0,10], str(int(round(self.sfx.sound_volume * 10))), int(round(self.sfx.sound_volume * 10)), "SFX Volume")
+        battle_menu.current_menu = 0
 
         # - HUD stuff -
         hud = HUD.HUD()
@@ -1250,15 +1406,16 @@ class BattleEngine():
         
         # - Entity/player stuff -
         player_account = account.Account() #your account stats (they get set up properly within battle_client_netcode())
-        player_tank = entity.Tank(pygame.image.load(path + "../../pix/Characters(gub)/p1U.png"), ["tmp team name","tmp player name"]) #your player tank
+        player_tank = entity.Tank([pygame.image.load(path + "../../pix/tanks/P1U1.png"),pygame.image.load(path + "../../pix/tanks/P1U2.png")], ["tmp team name","tmp player name"]) #your player tank
         entities = [] #list of other players, powerups, bullets
         entities_lock = _thread.allocate_lock()
 
         # - Arena stuff -
-        arena = arena_lib.Arena([[0,0],[0,0]], [pygame.image.load(path + "../../pix/blocks/ground/asphalt.png")], [])
+        arena = arena_lib.Arena([[0,0],[0,0]], [pygame.image.load(path + "../../pix/blocks/original_20x20/ground/asphalt.png")], [])
         arena.stretch = False
+        arena.TILE_SIZE = 20 #This needs to be set to the tile size of the TANK sprite being used for all players. The arena's tile size will change once the arena is loaded in the netcode thread.
         # - The viewport size of our screen -
-        tile_viewport = [12,12]
+        tile_viewport = [15,15]
         # - Our screen scale -
         screen_scale = arena.get_scale(tile_viewport, self.screen)
         # - Set our player's position onscreen -
@@ -1299,14 +1456,23 @@ class BattleEngine():
 
         pending_position = None #this flag gets set to your player position when you resize your screen to avoid teleportation from screen resize.
 
-        # - Start the music! -
-        music_track = random.randint(0,len(self.music_files[2]) - 1)
-        self.music.transition_track(self.music_files[2][music_track]) #start the music up again...
+        # - Start the music (except in split-screen mode - music is handled by the PygameHandler then)! -
+        if(ph == None):
+            if(len(self.music_files[2]) > 0):
+                music_track = random.randint(0,len(self.music_files[2]) - 1)
+                self.music.transition_track(self.music_files[2][music_track]) #start the music up again...
+        else: #if we are using a PygameHandler(), we need to ensure that we don't try playing any SFX either in the threads inside this BattleEngine() instance.
+            self.sfx.server = True
 
         #start up the netcode        
-        _thread.start_new_thread(self.battle_client_netcode,(player_tank, player_account, entities, entities_lock, particles, particles_lock, arena, blocks, screen_scale, running, sync, game_end, eliminated, hud, gfx, time_remaining, netcode_performance))
+        _thread.start_new_thread(self.battle_client_netcode,(player_tank, player_account, entities, entities_lock, particles, particles_lock, arena, blocks, screen_scale, running, sync, game_end, eliminated, hud, gfx, time_remaining, netcode_performance, ph, thread_num))
         #start up a thread solely for computations
-        _thread.start_new_thread(self.battle_client_compute,(player_tank, running, arena, gfx_particles, gfx_particles_lock, battle_menu, gfx, framecounter, hud, mousepos, cps_performance))
+        _thread.start_new_thread(self.battle_client_compute,(player_tank, running, arena, gfx_particles, gfx_particles_lock, battle_menu, gfx, framecounter, hud, mousepos, cps_performance, ph, thread_num))
+
+        # - This bookmarks the size of our screen at the beginning of a frame. It can be used to help keep the player's onscreen position constant when resizing the game window.
+        #   This method is only used when we are using a PygameHandler(), as there is a cleaner way to do this with the pygame.VIDEORESIZE flag.
+        if(ph != None):
+            previous_screensize = [self.screen.get_width(), self.screen.get_height()]
 
         # - Now we use this thread to draw graphics, and do keypress detection etc. -
         while running[0]:
@@ -1318,28 +1484,58 @@ class BattleEngine():
             if(framecounter[0] > 65535):
                 framecounter[0] = 0
 
-            # - Update our Music() manager, and check if we need to queue more tracks -
-            queue = not self.music.clock() #returns False if we need to queue more tracks
-            if(queue): #queue a new random track
-                music_track += 1
-                if(music_track >= len(self.music_files[2])):
-                    music_track = 0
-                self.music.queue_track(self.music_files[2][music_track])
+            # - Get our screen surface (if we don't have one, which can happen in split-screen mode) -
+            if(ph != None):
+                self.screen = ph.get_surface(thread_num)
 
-            # - Run the pygame event loop, update the keys pressed, and check whether we need a window resize -
-            event_pack = controller.get_keys()
-            running[0] = not event_pack[0]
-            if(event_pack[1] != None): #we requested a window resize?
-                pending_position = player_tank.overall_location[:]
-                resize_dimensions = list(event_pack[1])
-                if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
-                    resize_dimensions[0] = self.min_screen_size[0]
-                if(resize_dimensions[1] < self.min_screen_size[1]):
-                    resize_dimensions[1] = self.min_screen_size[1]
-                self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
+            # - Update our Music() manager, and check if we need to queue more tracks (only for online mode) -
+            if(ph == None):
+                queue = not self.music.clock() #returns False if we need to queue more tracks
+                if(queue and len(self.music_files[2]) > 0): #queue a new random track
+                    music_track += 1
+                    if(music_track >= len(self.music_files[2])):
+                        music_track = 0
+                    self.music.queue_track(self.music_files[2][music_track])
 
-            # - Get controller input -
-            keys = self.controls.get_input()
+            # - Check if we asked to close the game in split-screen mode -
+            if(ph != None and running[0] == True):
+                running[0] = external_running[0]
+
+            # - If we're dead, we may as well be able to move quickly so we can see what is happening in-game -
+            if(player_tank.destroyed == True):
+                player_tank.speed = 3.75
+
+            # - Run the pygame event loop, update the keys pressed, and check whether we need a window resize (the first and third one only happens in online mode) -
+            if(ph == None): #there are two ways of getting input: via pygame, or the PygameHandler(). For online mode, pygame is used. For offline split-screen mode, the P.H. is used.
+                event_pack = controller.get_keys()
+                running[0] = not event_pack[0]
+                if(event_pack[1] != None): #we requested a window resize?
+                    pending_position = player_tank.overall_location[:]
+                    resize_dimensions = list(event_pack[1])
+                    if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                        resize_dimensions[0] = self.min_screen_size[0]
+                    if(resize_dimensions[1] < self.min_screen_size[1]):
+                        resize_dimensions[1] = self.min_screen_size[1]
+                    self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
+                keys = self.controls.get_input()
+                # - Check for mouse movement or mouse click -
+                for x in event_pack[2]:
+                    if(x.type == pygame.MOUSEMOTION):
+                        mousepos[0] = x.pos[0]
+                        mousepos[1] = x.pos[1]
+                    elif(x.type == pygame.MOUSEBUTTONDOWN and shoot not in keys):
+                        keys.append(shoot) #we're going to insert shoot into keys...this is a quick way to use the same code as pressing E for choosing a menu option with the mouse.
+                        keys.append(CURSOR_MOD)
+                    elif(x.type == pygame.MOUSEBUTTONUP):
+                        if(shoot in keys):
+                            keys.remove(shoot)
+                        if(CURSOR_MOD in keys):
+                            keys.remove(CURSOR_MOD)
+            else: #PygameHandler() needs to get input
+                keys = ph.get_input(thread_num)
+                if([self.screen.get_width(), self.screen.get_height()] != previous_screensize): #check whether we need to change our tank's coordinates to account for a screen resize
+                    pending_position = player_tank.overall_location[:]
+                    previous_screensize = [self.screen.get_width(), self.screen.get_height()]
 
             # - Handle the ESC key -
             if(ESC_KEY in keys and not PTT_KEY in keys): #menu # 1 then...
@@ -1357,7 +1553,7 @@ class BattleEngine():
                     for x in directions:
                         if(x in keys and not CURSOR_MOD in keys):
                             with player_tank.lock:
-                                player_tank.move(directions.index(x) * 90, arena.TILE_SIZE)
+                                player_tank.move(directions.index(x) * 90, arena.TILE_SIZE, screen_scale)
                         elif(x in keys and CURSOR_MOD in keys):
                             mousepos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 80 * battle_menu.menu_scale
                             mousepos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 80 * battle_menu.menu_scale
@@ -1375,12 +1571,12 @@ class BattleEngine():
                         elif(battle_menu.current_menu == 1 and collide[0][0] != None): #we clicked a button in the second menu (hit ESC to access)
                             if(collide[0][0] == 1): #disconnect?
                                 running[0] = False #just make sure we're leaving - this tells the netcode thread that we're leaving, and quits us back to the lobby.
-                            elif(collide[0][0] == 6): #skip back one music track
+                            elif(collide[0][0] == 6 and ph == None and len(self.music_files[2]) > 0): #skip back one music track (this can only happen with NO PygameHandler() since the PygameHandler() does music for us)
                                 music_track -= 1
                                 if(music_track < 0):
                                     music_track = len(self.music_files[2]) - 1
                                 self.music.transition_track(self.music_files[2][music_track])
-                            elif(collide[0][0] == 7): #skip forward one track
+                            elif(collide[0][0] == 7 and ph == None and len(self.music_files[2]) > 0): #skip forward one track (this can only happen with NO PygameHandler() since the PygameHandler() does music for us)
                                 music_track += 1
                                 if(music_track >= len(self.music_files[2])):
                                     music_track = 0
@@ -1420,9 +1616,10 @@ class BattleEngine():
                     ]
             collision = player_tank.return_collision(arena.TILE_SIZE, 3) #collision offset of 3 pixels to make map navigation easier
             tile_collision = arena.check_collision(tile_viewport, player_tank.overall_location[:], collision)
+            # - Comment out EVERYTHING inside the "with player_tank..." statement including the with statement to implement locationhax; You can walk through walls. However, my Anti-Cheat WILL detect you and TP you off the walls! -
             with player_tank.lock:
                 for x in tile_collision:
-                    if(x[0] in blocks):
+                    if(x[0] in blocks and player_tank.destroyed != True): #block collision isn't necessary if the player is dead...they may as well be free to spectate
                         player_tank.unmove()
                         break
 
@@ -1456,20 +1653,20 @@ class BattleEngine():
                     else:
                         self_eliminated = True
             if(destroyed_counter >= len(eliminated) - 1 and self_eliminated == False): #we won?
-                msg = ["W","victory"][random.randint(0,2)]
+                msg = ["W","victory"][random.randint(0,1)]
             if(time_remaining[0] <= 0): #We ran out of time (teams alive get 1st place, teams already dead get worse places. You can consider yourself to have won...or lost...I'd say a draw)?
-                msg = ["draw","oig"][random.randint(0,1)]
+                msg = ["draw","tie"][random.randint(0,1)]
 
             #create an explosion every X seconds + a bunch of word particles
             if(time.time() - explosion_timer > self.EXPLOSION_TIMER and msg != None):
                 explosion_timer = time.time() #reset the explosion timer...
                 explosion_counter += 1
                 with particles_lock:
-                    GFX.create_explosion(particles, [random.randint(0,tile_viewport[0]), random.randint(0,tile_viewport[1])], random.randint(2,6), [0.05, random.randint(1,3)], [[255,0,0],[255,255,0]],[[0,0,0],[100,100,100],[50,50,50]], 0.85, 0, msg, arena.TILE_SIZE)
+                    GFX.create_explosion(particles, [random.randint(0,len(arena.arena[0])), random.randint(0,len(arena.arena))], random.randint(2,6), [0.05, random.randint(1,3)], [[255,0,0],[255,255,0]],[[0,0,0],[100,100,100],[50,50,50]], 0.85, 0, msg, arena.TILE_SIZE)
                     # - Create a burst of word particles to help us understand the fact that the game's over -
                     for x in range(0,self.WORDS_QTY): #create 10 words in this interval of self.EXPLOSION_TIMER time
                         time_offset = (self.EXPLOSION_TIMER / (x + 1))
-                        start_map_pos = [random.randint(0,tile_viewport[0]), random.randint(0,tile_viewport[1])]
+                        start_map_pos = [random.randint(0,len(arena.arena[0])), random.randint(0,len(arena.arena))]
                         finish_map_pos = [start_map_pos[0] + random.randint(-1,1), start_map_pos[1] + random.randint(-1,1)]
                         start_size = random.randint(1,200) / 100
                         finish_size = random.randint(1,200) / 100
@@ -1481,6 +1678,9 @@ class BattleEngine():
                         particles.append(GFX.Particle(start_map_pos, finish_map_pos, start_size, finish_size, start_color, finish_color, time_start, time_finish, form))
 
             # - Draw everything -
+            if(ph != None): #wait until the PygameHandler has flipped our display if we're in split-screen mode to prevent screen tearing
+                while not ph.surface_flipped(thread_num):
+                    pass
             self.screen.fill([0,0,0]) #start with black...every good game starts with a black screen.
             arena.draw_arena(tile_viewport, player_tank.map_location[:], self.screen) #draw the arena
             player_tank.draw(self.screen, screen_scale, arena.TILE_SIZE) #draw the player tank
@@ -1542,9 +1742,6 @@ class BattleEngine():
             for x in gfx_particles: # - Draw the remaining particles -
                 x.clock()
                 x.draw(arena.TILE_SIZE, screen_scale, player_tank.map_location[:], self.screen)
-            # - Draw the menu -
-            battle_menu.draw_menu([0,0],[self.screen.get_width(), self.screen.get_height()],self.screen,mousepos)
-            hud.draw_HUD(self.screen)
             # - Draw time remaining in game -
             zero_filler = (5 - len(str(round(time_remaining[0],1)))) * "0"
             str_time = str(round(time_remaining[0],1))
@@ -1556,39 +1753,75 @@ class BattleEngine():
             font.draw_words(time_text, [int(self.screen.get_width() / 2 - 0.5 * battle_menu.menu_scale * font.SIZE * len(time_text) / 2),self.screen.get_height() - int(font.SIZE * 0.5 * battle_menu.menu_scale)], [255,255,0], battle_menu.menu_scale * 0.5, self.screen)
             # - Draw the minimap -
             minimap_surf = arena.draw_minimap(blocks) #draw the arena on the minimap
+            for x in range(0,len(gfx_particles)): #draw the positions of all GFX particles on the minimap
+                gfx_particles[x].draw_minimap(minimap_surf)
+            with particles_lock:
+                for x in range(0,len(particles)):
+                    particles[x].draw_minimap(minimap_surf)
+            if(ph == None):
+                self.sfx.draw_minimap(minimap_surf) #draw the positions of all SFX objects on the minimap
+            else:
+                ph.draw_minimap(thread_num, minimap_surf)
             with entities_lock: #draw all entity positions on the minimap
                 for x in entities:
                     if(x.type == "Tank" or x.type == "Bullet"):
                         x.draw_minimap(minimap_surf, player_tank.team, False)
                     else: #powerup?
                         x.draw_minimap(minimap_surf)
-            for x in range(0,len(gfx_particles)): #draw the positions of all GFX particles on the minimap
-                gfx_particles[x].draw_minimap(minimap_surf)
-            with particles_lock:
-                for x in range(0,len(particles)):
-                    particles[x].draw_minimap(minimap_surf)
-            self.sfx.draw_minimap(minimap_surf) #draw the positions of all SFX objects on the minimap
-            minimap_surf = pygame.transform.scale(minimap_surf, [int(minimap_surf.get_width() * battle_menu.menu_scale * 1.5), int(minimap_surf.get_height() * battle_menu.menu_scale * 1.5)]) #scale the minimap so it retains its size
+            minimap_room = int((self.screen.get_width() - battle_menu.menu_scale * 0.5 * font.SIZE * len(time_text)) / 2)
+            possible_minimap_sizes = [int(minimap_room * 0.95), int(self.screen.get_height() / 3)]
+            scale_qtys = [minimap_surf.get_width() / minimap_surf.get_height(), minimap_surf.get_height() / minimap_surf.get_width()]
+            final_minimap_size = [1,1]
+            if(possible_minimap_sizes[0] * scale_qtys[1] < possible_minimap_sizes[1]):
+                final_minimap_size[0] = possible_minimap_sizes[0]
+                final_minimap_size[1] = int(possible_minimap_sizes[0] * scale_qtys[1])
+            else:
+                final_minimap_size[1] = possible_minimap_sizes[1]
+                final_minimap_size[0] = int(possible_minimap_sizes[1] * scale_qtys[0])
+            minimap_surf = pygame.transform.scale(minimap_surf, final_minimap_size) #scale the minimap so it retains its size
             self.screen.blit(minimap_surf, [self.screen.get_width() - minimap_surf.get_width(), self.screen.get_height() - minimap_surf.get_height()]) #copy the minimap to the bottom-right corner of the screen
+            # - Draw the menu -
+            if(battle_menu.current_menu == 1): #give the menu a black background; It's almost unreadable otherwise.
+                self.screen.fill([0,0,0])
+            battle_menu.draw_menu([0,0],[self.screen.get_width(), self.screen.get_height()],self.screen,mousepos)
+            if(battle_menu.current_menu == 0): #we only draw the HUD if we're playing, not if we're in the ingame settings menu.
+                hud.draw_HUD(self.screen)
             #draw the cursor onscreen
             pygame.draw.line(self.screen,[255,255,255],[mousepos[0],mousepos[1] - int(8 * battle_menu.menu_scale)],[mousepos[0],mousepos[1] - int(4 * battle_menu.menu_scale)],int(3 * battle_menu.menu_scale))
             pygame.draw.line(self.screen,[255,255,255],[mousepos[0],mousepos[1] + int(8 * battle_menu.menu_scale)],[mousepos[0],mousepos[1] + int(4 * battle_menu.menu_scale)],int(3 * battle_menu.menu_scale))
             pygame.draw.line(self.screen,[255,255,255],[mousepos[0] + int(8 * battle_menu.menu_scale),mousepos[1]],[mousepos[0] + int(4 * battle_menu.menu_scale),mousepos[1]],int(3 * battle_menu.menu_scale))
             pygame.draw.line(self.screen,[255,255,255],[mousepos[0] - int(8 * battle_menu.menu_scale),mousepos[1]],[mousepos[0] - int(4 * battle_menu.menu_scale),mousepos[1]],int(3 * battle_menu.menu_scale))
 
-            # - Update the display -
-            pygame.display.flip()
+            # - Update the display (which has to be done different ways depending on whether we use a PygameHandler() or not) -
+            if(ph == None):
+                pygame.display.flip()
+            else:
+                ph.surface_flip(thread_num)
 
             # - Handle FPS display -
             clock.tick(750)
             fps = clock.get_fps()
-            pygame.display.set_caption("Tank Battalion Online - FPS: " + str(int(fps)) + " - CPS: " + str(cps_performance[0]) + " - PPS: " + str(netcode_performance[0]) + " - Ping: " + str(netcode_performance[1]) + " ms")
+            if(ph == None):
+                pygame.display.set_caption("Tank Battalion Online - FPS: " + str(int(fps)) + " - CPS: " + str(cps_performance[0]) + " - PPS: " + str(netcode_performance[0]) + " - Ping: " + str(netcode_performance[1]) + " ms")
+            else: #make sure the main thread can see our FPS
+                ph.update_fps(thread_num)
+        if(ph != None):
+            while not ph.surface_flipped(thread_num): #blacken our display to show the thread ended
+                pass
+            self.screen = ph.get_surface(thread_num)
+            self.screen.fill([0,0,0])
+            ph.surface_flip(thread_num)
+            thread_running[thread_num] = False #let the main thread know we're done
 
-    def battle_client_compute(self, player_tank, running, arena, gfx_particles, gfx_particles_lock, battle_menu, gfx, framecounter, hud, mousepos, cps_performance):
+    def battle_client_compute(self, player_tank, running, arena, gfx_particles, gfx_particles_lock, battle_menu, gfx, framecounter, hud, mousepos, cps_performance, ph=None, thread_num=None):
         # - Lists of all the pygame IDs of our keybinds. These lists are then used to display the correct key on the player's HUD required to take a certain action -
-        tank_bullets_pygame_keys = self.controls.buttons[0:4] #[pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4]
-        tank_powerups_pygame_keys = self.controls.buttons[4:10] #[pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n]
-    
+        if(ph == None):
+            tank_bullets_pygame_keys = self.controls.buttons[0:4] #[pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4]
+            tank_powerups_pygame_keys = self.controls.buttons[4:10] #[pygame.K_z, pygame.K_x, pygame.K_c, pygame.K_v, pygame.K_b, pygame.K_n]
+        else:
+            tank_bullets_pygame_keys = ph.get_controls(thread_num)[0:4]
+            tank_powerups_pygame_keys = ph.get_controls(thread_num)[4:10]
+        
         # - For recording performance statistics -
         clock = pygame.time.Clock()
         
@@ -1607,6 +1840,8 @@ class BattleEngine():
             if(battle_menu.current_menu == 1):
                 self.music.set_volume(int(battle_menu.grab_settings(["Music Volume"])[0][0]) / 10)
                 self.sfx.sound_volume = int(battle_menu.grab_settings(["SFX Volume"])[0][0]) / 10
+                if(ph != None):
+                    ph.set_volume(thread_num, int(battle_menu.grab_settings(["SFX Volume"])[0][0]) / 10)
 
             # - Update P1's HUD, starting with P1's HP/Armor bar and the menu update command -
             battle_menu.update(self.screen)
@@ -1644,7 +1879,7 @@ class BattleEngine():
                                 break
                         else: #this is a joystick?
                             key_to_press = str(x - 3) #just give the button number
-                    if(key_to_press == None):
+                    if(key_to_press == None and player_tank.powerups[x - 3] != None):
                         hud.update_HUD_element_value(x,"")
                         hud.update_HUD_element_color(x,[[0,255,0],None,None])
                     elif(player_tank.powerups[x - 3] != None):
@@ -1682,40 +1917,36 @@ class BattleEngine():
                 gfx.purge() #delete old particles
 
             # - Update our SFX_Manager() -
-            with self.sfx.lock:
-                self.sfx.clock(player_tank.overall_location[:])
+            if(ph == None):
+                with self.sfx.lock:
+                    self.sfx.clock(player_tank.overall_location[:])
+            else: #this is the SFX_Manager() clock equivalent which needs to happen when using a PygameHandler().
+                ph.set_player_pos(thread_num, player_tank.overall_location[:])
             
             # - Get CPS and send them to the main thread -
             clock.tick(750)
             cps_performance[0] = round(clock.get_fps(),1)
     
-    def battle_client_netcode(self, player_tank, player_account, entities, entities_lock, particles, particles_lock, arena, blocks, screen_scale, running, sync, game_end, eliminated, hud, gfx, time_remaining, netcode_performance): #netcode and background processes for battle_client().
+    def battle_client_netcode(self, player_tank, player_account, entities, entities_lock, particles, particles_lock, arena, blocks, screen_scale, running, sync, game_end, eliminated, hud, gfx, time_remaining, netcode_performance, ph=None, thread_num=None): #netcode and background processes for battle_client().
         setup = True #do we still need to set up the game?
         packets = True #are we going to stop exchanging packets yet?
         clock = pygame.time.Clock() #I like to see my PPS
         SFX.ID_NUM = 0 #Reset our SFX sound counter, so that we don't lose any sounds at the beginning of the battle
+        old_tile_data = None #we compare this with new tile data we get from the server to see if we need to clear our tank's unmove() flag when a brick is destroyed.
 
         #define our list of powerup images
         powerup_images = [
-            pygame.image.load(path + "../../pix/blocks/powerups/fuel.png").convert(),
-            pygame.image.load(path + "../../pix/blocks/powerups/fire-extinguisher.png").convert(),
-            pygame.image.load(path + "../../pix/blocks/powerups/dangerous-loading.png").convert(),
-            pygame.image.load(path + "../../pix/blocks/powerups/explosive-tip.png").convert(),
-            pygame.image.load(path + "../../pix/blocks/powerups/amped-gun.png").convert(),
-            pygame.image.load(path + "../../pix/blocks/powerups/makeshift-armor.png").convert(),
+            pygame.image.load(path + "../../pix/powerups/fuel.png").convert(),
+            pygame.image.load(path + "../../pix/powerups/fire-extinguisher.png").convert(),
+            pygame.image.load(path + "../../pix/powerups/dangerous-loading.png").convert(),
+            pygame.image.load(path + "../../pix/powerups/explosive-tip.png").convert(),
+            pygame.image.load(path + "../../pix/powerups/amped-gun.png").convert(),
+            pygame.image.load(path + "../../pix/powerups/makeshift-armor.png").convert(),
             pygame.image.load(path + "../../pix/ammunition/hollow_shell_button.png").convert(),
             pygame.image.load(path + "../../pix/ammunition/regular_shell_button.png").convert(),
             pygame.image.load(path + "../../pix/ammunition/explosive_shell_button.png").convert(),
             pygame.image.load(path + "../../pix/ammunition/disk_shell_button.png").convert()
             ]
-
-        #define ally and enemy images
-        ally_image = pygame.image.load(path + "../../pix/Characters(gub)/p1U.png").convert_alpha()
-        enemy_image = pygame.image.load(path + "../../pix/Characters(gub)/p2U.png").convert_alpha()
-        team_images = [ally_image, enemy_image,
-                       pygame.image.load(path + "../../pix/Characters(gub)/p3U.png").convert_alpha(),
-                       pygame.image.load(path + "../../pix/Characters(gub)/p4U.png").convert_alpha()
-                       ]
         
         while packets:
             #Recieve data from the server
@@ -1748,21 +1979,33 @@ class BattleEngine():
                     player_account.enter_data(data[1]) #gotta make sure we have our account + tank set up properly
                     with player_tank.lock:
                         #team name will get set on a sync packet. The server will have to send one right after setup occurs.
-                        player_tank_new = player_account.create_tank(pygame.image.load(path + "../../pix/Characters(gub)/p1U.png").convert_alpha(), "team name here...")
+                        player_tank_new = player_account.create_tank(self.team_images[0], "team name here...")
                         player_tank.enter_data(player_tank_new.return_data(), arena.TILE_SIZE, screen_scale, server=False) #this has to be run twice, once as client, once as server to enter all the data necessary.
                         player_tank.enter_data(player_tank_new.return_data(), arena.TILE_SIZE, screen_scale, server=True) # - The server version only inputs certain pieces of data, as does the client. Doing both enters all the data.
                     # - Set up the arena -
                     with arena.lock:
                         arena_name = data[2] #the server sent us the name of the arena we're playing on
-                        arena_data = import_arena.return_arena(arena_name, True) #get our arena data from the name the server sent us (and convert the images to faster formats for blitting)
+                        # - Get our arena data from the name the server sent us...
+                        #   (and DON'T convert the images to faster formats BECAUSE we need to scale them before blitting them. Converting NOW would introduce image corruption into the final arena we draw onscreen)
+                        arena_data = import_arena.return_arena(arena_name, False)
                         arena.arena = arena_data[0] #input the arena data into our arena object
                         arena.tiles = arena_data[1]
-                        arena.scaled_tiles = arena_data[1]
+                        #arena.TILE_SIZE = arena.tiles[0].get_width() #I don't think this actually ends up being necessary...
+                        for x in range(0,len(arena.scaled_tiles)):
+                            del(arena.scaled_tiles[0])
+                        for x in range(0,len(arena_data[1])):
+                            newsurf = pygame.Surface([arena_data[1][x].get_width(), arena_data[1][x].get_height()])
+                            newsurf.blit(arena_data[1][x], [0,0])
+                            arena.scaled_tiles.append(newsurf)
+                        #I had this here...but it shouldn't be. We SHOULDN'T populate scaled_tiles[] with the same data as arena.tiles[]; it would lead to both the unscaled and scaled versions pointing to the same data.
+                        #arena.scaled_tiles = arena_data[1]
                         arena.shuffle_patterns = arena_data[2]
                         for x in arena_data[3]:
                             blocks.append(x)
                         # - Now we update our arena tile scale -
                         arena.last_screen_size = [-1,-1] #changing this value WILL make the game update the scale.
+                        arena.clear_flag_locations() #make sure we know where our flags are; this make it so the minimap knows what to mark as grey (a flag).
+                        arena.set_flag_locations(arena_data[6])
                     # - Set up the HUD a bit (HP bars for all players other than ourselves) & add enough tank entities for all players -
                     for x in range(0,len(data[3])):
                         hud.add_HUD_element("horizontal bar",[[0,-100],[20,5],[[0,255,0],[0,0,0],[0,0,255]],1.0],False)
@@ -1776,14 +2019,14 @@ class BattleEngine():
                             new_tank = entity.Tank("image will be fixed", ["Tank name which will be inserted when we enter_data()","Team name which will be fixed when we enter_data()"])
                             new_tank.enter_data(data[3][x], TILE_SIZE=arena.TILE_SIZE, screen_scale=[1,1], server=False) #fixes everything but the image, which we can do by checking if the player is on our team. if not, the image is p2's tank.
                             # - Fix the image -
-                            new_tank.load_image(team_images[new_tank.team_num])
+                            new_tank.load_image(self.team_images[new_tank.team_num])
                             entities.append(new_tank)
                     setup = False
                 elif(data[0] == "sync"): #we're moving a bit funny, and the server doesn't like it...we can't move for a bit here =(
+                    sync[0] = True #turn on our sync flag (auugh! we can't move all of a sudden!)
                     with player_tank.lock:
                         player_tank.enter_data(data[1], arena.TILE_SIZE, screen_scale) #reset our tank's position a bit...
                     print("Synced to location: " + str(player_tank.overall_location))
-                    sync[0] = True #turn on our sync flag (auugh! we can't move all of a sudden!)
                 elif(data[0] == "packet"): #normal data packet
                     with entities_lock:
                         decrement = 0
@@ -1821,6 +2064,9 @@ class BattleEngine():
                             gfx.enter_data(data[3])
                     if(data[4] != None): #the server is sending block updates this packet?
                         arena.modify_tiles(data[4]) #update our tiles...
+                        if(data[4] != old_tile_data): #we need to clear our unmove() flag?
+                            old_tile_data = data[4][:]
+                            player_tank.clear_unmove_flag() #this function doesn't need to be under any sort of .lock() because it simply changes a flag under the hood from True to False.
                     # - Update eliminated list -
                     if(len(eliminated) != len(data[5])): #make sure eliminated is the right length
                         if(len(eliminated) > len(data[5])):
@@ -1833,8 +2079,11 @@ class BattleEngine():
                         eliminated[x][0] = data[5][x][0]
                         eliminated[x][1] = data[5][x][1]
                     # - Update SFX_Manager() -
-                    with self.sfx.lock:
-                        self.sfx.enter_data(data[6], player_tank.overall_location[:])
+                    if(ph == None):
+                        with self.sfx.lock:
+                            self.sfx.enter_data(data[6], player_tank.overall_location[:])
+                    else: #if we're using a PygameHandler(), we just copy the data we got from the server and enter it into the PygameHandler()'s SFX_Manager() instead of ours.
+                        ph.add_sounds(thread_num, data[6])
                     # - Update time_remaining -
                     time_remaining[0] = data[7]
                 elif(data[0] == "end"): #game over?
@@ -1890,12 +2139,12 @@ class BattleEngine():
                         for y in range(0,len(entities[x].powerups)):
                             player_tank.powerups[y] = entities[x].powerups[y]
                         player_tank.team_num = entities[x].team_num #fix OUR image + our team_num, since it WILL be wrong.
-                        player_tank.spotted_image = team_images[player_tank.team_num]
+                        player_tank.spotted_images = self.team_images[player_tank.team_num]
                     break
             #time_compute = time.time() - time_compute #Timing debug info
 
-            #Send our data back to the server
-            # - Format:
+            # - Send our data back to the server -
+            #   Format:
             #   - Normal packet:["packet",Tank.return_data()]
             #   - Leave match: ["end",Tank.return_data()]
             #   - Still need to setup (packet lost): ["setup"]
@@ -1922,7 +2171,7 @@ class BattleEngine():
         player_stat += self.CASH_WEIGHT * player_account.cash #add player cash to predicted performance
         # - Find the player's individual upgrade levels, and add player rating from them -
         for b in range(0,len(player_account.upgrades)):
-            player_stat += pow(self.UPGRADE_WEIGHT, player_account.upgrades[b]) - 1
+            player_stat += self.UPGRADE_WEIGHTS[b] * player_account.upgrades[b]
         # - Add the player's number of shells of each type to the player's predicted performance -
         for x in range(0,len(player_account.shells)):
             player_stat += player_account.shells[x] * self.SHELLS_WEIGHT[x]
@@ -1931,40 +2180,820 @@ class BattleEngine():
             if(player_account.powerups[x] == True):
                 player_stat += self.POWERUP_WEIGHT
         # - Add the player's specialization number to the player's predicted performance -
-        player_stat += pow(self.SPECIALIZATION_WEIGHT, abs(player_account.specialization)) - 1
-        return player_stat
+        player_stat += self.SPECIALIZATION_WEIGHT * abs(player_account.specialization)
+        return player_stat / self.MMCEF
 
     def create_account(self,rating,player_name="Bot Player"): #creates an account with upgrades which correspond roughly to the rating value you input.
         bot_account = account.Account(player_name,"pwd",True) #create a bot account
         # - This variable makes sure that this while loop does not run forever -
         run_ct = 0
-        while self.return_rating(bot_account) < rating and run_ct < 30 or self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT and run_ct < 30:
+        while (self.return_rating(bot_account) < rating and run_ct < 30) or (self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT and run_ct < 30):
             run_ct += 1 #increment our runtime counter (keeps us from running these loops infinitely)
-            while self.return_rating(bot_account) < rating:
+            int_runct = 0 #each of these smaller loops can also encounter issues where they can't finish without a finite timeout.
+            while self.return_rating(bot_account) < rating and int_runct < 10:
                 bot_account.bot_purchase()
-            while self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT:
+                int_runct += 1
+            int_runct = 0 #each of these smaller loops can also encounter issues where they can't finish without a finite timeout.
+            while self.return_rating(bot_account) > rating + self.IMBALANCE_LIMIT and int_runct < 10:
                 bot_account.bot_refund()
+                int_runct += 1
         return bot_account
 
     # - This function is where OFFLINE PvPvBot play BEGINS -
     def offline_play(self):
+        # - Basic gameplay setup values -
+        #   player_ct, bot_ct, bot difficulty (/ 2 = bot difficulty), money_start (^ amt), 
+        #   exp_start (* self.CASH_MULTIPLIER = exp amt), keep_money, GFX Quality, battle type ("Regular"/"Experience"),
+        #   music volume, SFX volume
+        player_setup = [1, 8, 5, 250.0, 2, True, 8, "Regular", 3, 10]
+        # - Controls: up, down, left, right, shoot, PTT, powerups 1-6, shells 1-4, cursor modifier
+        controls = [] #[player 1 Controls() object, player 2 Controls() object, player 3 Controls() object...] - DEADZONE is stored as a global variable inside of controller.py, so I don't need to store it here.
+        map_choice = [0] #maps are arranged by index number. I have to keep this value in a list to allow a function to change this value when passed through as a parameter.
+
+        # - Load our saved settings into the above variables -
+        try:
+            #raise IndexError #uncomment this line, run the program, and close it normally to save new default settings without starting with the old ones.
+            afile = open(path + "saves/offline_player_data.pkl","rb+")
+            loaded_content = pickle.load(afile)
+            player_setup = loaded_content[0]
+            control_data = loaded_content[1]
+            for x in range(0,len(control_data)):
+                controls.append(controller.Controls(18,"kb"))
+                controls[x].enter_data(control_data[x])
+            map_choice = loaded_content[2]
+            print("Succeeded in loading offline play preferences!")
+        except Exception as e:
+            print("An exception occurred: " + str(e))
+            print("Failed to load offline play preferences. Continuing with defaults...")
+
+        # - This value holds any data regarding all player performance screens for at the end of a battle -
+        special_window_return = None
+
+        # - This will *become* a list once Menu D is entered. It will hold all player accounts and their current state -
+        account_list = None
+        
         # - Idea: The following happens IN SEQUENCE:
-        #   The leader chooses the number of players in the match, along with the number of bots.
-        #   The leader must help all players configure their controls (controllers/keyboards)
-        #   The leader chooses bot difficulty (bot rating)
-        #   The leader chooses how much ^ each player gets to spend (including bots), and whether players keep what they have @ the end of a round/players get new $$ @ the end of a round.
-        #   The bots will all buy as much as they can with the money they have in their accounts (this can happen almost anywhere, doesn't have to be in sequence).
-        #   The leader chooses the map (which governs the number of teams in the match)
-        #
-        #   The screen splits into N number of screens, where N is the number of players the leader chose.
-        #   Each player gets to buy what he chooses with his money within a time limit (maybe 2 min 50 sec?) and refunds are 100% value refunds, unlike in online mode.
-        #   When all players have finished buying what they want OR time has run out, all players are matched into a game with the matchmaker from battle_server.
-        #   GAME START!
-        #
-        #   When the game has finished, the players are given a battle outcome screen where they can see their (and the others') performance levels.
-        #   They are then returned back to the map selection screen (loopback).
+        #   - Menu A:
+        #       The leader chooses the number of players in the match, along with the number of bots.
+        #       The leader chooses bot difficulty (bot rating)
+        #       The leader chooses how much ^ each player gets to spend (including bots), and whether players keep what they have @ the end of a round/players get new $$ @ the end of a round.
+        #       GFX quality is also chosen at this time by the leader so that the leader can prevent naughty guests from lagging his computer to death =) LOL
+        initial_entry = True #this variable is used to tell whether the game needs to give player $$$ or not
+        exit_loop = False #essentially the reverse of most programs' "running" variable; this also can have the value "back" for going back one menu.
+        while not exit_loop:
+            exit_loop = self.offline_menu_a(player_setup)
+            #   - Menu B:
+            #       The leader must help all players configure their controls (controllers/keyboards)
+            while not exit_loop:
+                if(not exit_loop):
+                    exit_loop = self.offline_menu_b(controls, player_setup)
+                    if(exit_loop == "back"): #we need to go back to menu A
+                        exit_loop = False
+                        break
+                #   - Menu C:
+                #       The leader chooses the map (which governs the number of teams in the match)
+                while not exit_loop:
+                    self.music.fadeout_track() #make sure no music starts until Menu D...and no music carries over from ingame...
+                    if(not exit_loop):
+                        exit_loop = self.offline_menu_c(map_choice, player_setup)
+                        if(exit_loop == "back"):
+                            exit_loop = False
+                            break #we need to get back to menu B
+                    #   - Menu D:
+                    #       The screen splits into N number of screens, where N is the number of players the leader chose.
+                    #       Each player gets to buy what he chooses with his money within a time limit (maybe 2 min 50 sec?) and refunds are 100% value refunds, unlike in online mode.
+                    #       When all players have finished buying what they want OR time has run out, all players are matched into a game with the matchmaker from battle_server.
+                    #       The bots will all buy as much as they can with the money they have in their accounts (this can happen almost anywhere, doesn't have to be in sequence).
+                        if(not exit_loop):
+                            data_pack = self.offline_menu_d(controls, player_setup, initial_entry, account_list, special_window_return)
+                            exit_loop = data_pack[0]
+                            account_list = data_pack[1]
+                            initial_entry = False
+                    #   GAME START!
+                        if(not exit_loop):
+                            data_pack = self.offline_game_start(controls, map_choice, player_setup, account_list)
+                            exit_loop = data_pack[0]
+                            #we still have account_list[] from Menu D. Combining account_list[] data with special_window_return[] data will allow us to find what battle outcome screen belongs to which player.
+                            special_window_return = data_pack[1]
 
-        pass
+        # - Save our current game settings -
+        try:
+            control_data = []
+            for x in range(0,len(controls)):
+                control_data.append(controls[x].return_data())
+            afile = open(path + "saves/offline_player_data.pkl","wb+")
+            obj = [player_setup, control_data, map_choice]
+            pickle.dump(obj,afile)
+            afile.flush()
+            afile.close()
+            print("Succeeded in saving offline play preferences!")
+        except Exception as e:
+            print("An exception occurred: " + str(e))
+            print("Failed to save offline play preferences. Exiting...")
 
-#engine = BattleEngine("192.168.50.47",5031)
-#pygame.quit() #exit pygame
+    # - Beginning player setup menu for offline play -
+    def offline_menu_a(self, setup_data):
+        # - Setup Menu A -
+        menua = menu.Menuhandler()
+        menua.create_menu(["Player Count","Bot Count","","Bot Difficulty","","^ Per Player x" + str(int(self.CASH_MULTIPLIER)),"Additional ^ Per Player x" + str(int(self.CASH_MULTIPLIER / 10)),"EXP Per Player x" + str(int(self.CASH_MULTIPLIER)),"Keep Battle Revenue","","GFX Quality","","Battle Type","","Music Volume","SFX Volume","","Continue","","Exit"],
+                       [[1,self.MAX_OFFLINE_PLAYERS],[0,self.MAX_OFFLINE_BOTS],["",""],[1,20],["",""],[0,self.MAX_OFFLINE_CASH],[0,9],[0,self.MAX_OFFLINE_EXP],["True","False"],["",""],[1,30],["",""],["Regular","Experience"],["",""],[0,10],[0,10],["",""],["",""],["",""],["",""]],
+                       [],buttonindexes=[],name="TBO Offline Mode Player Setup")
+
+        # - Load old setup_data values into the menu -
+        menua.reconfigure_setting([1,self.MAX_OFFLINE_PLAYERS], str(setup_data[0]), setup_data[0], "Player Count")
+        menua.reconfigure_setting([0,self.MAX_OFFLINE_BOTS], str(setup_data[1]), setup_data[1], "Bot Count")
+        menua.reconfigure_setting([1,20], str(setup_data[2]), setup_data[2], "Bot Difficulty")
+        menua.reconfigure_setting([0,self.MAX_OFFLINE_CASH], str(int(setup_data[3] / self.CASH_MULTIPLIER)), int(setup_data[3] / self.CASH_MULTIPLIER), "^ Per Player x" + str(int(self.CASH_MULTIPLIER)))
+        menua.reconfigure_setting([0,9], str(int((setup_data[3] - self.CASH_MULTIPLIER * int(setup_data[3] / self.CASH_MULTIPLIER)) / (self.CASH_MULTIPLIER / 10))), int((setup_data[3] - self.CASH_MULTIPLIER * int(setup_data[3] / self.CASH_MULTIPLIER)) / (self.CASH_MULTIPLIER / 10)), "Additional ^ Per Player x" + str(int(self.CASH_MULTIPLIER / 10)))
+        menua.reconfigure_setting([0,self.MAX_OFFLINE_EXP], str(setup_data[4]), setup_data[4], "EXP Per Player x" + str(int(self.CASH_MULTIPLIER)))
+        menua.reconfigure_setting(["True","False"], str(setup_data[5]), ["True","False"].index(str(setup_data[5])), "Keep Battle Revenue")
+        menua.reconfigure_setting([1,30], str(setup_data[6]), setup_data[6], "GFX Quality")
+        menua.reconfigure_setting(["Regular","Experience"], setup_data[7], ["Regular","Experience"].index(setup_data[7]), "Battle Type")
+        menua.reconfigure_setting([0,10], str(setup_data[8]), setup_data[8], "Music Volume")
+        menua.reconfigure_setting([0,10], str(setup_data[9]), setup_data[9], "SFX Volume")
+
+        # - Key configuration -
+        directions = [10,11,12,13]
+        shoot = 14
+        shoot_timeout = time.time()
+        keys = []
+        fps = 30 #needed to control cursor speed
+
+        running = True
+        exit_loop = True #this flag tells whether we exited this loop to leave TBO or to continue to Offline Menu B.
+        clock = pygame.time.Clock()
+        cursorpos = [1,0]
+        while running:
+            # - Pygame event loop stuff -
+            keys = self.controls.get_input()
+            event_pack = controller.get_keys()
+            running = not event_pack[0]
+            if(event_pack[1] != None): #we requested a window resize?
+                resize_dimensions = list(event_pack[1])
+                if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                    resize_dimensions[0] = self.min_screen_size[0]
+                if(resize_dimensions[1] < self.min_screen_size[1]):
+                    resize_dimensions[1] = self.min_screen_size[1]
+                self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
+
+            # - Update the menu -
+            menua.update(self.screen)
+
+            # - Move the cursor -
+            for x in keys:
+                if(x in directions):
+                     cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * menua.menu_scale
+                     cursorpos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * menua.menu_scale
+
+            # - Check for mouse movement or mouse click -
+            for x in event_pack[2]:
+                if(x.type == pygame.MOUSEMOTION):
+                    cursorpos[0] = x.pos[0]
+                    cursorpos[1] = x.pos[1]
+                elif(x.type == pygame.MOUSEBUTTONDOWN and shoot not in keys):
+                    keys.append(shoot) #we're going to insert shoot into keys...this is a quick way to use the same code as pressing E for choosing a menu option with the mouse.
+                elif(x.type == pygame.MOUSEBUTTONUP):
+                    if(shoot in keys):
+                        keys.remove(shoot)
+
+            # - Handle clicking on menu objects -
+            if(shoot in keys and time.time() - shoot_timeout > 0.25): #we shot at something (clicked on it)?
+                shoot_timeout = time.time() #reset our shot timeout variable
+                self.sfx.play_sound(self.GUNSHOT, [0,0],[0,0]) #play the gunshot sound effect
+                clicked_button = menua.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height()],cursorpos)
+                if(clicked_button[0][0] != None):
+                    if(clicked_button[0][0] == 17): #continue to next menu
+                        running = False
+                        exit_loop = False
+                    if(clicked_button[0][0] == 19): #exit
+                        running = False
+            
+            # - Keep the cursor from moving offscreen -
+            if(cursorpos[0] > self.screen.get_width()):
+                cursorpos[0] -= self.screen.get_width()
+            elif(cursorpos[0] < 0):
+                cursorpos[0] += self.screen.get_width()
+            if(cursorpos[1] > self.screen.get_height()):
+                cursorpos[1] -= self.screen.get_height()
+            elif(cursorpos[1] < 0):
+                cursorpos[1] += self.screen.get_height()
+
+            # - Update the values in setup_data[] to reflect our settings we just chose -
+            grabbed_settings = menua.grab_settings(["Player Count","Bot Count","Bot Difficulty","^ Per Player x" + str(int(self.CASH_MULTIPLIER)),"Additional ^ Per Player x" + str(int(self.CASH_MULTIPLIER / 10)),"EXP Per Player x" + str(int(self.CASH_MULTIPLIER)),"Keep Battle Revenue","GFX Quality","Battle Type","Music Volume","SFX Volume"])
+            setup_data[0] = grabbed_settings[0][1]
+            setup_data[1] = grabbed_settings[1][1]
+            setup_data[2] = grabbed_settings[2][1]
+            setup_data[3] = int(grabbed_settings[3][1] * self.CASH_MULTIPLIER) + grabbed_settings[4][1] * int(self.CASH_MULTIPLIER / 10)
+            setup_data[4] = grabbed_settings[5][1]
+            setup_data[5] = eval(grabbed_settings[6][0])
+            setup_data[6] = grabbed_settings[7][1]
+            setup_data[7] = grabbed_settings[8][0]
+            setup_data[8] = grabbed_settings[9][1]
+            setup_data[9] = grabbed_settings[10][1]
+
+            # - Set our music volume based on setup_data[8] -
+            pygame.mixer.music.set_volume(setup_data[8] / 10)
+
+            # - Set our SFX volume based on setup_data[9] -
+            self.sfx.sound_volume = setup_data[9] / 10
+
+            # - Draw everything and update the window border -
+            self.screen.fill([0,0,0]) #clear screen
+            menua.draw_menu([0,0],[self.screen.get_width(), self.screen.get_height()],self.screen,cursorpos) #draw menu
+            # - Draw the cursor -
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] - int(8 * menua.menu_scale)],[cursorpos[0],cursorpos[1] - int(4 * menua.menu_scale)],int(3 * menua.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] + int(8 * menua.menu_scale)],[cursorpos[0],cursorpos[1] + int(4 * menua.menu_scale)],int(3 * menua.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] + int(8 * menua.menu_scale),cursorpos[1]],[cursorpos[0] + int(4 * menua.menu_scale),cursorpos[1]],int(3 * menua.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] - int(8 * menua.menu_scale),cursorpos[1]],[cursorpos[0] - int(4 * menua.menu_scale),cursorpos[1]],int(3 * menua.menu_scale))
+            # - Update the screen and window border -
+            pygame.display.flip()
+            fps = clock.get_fps()
+            pygame.display.set_caption("Tank Battalion Online - Offline Mode Setup - FPS: " + str(round(fps,1)))
+            clock.tick(750)
+
+        return exit_loop #this is True if we want to close TBO, and False if we want to continue playing in offline mode.
+
+    # - Control configuration -
+    def offline_menu_b(self, controls, setup_data):
+        # - Setup Menu B -
+        menub = menu.Menuhandler()
+        # - The beginning menu needs to be configured carefully, since the number of buttons needed to configure each player will vary based on the number of players we chose in Menu A -
+        button_names = ["","Back","","Continue","","Exit"]
+        button_options = [["",""],["",""],["",""],["",""]]
+        button_indexes = []
+        for x in range(0,setup_data[0]):
+            button_options.append(["",""])
+            button_names.insert(0, "Player " + str(setup_data[0] - 1 - x) + " Controls") #I want player 1 to be player 0. I like index numbers, not counting numbers.
+            button_indexes.append([x,x + 1])
+        menub.create_menu(button_names, button_options, button_indexes, buttonindexes=[], name="TBO Offline Mode Controls Setup")
+        # - Create control configuration menus for all players -
+        key_config_names = ["Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier","PTT Key"]
+        for x in range(0,setup_data[0]):
+            menub.create_menu(["Deadzone","KB/JS","JS Num","Shell 1","Shell 2","Shell 3","Shell 4","Powerup 1","Powerup 2","Powerup 3","Powerup 4","Powerup 5","Powerup 6","Up","Left","Down","Right","Shoot","Escape Battle","Cursor Modifier","PTT Key","","Back"],
+                              [[1,9],["Keyboard","Joystick"],["0","0"],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""],["",""]],
+                              [[22,0]], [], "TBO Offline Mode Player " + str(x) + " Controls Setup")
+        # - Make sure that the controls[] list is long enough to accomodate as many players as we're adding -
+        if(len(controls) < setup_data[0]):
+            for x in range(0,setup_data[0] - len(controls)):
+                controls.append(controller.Controls(18,"kb"))
+
+        # - Load the correct values into each menu (menub.reconfigure_setting(SettingType, str, int, "Name")) -
+        for x in range(0,setup_data[0]):
+            menub.current_menu = x + 1
+            menub.reconfigure_setting([1,9], str(int(controller.DEADZONE * 10)), int(controller.DEADZONE * 10), "Deadzone") #set the deadzone for each controller
+            menub.reconfigure_setting(["Keyboard","Joystick"], ["Keyboard","Joystick"][["kb","ctrl"].index(controls[x].kb_ctrl)], ["kb","ctrl"].index(controls[x].kb_ctrl), "KB/JS") #set whether each controller is a keyboard or joystick
+            for button in range(0,len(key_config_names)):
+                if(controls[x].kb_ctrl == "kb"): #we need letters
+                    key_str = "."
+                    for b in range(0,len(menu.keys)):
+                        if(menu.keys[b][0] == controls[x].buttons[button]):
+                            key_str = menu.keys[b][1]
+                else: #just print button numbers
+                    key_str = "Button " + str(controls[x].buttons[button])
+                menub.reconfigure_setting([key_str,key_str], key_str, 0, key_config_names[button])
+        menub.current_menu = 0 #set our menu # back to 0 again so we start at the main key configuration menu
+
+        # - Key configuration -
+        directions = [10,11,12,13]
+        shoot = 14
+        shoot_timeout = time.time()
+        keys = []
+        fps = 30 #needed to control cursor speed
+
+        # - Gameloop related variables -
+        cursorpos = [1,0]
+        clock = pygame.time.Clock()
+        exit_loop = True
+        running = True
+        while running:
+            # - Pygame event loop stuff -
+            keys = self.controls.get_input()
+            event_pack = controller.get_keys()
+            running = not event_pack[0]
+            if(event_pack[1] != None): #we requested a window resize?
+                resize_dimensions = list(event_pack[1])
+                if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                    resize_dimensions[0] = self.min_screen_size[0]
+                if(resize_dimensions[1] < self.min_screen_size[1]):
+                    resize_dimensions[1] = self.min_screen_size[1]
+                self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
+
+            # - Move the cursor -
+            for x in keys:
+                if(x in directions):
+                     cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * menub.menu_scale
+                     cursorpos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * menub.menu_scale
+
+            # - Check for mouse movement or mouse click -
+            for x in event_pack[2]:
+                if(x.type == pygame.MOUSEMOTION):
+                    cursorpos[0] = x.pos[0]
+                    cursorpos[1] = x.pos[1]
+                elif(x.type == pygame.MOUSEBUTTONDOWN and shoot not in keys):
+                    keys.append(shoot) #we're going to insert shoot into keys...this is a quick way to use the same code as pressing E for choosing a menu option with the mouse.
+                elif(x.type == pygame.MOUSEBUTTONUP):
+                    if(shoot in keys):
+                        keys.remove(shoot)
+
+            # - Handle clicking on menu objects -
+            if(shoot in keys and time.time() - shoot_timeout > 0.25): #we shot at something (clicked on it)?
+                shoot_timeout = time.time() #reset our shot timeout variable
+                self.sfx.play_sound(self.GUNSHOT, [0,0],[0,0]) #play the gunshot sound effect
+                clicked_button = menub.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height()],cursorpos)
+                if(clicked_button[0][0] != None):
+                    if(menub.current_menu == 0):
+                        if(clicked_button[0][0] == 5 + setup_data[0]): #exit?
+                            running = False
+                        elif(clicked_button[0][0] == 3 + setup_data[0]): #continue to Menu C?
+                            running = False
+                            exit_loop = False
+                        elif(clicked_button[0][0] == 1 + setup_data[0]): #go back one menu (B)?
+                            running = False
+                            exit_loop = "back"
+                    elif(clicked_button[1] != 0): #we clicked on *something* in a key configuration menu (NOT menu 0)
+                        selected_player = menub.current_menu - 1 #find which player we are configuring controls for
+                        #KB/JS button (index 3)
+                        if(clicked_button[0][0] == 1):
+                            if(menub.grab_settings(["KB/JS"])[0][1] == 0): #keyboard?
+                                controls[selected_player].kb_ctrl = "kb"
+                            else: #joystick?
+                                if(controls[selected_player].joystick_request(js_num=int(menub.grab_settings(["JS Num"])[0][0]))): #success?
+                                    pass #we don't have to do anything actually...
+                                else: #failed to get the JS we asked for. We need to revert the menu setting to "Keyboard"
+                                    menub.reconfigure_setting(["Keyboard","Joystick"], "Keyboard", 0, "KB/JS")
+                        #JS Num button (index 4)
+                        elif(clicked_button[0][0] == 2):
+                            # - Increase the JS num selected -
+                            js_num = int(menub.grab_settings(["JS Num"])[0][0]) + 1
+                            if(js_num >= self.MAX_OFFLINE_PLAYERS):
+                                js_num = 0
+                            menub.reconfigure_setting([str(js_num),str(js_num)], str(js_num), 0, "JS Num")
+                            # - Check whether we need to DECREASE it since it's not available -
+                            if(controls[selected_player].kb_ctrl == "kb"): #if we're using a keyboard, it doesn't matter if we change this setting.
+                                pass #we don't need to do anything here...
+                            else: #we need to check whether this JS is available since it's obvious we're planning on using the JS number we're asking for.
+                                if(controls[selected_player].joystick_request(js_num=int(menub.grab_settings(["JS Num"])[0][0]))): #we got it!
+                                    pass #we don't need to do anything here...
+                                else: #failed to get the JS num, so decrease the JS num to return it to its original value.
+                                    js_num = int(menub.grab_settings(["JS Num"])[0][0]) - 1
+                                    if(js_num > self.MAX_OFFLINE_PLAYERS):
+                                        js_num = 0
+                                    menub.reconfigure_setting([str(js_num),str(js_num)], str(js_num), 0, "JS Num")
+                                    menub.reconfigure_setting(["Keyboard","Joystick"], "Keyboard", 0, "KB/JS")
+                        # - Actual key needs to be configured? -
+                        elif(clicked_button[0][0] >= 3 and clicked_button[0][0] <= 20):
+                            pygame.time.delay(250) #delay slightly, and empty all keys pressed during that time so that they don't count as key configuration keypresses.
+                            controller.get_keys()
+                            controller.empty_keys()
+                            # - NOW we check what key has been pressed -
+                            config = True
+                            pygame.display.set_caption("Configure Player " + str(selected_player) + " Key Number " + str(clicked_button[0][0] - 3))
+                            while config: #wait until the client configures the key
+                                config = not controller.get_keys()[0]
+                                if(config):
+                                    config = not controls[selected_player].configure_key(clicked_button[0][0] - 3) #did we get a successful configuration?
+                                # - Draw the "press a key to configure the button" words onscreen
+                                self.screen.fill([0,0,0])
+                                word_scale = (self.screen.get_width() / (len("Press any key...") * font.SIZE))
+                                font.draw_words("Press any key...", [(self.screen.get_width() / 2 - len("Press any key...") * font.SIZE * word_scale * 0.5),10], [0,0,255], word_scale, self.screen)
+                                pygame.display.flip()
+                            pygame.time.delay(250) #250ms
+                            controller.get_keys() #empty the event queue
+                            controller.empty_keys() #empty the key list, and delay a small amount...
+
+            # - Update the menu -
+            menub.update(self.screen)
+            if(menub.current_menu > 0): #we're in a key configuration menu? We need to update the keys displayed as our controls in the menu.
+                selected_player = menub.current_menu - 1
+                for button in range(0,len(key_config_names)):
+                    if(controls[selected_player].kb_ctrl == "kb"): #we need letters
+                        key_str = "."
+                        for x in range(0,len(menu.keys)):
+                            if(menu.keys[x][0] == controls[selected_player].buttons[button]):
+                                key_str = menu.keys[x][1]
+                    else: #just print button numbers
+                        key_str = "Button " + str(controls[selected_player].buttons[button])
+                    menub.reconfigure_setting([key_str,key_str], key_str, 0, key_config_names[button])
+
+            # - Update the controller deadzone value the menu -
+            if(menub.current_menu > 0):
+                button_settings = menub.grab_settings(["Deadzone"])
+                controller.DEADZONE = button_settings[0][1] / 10
+
+            # - Keep the cursor from moving offscreen -
+            if(cursorpos[0] > self.screen.get_width()):
+                cursorpos[0] -= self.screen.get_width()
+            elif(cursorpos[0] < 0):
+                cursorpos[0] += self.screen.get_width()
+            if(cursorpos[1] > self.screen.get_height()):
+                cursorpos[1] -= self.screen.get_height()
+            elif(cursorpos[1] < 0):
+                cursorpos[1] += self.screen.get_height()
+            
+            # - Draw everything -
+            self.screen.fill([0,0,0])
+            menub.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,cursorpos)
+            # - Draw the cursor -
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] - int(8 * menub.menu_scale)],[cursorpos[0],cursorpos[1] - int(4 * menub.menu_scale)],int(3 * menub.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] + int(8 * menub.menu_scale)],[cursorpos[0],cursorpos[1] + int(4 * menub.menu_scale)],int(3 * menub.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] + int(8 * menub.menu_scale),cursorpos[1]],[cursorpos[0] + int(4 * menub.menu_scale),cursorpos[1]],int(3 * menub.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] - int(8 * menub.menu_scale),cursorpos[1]],[cursorpos[0] - int(4 * menub.menu_scale),cursorpos[1]],int(3 * menub.menu_scale))
+            pygame.display.flip()
+
+            # - Update our FPS & window header -
+            fps = clock.get_fps()
+            clock.tick(750)
+            pygame.display.set_caption("Tank Battalion Online - Offline Mode Setup - FPS: " + str(round(fps,1)))
+        
+        return exit_loop
+
+    # - Map choice -
+    def offline_menu_c(self, map_choice, player_setup):
+        # - Menu setup -
+        menuc = menu.Menuhandler()
+        menuc.create_menu(["Next Map","Previous Map","","Map Number","Map Name","Team Count","","Back","","Continue","","Exit"],
+                          [["",""],["",""],["",""],["0","0"],["",""],["2","2"],["",""],["",""],["",""],["",""],["",""],["",""]],
+                          [], [], name="TBO Offline Mode Map Setup")
+
+        # - Map draw setup -
+        arena_data = import_arena.return_arena_numerical(map_choice[0])
+        draw_arena = arena.Arena(arena_data[0][0], arena_data[0][1], [])
+        draw_arena.clear_flag_locations()
+        draw_arena.set_flag_locations(arena_data[0][6])
+
+        # - Set our menu settings to what has been previously used in the Pickle save file -
+        menuc.reconfigure_setting([str(map_choice[0]),str(map_choice[0])], str(map_choice[0]), map_choice[0], "Map Number")
+        menuc.reconfigure_setting([arena_data[1],arena_data[1]], arena_data[1], 0, "Map Name")
+        menuc.reconfigure_setting([str(len(arena_data[0][6])),str(len(arena_data[0][6]))], str(len(arena_data[0][6])), 0, "Team Count")
+
+        # - Controls stuff -
+        clock = pygame.time.Clock()
+        fps = 30
+        directions = [10,11,12,13]
+        shoot = 14
+        shoot_timeout = time.time()
+        keys = []
+        
+        exit_loop = True
+        running = True
+        cursorpos = [0,0]
+        while running:
+            # - Pygame event loop stuff -
+            keys = self.controls.get_input()
+            event_pack = controller.get_keys()
+            running = not event_pack[0]
+            if(event_pack[1] != None): #we requested a window resize?
+                resize_dimensions = list(event_pack[1])
+                if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                    resize_dimensions[0] = self.min_screen_size[0]
+                if(resize_dimensions[1] < self.min_screen_size[1]):
+                    resize_dimensions[1] = self.min_screen_size[1]
+                self.screen = pygame.display.set_mode(resize_dimensions, self.PYGAME_FLAGS)
+
+            # - Move the cursor -
+            for x in keys:
+                if(x in directions):
+                     cursorpos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * menuc.menu_scale
+                     cursorpos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 160 * menuc.menu_scale
+
+            # - Check for mouse movement or mouse click -
+            for x in event_pack[2]:
+                if(x.type == pygame.MOUSEMOTION):
+                    cursorpos[0] = x.pos[0]
+                    cursorpos[1] = x.pos[1]
+                elif(x.type == pygame.MOUSEBUTTONDOWN and shoot not in keys):
+                    keys.append(shoot) #we're going to insert shoot into keys...this is a quick way to use the same code as pressing E for choosing a menu option with the mouse.
+                elif(x.type == pygame.MOUSEBUTTONUP):
+                    if(shoot in keys):
+                        keys.remove(shoot)
+
+            # - Handle clicking on menu objects -
+            if(shoot in keys and time.time() - shoot_timeout > 0.25): #we shot at something (clicked on it)?
+                shoot_timeout = time.time() #reset our shot timeout variable
+                self.sfx.play_sound(self.GUNSHOT, [0,0],[0,0]) #play the gunshot sound effect
+                clicked_button = menuc.menu_collision([0,0],[self.screen.get_width(),self.screen.get_height()],cursorpos)
+                if(clicked_button[0][0] == 0): #next map?
+                    if(map_choice[0] < len(import_arena.arena_libraries) - 1): #we are free to increment our map counter since we won't get an IndexError.
+                        map_choice[0] += 1
+                        menuc.reconfigure_setting([str(map_choice[0]),str(map_choice[0])], str(map_choice[0]), map_choice[0], "Map Number")
+                        arena_data = import_arena.return_arena_numerical(map_choice[0])
+                        draw_arena.arena = arena_data[0][0]
+                        draw_arena.tiles = arena_data[0][1]
+                        draw_arena.clear_flag_locations()
+                        draw_arena.set_flag_locations(arena_data[0][6])
+                        menuc.reconfigure_setting([arena_data[1],arena_data[1]], arena_data[1], 0, "Map Name")
+                        menuc.reconfigure_setting([str(len(arena_data[0][6])),str(len(arena_data[0][6]))], str(len(arena_data[0][6])), 0, "Team Count")
+                elif(clicked_button[0][0] == 1): #previous map?
+                    if(map_choice[0] <= 0): #we're NOT decreasing our map # if we're already at 0.
+                        pass
+                    else: #we can decrease it and update the map # displayed as well as the data stored in draw_arena.
+                        map_choice[0] -= 1
+                        menuc.reconfigure_setting([str(map_choice[0]),str(map_choice[0])], str(map_choice[0]), map_choice[0], "Map Number")
+                        arena_data = import_arena.return_arena_numerical(map_choice[0])
+                        draw_arena.arena = arena_data[0][0]
+                        draw_arena.tiles = arena_data[0][1]
+                        draw_arena.clear_flag_locations()
+                        draw_arena.set_flag_locations(arena_data[0][6])
+                        menuc.reconfigure_setting([arena_data[1],arena_data[1]], arena_data[1], 0, "Map Name")
+                        menuc.reconfigure_setting([str(len(arena_data[0][6])),str(len(arena_data[0][6]))], str(len(arena_data[0][6])), 0, "Team Count")
+                elif(clicked_button[0][0] == 7): #back to menu B?
+                    running = False
+                    exit_loop = "back"
+                elif(clicked_button[0][0] == 9): #continue?
+                    running = False
+                    exit_loop = False
+                elif(clicked_button[0][0] == 11): #exit?
+                    running = False
+            
+            # - Keep the cursor from moving offscreen -
+            if(cursorpos[0] > self.screen.get_width()):
+                cursorpos[0] -= self.screen.get_width()
+            elif(cursorpos[0] < 0):
+                cursorpos[0] += self.screen.get_width()
+            if(cursorpos[1] > self.screen.get_height()):
+                cursorpos[1] -= self.screen.get_height()
+            elif(cursorpos[1] < 0):
+                cursorpos[1] += self.screen.get_height()
+
+            # - Update the menu -
+            menuc.update(self.screen)
+
+            # - Draw everything, beginning with the menu -
+            self.screen.fill([0,0,0])
+            menuc.draw_menu([0,0],[self.screen.get_width(),self.screen.get_height()],self.screen,cursorpos)
+            # - Draw the map we selected onscreen -
+            bricks = []
+            for x in arena_data[0][3]:
+                bricks.append(x)
+            for x in arena_data[0][4]:
+                bricks.append(x)
+            minimap_surface = draw_arena.draw_minimap(bricks)
+            scaling_factor = minimap_surface.get_width() / minimap_surface.get_height() #this is a unit multiplier so that I can match the vertical scale factor to the horizontal scale factor I choose
+            hscale = int(self.screen.get_width() / 3)
+            if(hscale / scaling_factor > self.screen.get_height() / 3): #is our image going to be too tall if we use hscale as a vertical scaling factor?
+                hscale = int(self.screen.get_height() / 3 * scaling_factor) #make sure it isn't so that the player can see the WHOLE map preview, not just the top three quarters.
+            surf_size = [hscale, int(hscale * (1/scaling_factor))] #choose a horizontal scale factor and make the vertical match it
+            minimap_surface = pygame.transform.scale(minimap_surface, surf_size) #use the scale factor to scale up the minimap
+            pygame.draw.rect(minimap_surface, [255,255,255], [0,0,minimap_surface.get_width(),minimap_surface.get_height()], math.ceil(2 * menuc.menu_scale))
+            centered_pos = [int(self.screen.get_width() / 2), int(self.screen.get_height() * 0.75)] #find the center of our screen
+            centered_pos[0] -= int(minimap_surface.get_width() / 2) #take into account the dimensions of the minimap surface
+            centered_pos[1] -= int(minimap_surface.get_height() / 2)
+            self.screen.blit(minimap_surface, centered_pos) #copy the scaled minimap to the screen so that it is centered
+            # - Draw the cursor -
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] - int(8 * menuc.menu_scale)],[cursorpos[0],cursorpos[1] - int(4 * menuc.menu_scale)],int(3 * menuc.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0],cursorpos[1] + int(8 * menuc.menu_scale)],[cursorpos[0],cursorpos[1] + int(4 * menuc.menu_scale)],int(3 * menuc.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] + int(8 * menuc.menu_scale),cursorpos[1]],[cursorpos[0] + int(4 * menuc.menu_scale),cursorpos[1]],int(3 * menuc.menu_scale))
+            pygame.draw.line(self.screen,[255,255,255],[cursorpos[0] - int(8 * menuc.menu_scale),cursorpos[1]],[cursorpos[0] - int(4 * menuc.menu_scale),cursorpos[1]],int(3 * menuc.menu_scale))
+            pygame.display.flip()
+
+            # - Update the clock and the display border -
+            clock.tick(750)
+            fps = clock.get_fps()
+            pygame.display.set_caption("Tank Battalion Online - Offline Mode Setup - FPS: " + str(round(fps,1)))
+        
+        return exit_loop
+
+    # - Store -
+    def offline_menu_d(self, controls, player_setup, initial_entry=False, player_accts=None, special_window_return=None):
+        # - We need to spawn player_ct number of accounts, load them with money_start * self.CASH_MULTIPLIER ^, and let them buy what they want with it in the store.
+        #   This requires the use of a special library I have made which allows threads OTHER than the main thread to utilize pygame function calls.
+        internal_display_size = [math.floor(self.screen.get_width() / math.ceil(math.sqrt(player_setup[0]))), math.floor(self.screen.get_height() / math.ceil(math.sqrt(player_setup[0])))]
+        sound_names = [str(path + "../../sfx/gunshot_01.wav"), str(path + "../../sfx/driving.wav"), str(path + "../../sfx/thump.wav"), str(path + "../../sfx/explosion_large.wav"), str(path + "../../sfx/crack.wav")]
+        ph = pygame_multithread.PygameHandler(player_setup[0], [self.screen.get_width(), self.screen.get_height()], internal_display_size, sound_names, 18)
+        ph.update_surface_sizes()
+        ph.update_surface_positions()
+
+        # - Enter all controls into the PygameHandler so it can handle all our inputs for us -
+        for x in range(0,player_setup[0]):
+            ph.update_controller(x, controls[x].return_data())
+
+        # - All threads need to be able to see this value...to keep it updated for all threads if I pass it through as a parameter, it needs to be in a list -
+        running = [True]
+
+        # - This tells us which threads are still running (one flag for each thread) -
+        thread_running = []
+        for x in range(0,player_setup[0]):
+            thread_running.append(True)
+
+        # - Generate all our player accounts with the correct amount of cash -
+        if(initial_entry):
+            player_accts = []
+            for x in range(0,player_setup[0]):
+                player_accts.append(account.Account("Player " + str(x), "Player " + str(x)))
+        elif(len(player_accts) < player_setup[0]): #a player *could* have changed player count...then we'd have to add new accounts.
+            for x in range(len(player_accts), player_setup[0]):
+                player_accts.append(account.Account("Player " + str(x), "Player " + str(x)))
+                #Make sure they start with some $$$ and EXP
+                player_accts[len(player_accts) - 1].cash = float(player_setup[3])
+                player_accts[len(player_accts) - 1].experience = player_setup[4] * self.CASH_MULTIPLIER
+        for x in range(0,player_setup[0]):
+            if(initial_entry or not player_setup[5]): #Either if we want FIXED cash for ALL rounds OR we're doing our FIRST round, we need to set all account cash to a certain amount.
+                player_accts[x].cash = float(player_setup[3])
+                player_accts[x].experience = player_setup[4] * self.CASH_MULTIPLIER
+                player_accts[x].shells = [0,0,0,0]
+                player_accts[x].powerups = [None, None, None, None, None, None]
+                player_accts[x].upgrades = [0,0,0,0]
+                player_accts[x].specialization = 0
+
+        # - Start all our threads running -
+        server_engine = battle_server.BattleEngine(False)
+        battle_clients = []
+        dummy_socks = []
+        server_socks = []
+        for x in range(0,player_setup[0]):
+            dummy_socks.append(netcode.DummySocket())
+            server_socks.append(netcode.DummySocket())
+            server_socks[x].settimeout(5.0) #make sure the server socket timeouts are 5s rather than 7.5s (client timeout)
+            dummy_socks[x].connect(server_socks[x])
+            server_socks[x].connect(dummy_socks[x])
+            battle_clients.append(BattleEngine("dummy IP", 50613472, autostart=False))
+            battle_clients[x].sfx.sound_volume = player_setup[9] / 10
+            _thread.start_new_thread(battle_clients[x].lobby_frontend, (ph, dummy_socks[x], running, x, thread_running))
+            # - Find which special_window from special_window_return[] corresponds to this player -
+            special_window_player = None
+            if(special_window_return != None): #there are special windows?
+                for find_window in range(0,len(special_window_return)):
+                    if(special_window_return[find_window][0] == player_accts[x].name and special_window_return[find_window][1] == player_accts[x].password):
+                        special_window_player = special_window_return[find_window][2]
+            _thread.start_new_thread(server_engine.lobby_server, ([player_accts[x], server_socks[x]], special_window_player, running))
+
+        # - Start some music! -
+        if(len(self.music_files[0]) > 0):
+            music_track = random.randint(0,len(self.music_files[0]) - 1)
+            self.music.transition_track(self.music_files[0][music_track])
+
+        # - Make sure that sound effects can actually be played and heard -
+        ph.reset_idnum()
+
+        # - Main loop! -
+        fps_clock = pygame.time.Clock()
+        exit_loop = False
+        while running[0]:
+            # - Pygame event handler stuff -
+            window_data = ph.clock()
+            running[0] = not window_data[0]
+            exit_loop = not running[0]
+            if(window_data[1] != None): #resize?
+                resize_dimensions = list(window_data[1])
+                if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                    resize_dimensions[0] = self.min_screen_size[0]
+                if(resize_dimensions[1] < self.min_screen_size[1]):
+                    resize_dimensions[1] = self.min_screen_size[1]
+                ph.screen = pygame.display.set_mode(resize_dimensions, pygame.RESIZABLE)
+                ph.update_surface_sizes()
+                ph.update_surface_positions()
+
+            # - Check if we should stop playing because the threads have all stopped -
+            if(running[0]):
+                still_run = False
+                none_found = False
+                for x in range(0,len(thread_running)):
+                    still_run = thread_running[x]
+                    if(still_run):
+                        break
+                    elif(still_run == None): #if none_found == True, we know that we need to enter battle, not exit the game.
+                        none_found = True
+                if(not still_run and none_found == True): #all players are ready for battle or left the game? We're gonna start!
+                    #   (and the people who clicked exit...well they're gonna be dragged back into the game anyways since we saved their account data)
+                    running[0] = False #exit_loop will still be False when we leave this loop, so we'll be able to tell whether we want to leave the game or if we want to enter battle.
+                else:
+                    running[0] = still_run
+                    exit_loop = not running[0]
+
+            # - Update our music system -
+            queue = not self.music.clock() #returns False if we need to queue more tracks
+            if(queue and len(self.music_files[0]) > 0): #queue a new random track
+                music_track += 1
+                if(music_track > len(self.music_files[0]) - 1):
+                    music_track = 0
+                self.music.queue_track(self.music_files[0][music_track])
+
+            # - Update the display -
+            ph.draw()
+            fps_clock.tick(750)
+            pygame.display.set_caption("Tank Battalion Online - Offline Mode Store - FPS: " + str(round(fps_clock.get_fps(),1)))
+
+        pygame.time.delay(5000 + 250 * player_setup[0]) #I have a nice long wait in here for wayward processes to finish up their final loop iterations before I end this function.
+        return [exit_loop, player_accts]
+
+    # - Game start function -
+    def offline_game_start(self, controls, map_choice, player_setup, accounts):
+        # - We need to spawn player_ct number of accounts, load them with money_start * self.CASH_MULTIPLIER ^, and let them buy what they want with it in the store.
+        #   This requires the use of a special library I have made which allows threads OTHER than the main thread to utilize pygame function calls.
+        internal_display_size = [math.floor(self.screen.get_width() / math.ceil(math.sqrt(player_setup[0]))), math.floor(self.screen.get_height() / math.ceil(math.sqrt(player_setup[0])))]
+        sound_names = [str(path + "../../sfx/gunshot_01.wav"), str(path + "../../sfx/driving.wav"), str(path + "../../sfx/thump.wav"), str(path + "../../sfx/explosion_large.wav"), str(path + "../../sfx/crack.wav")]
+        ph = pygame_multithread.PygameHandler(player_setup[0], [self.screen.get_width(), self.screen.get_height()], internal_display_size, sound_names, 18)
+        ph.update_surface_sizes()
+        ph.update_surface_positions()
+
+        # - Enter all controls into the PygameHandler so it can handle all our inputs for us -
+        for x in range(0,player_setup[0]):
+            ph.update_controller(x, controls[x].return_data())
+
+        # - Set our GFX value correctly -
+        GFX.gfx_quality = player_setup[6] / 20 #this ranges from 1/20 to 1.5 (enough to lag a powerful PC)
+
+        # - All threads need to be able to see this value...to keep it updated for all threads if I pass it through as a parameter, it needs to be in a list -
+        running = [True]
+
+        # - This tells us which threads are still running (one flag for each thread) -
+        thread_running = []
+        for x in range(0,player_setup[0]):
+            thread_running.append(True)
+
+        # - Get some sockets set up, along with a server engine and a list of all players -
+        server_engine = battle_server.BattleEngine(False)
+        server_engine.offline = True
+        battle_clients = []
+        players = [] #this is a list of [account, client socket] objects which the matchmaker uses.
+        dummy_socks = [] #this is a list of all client sockets.
+        server_socks = []
+        for x in range(0,player_setup[0]):
+            dummy_socks.append(netcode.DummySocket())
+            server_socks.append(netcode.DummySocket())
+            server_socks[x].settimeout(5.0) #make sure the server socket timeouts are 5s rather than 7.5s (client timeout)
+            dummy_socks[x].connect(server_socks[x])
+            server_socks[x].connect(dummy_socks[x])
+            battle_clients.append(BattleEngine("dummy IP", 50613472, autostart=False))
+            battle_clients[x].sfx.sound_volume = player_setup[9] / 10
+            players.append([accounts[x], server_socks[x]])
+
+        # - Make a match now -
+        server_engine.ac_enable = False
+        server_engine.MIN_URGENCY = 0.00001
+        server_engine.MIN_WAIT_ADD_URGENCY = 0.000011
+        chosen_map = import_arena.return_arena_numerical(map_choice[0])
+        team_ct = len(chosen_map[0][6])
+        # - Engine call: matchmake(player_queue, odd_allowed=False, rating=False, urgency=1.0, target_bot_ct=None, forced_team_ct=None) -
+        #   player_queue is a list: [ [account, client socket], [account, client socket] ... ]
+        server_engine.RULES = ["bot_rating[0] >= self.IMBALANCE_LIMIT"]
+        server_engine.PLAYER_RULES = []
+        print("[MATCH] Attempting to make a match...")
+        match = server_engine.matchmake(players, odd_allowed=True, rating=player_setup[5], urgency=0.00001, target_bot_ct=player_setup[1], forced_team_ct=team_ct, target_bot_rating=player_setup[2] / 2)
+
+        # - Start all client/server threads, beginning with the ALL the server's threads -
+        print("[THREAD] Starting all threads, beginning with the server...")
+        special_window_return = [] #this holds the special_window values we need to pass to all clients once they get back into the store
+        _thread.start_new_thread(server_engine.battle_type_functions[["Regular","Experience"].index(player_setup[7])], (match, chosen_map[1], special_window_return, running)) #[type]_battle_server(players, forced_map=None)
+        # - Start all client threads (each one of these threads branches out into a total of 3...so for a 3-player game, there's 9 threads just for client stuff lol -
+        for x in range(0,player_setup[0]):
+            _thread.start_new_thread(battle_clients[x].battle_client, (ph, dummy_socks[x], x, thread_running, running))
+
+        print("[MATCH] Game start!")
+
+        # - Start some music! -
+        if(len(self.music_files[2]) > 0):
+            music_track = random.randint(0,len(self.music_files[2]) - 1)
+            self.music.transition_track(self.music_files[2][music_track])
+
+        # - Make sure that sound effects can actually be played and heard -
+        ph.reset_idnum()
+
+        # - Main loop! -
+        fps_clock = pygame.time.Clock()
+        exit_loop = False
+        while running[0]:
+            # - Pygame event handler stuff -
+            window_data = ph.clock()
+            running[0] = not window_data[0]
+            if(not running[0]): #if we clicked the X, we probably don't want to keep playing...we're LEAVING.
+                exit_loop = True
+            if(window_data[1] != None): #resize?
+                resize_dimensions = list(window_data[1])
+                if(resize_dimensions[0] < self.min_screen_size[0]): #make sure that we don't resize beyond the minimum screen size allowed (this can cause errors if we don't do this)
+                    resize_dimensions[0] = self.min_screen_size[0]
+                if(resize_dimensions[1] < self.min_screen_size[1]):
+                    resize_dimensions[1] = self.min_screen_size[1]
+                ph.screen = pygame.display.set_mode(resize_dimensions, pygame.RESIZABLE)
+                ph.update_surface_sizes()
+                ph.update_surface_positions()
+
+            # - Check if we should stop playing because the threads have all stopped -
+            if(running[0]):
+                if(True in thread_running):
+                    pass
+                else:
+                    running[0] = False
+
+            # - Update our music system -
+            queue = not self.music.clock() #returns False if we need to queue more tracks
+            if(queue and len(self.music_files[2]) > 0): #queue a new random track
+                music_track += 1
+                if(music_track > len(self.music_files[2]) - 1):
+                    music_track = 0
+                self.music.queue_track(self.music_files[2][music_track])
+
+            # - Update the display -
+            ph.draw()
+            fps_clock.tick(750)
+            pygame.display.set_caption("Tank Battalion Online - Offline Mode Ingame - FPS: " + str(round(ph.get_avg_fps(),1)))
+
+        # - If we formally disconnect all sockets, the various game threads will end significantly sooner -
+        for x in range(0,len(dummy_socks)):
+            dummy_socks[x].disconnect()
+        pygame.time.delay(5000 + 250 * (player_setup[0] + player_setup[1])) #we need to delay here so that any wayward processes which need to modify special_window_return[] are able to before this thread ends
+        return [exit_loop, special_window_return]
+
+### - Test -
+##engine = BattleEngine(None,5031)
+##pygame.quit() #exit pygame

@@ -1,5 +1,6 @@
-##"font.py" library ---VERSION 0.05---
-##Copyright (C) 2023  Lincoln V.
+##"font.py" library ---VERSION 0.06---
+## - A library containing a simple font and a function to draw it on a Pygame surface -
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -65,7 +66,9 @@ dictionary = [ #a list which interprets the match of a symbol to a number index
         ["/",42],
         ["+",43],
         ["%",44],
-        [",",45]
+        [",",45],
+        ["(",46],
+        [")",47]
         ]
 
 font = [ #a line based font (abcdefghijklmnopqrstuvwxyz0123456789- ?.), size 10PX
@@ -114,7 +117,9 @@ font = [ #a line based font (abcdefghijklmnopqrstuvwxyz0123456789- ?.), size 10P
         [[0,10],[10,0]], #/
         [[5,0],[5,10],[5,5],[0,5],[10,5]], #+
         [[10,0],[0,10],[5,5],[1,1],[3,1],[3,3],[1,3],[1,1],[9,9],[7,9],[7,7],[9,7],[9,9]], #%
-        [[4,8],[6,8],[3,10],[4,8]] #,
+        [[4,8],[6,8],[3,10],[4,8]], #,
+        [[9,1],[1,5],[9,9]], #(
+        [[1,1],[9,5],[1,9]] #)
         ]
 
 #a single font which can be used on pygame's screen surface in any size of position

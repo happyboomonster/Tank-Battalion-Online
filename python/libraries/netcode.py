@@ -1,5 +1,6 @@
-##"netcode.py" library ---VERSION 0.41---
-##Copyright (C) 2023  Lincoln V.
+##"netcode.py" library ---VERSION 0.45---
+## - A extra layer of simplification to the Python socket API. Makes netcode really easy -
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -16,6 +17,7 @@
 
 import socket
 import time #for getting ping
+import math #for some timing math
 
 #a counter for our packets - this number can grow quite large, which is why there is a reset counter constant below it...
 packet_count = 0
@@ -109,6 +111,7 @@ def data_verify(data, verify): #verify is your format list.
     verified = True
     if(str(type(data)) == "<class 'list'>" and str(type(verify)) == "<class 'list'>"): #if the input is a list AND our verify data is a list, the function recursively checks each index. If not...see the else statement...
         if(len(data) != len(verify)): #Is there a disparity between the AMOUNT of data sent and the amount of data expected? This is an immediate red flag that we're not getting good data.
+            #print("[NETCODE.py] Length disparity on verify: " + str(len(data)) + " vs expected " + str(len(verify))) #debug
             return False #were OUTTA here
         for x in range(0, len(data)): #data MUST be a list.
             try: #this should work UNLESS we get an IndexError: If an IndexError occurs, that is an immediate red flag that the data we got is NOT what we were looking for.
@@ -123,6 +126,7 @@ def data_verify(data, verify): #verify is your format list.
         if(str(type(data)) == verify): #this is a recursive function, so this will work...
             return True
         else:
+            #print("[NETCODE.py] Type disparity on verify: " + str(type(data)) + " vs expected " + str(verify) + " with data " + str(data)) #debug
             return False
     return verified
 
@@ -132,9 +136,9 @@ def data_verify(data, verify): #verify is your format list.
 ##print(data_verify(data, verify))
 
 #configures a socket so that it works with this netcode library's send/recieve commands - also resets the timeout value to DEFAULT_TIMEOUT
-def configure_socket(a_socket):
+def configure_socket(a_socket, time_override=DEFAULT_TIMEOUT):
     a_socket.setblocking(True)
-    a_socket.settimeout(DEFAULT_TIMEOUT)
+    a_socket.settimeout(time_override)
 
 def justify(string,size): #a function which right justifies a string
     if(size - len(list(string)) > 0):
@@ -156,10 +160,10 @@ def socket_recv(Cs,buffersize): #recieves data, and catches errors.
         errors = "disconnect" #we lost connection.
     return data, errors
 
-def send_data(Cs,buffersize,data): #sends some data without checking if the data made it through the wires
+def send_data(Cs,buffersize,data): #sends some data and checks if the data made it through the wires
+    data = compress_data(data) #compress the data to reduce netcode transmissions
     datalen = justify(str(len(list(str(data)))),buffersize)
     data = str(data)
-    data = compress_data(data) #compress the data to reduce netcode transmissions
     bytes_ct = 0 #how many characters we have sent
     total_data = datalen + data #the total data string we need to send
     if(Cs._closed): #has the socket been closed?
@@ -180,6 +184,7 @@ def recieve_data(Cs,buffersize): #tries to recieve some data without checking it
     ping_start = time.time() #set a starting ping time
     data = "" #we set a default value to data, just so we don't get any exceptions from the variable not existing.
     connected = True #are we still connected to the socket properly?
+    old_timeout = eval(str(Cs.gettimeout())) #make sure we remember what our initial timeout value was... I use the eval(str()) argument because this otherwise gives me a pointer rather than a float...
     #   --- Handling packet numbering ---
     packet_count += 1
     if(packet_count > MAX_PACKET_CT):
@@ -259,12 +264,13 @@ def recieve_data(Cs,buffersize): #tries to recieve some data without checking it
     if(Cs._closed):
         errors.append(ERROR_MSGS[SOCK_CLOSE])
         connected = False
-    else:
-        configure_socket(Cs)
+    else: #restore our old timeout value
+        Cs.settimeout(old_timeout)
     return [data, ping, errors, connected] #return the data this function gathered
 
 # - Clears out all data within a socket connection -
 def clear_socket(Cs):
+    old_timeout = eval(str(Cs.gettimeout())) #this gives me a pointer rather than a float...so I need to change that with the eval(str()) argument.
     Cs.settimeout(0.75)
     clearing = True
     clear_counter = 0 #this gets incremented each time we get no data from the socket. If we get 2 no-data recv() commands, then we consider the socket cleared.
@@ -279,7 +285,85 @@ def clear_socket(Cs):
         if(clear_counter > 1): #we're clear?
             clearing = False
         if(errors == "disconnect" or Cs._closed): #we lost connection?
+            Cs.settimeout(old_timeout)
             return False #we're disconnected...=(
-    configure_socket(Cs)
+    Cs.settimeout(old_timeout)
     return True #we're still connected...
-            
+
+# - This class is essentially a replacement for a socket.Socket() object, but data can only be sent between different objects in a local program.
+#   Its practical purpose is to allow netcode.py-based online game code to be easily repurposed to help quickly design an offline counterpart -
+class DummySocket():
+    def __init__(self):
+        global DEFAULT_TIMEOUT
+        self.linked_socket = None #this will change to a pointer to another socket when you use the connect() function to link this DummySocket() to another one.
+        self.sent_data = bytearray() #this holds all data (in binary) which the OTHER DummySocket() needs to still receive but hasn't yet.
+        self._closed = False #this flag tells us whether the socket still exists. It does!!
+        self.timeout = DEFAULT_TIMEOUT
+        self.RETRY_TIME = 0.025
+
+    # - This function links this DummySocket() with another DummySocket() so that they can send data between themselves -
+    def connect(self, socket):
+        self.linked_socket = socket
+
+    # - This function unlinks this DummySocket() from another DummySocket(). Do not call this function unless this DummySocket() is already linked to another one -
+    def disconnect(self):
+        self.linked_socket.linked_socket = None #disconnect the socket we're connected to from us (now the other socket can't read data from US)
+        self.linked_socket = None #disconnect ourselves from the other socket (now we can't read data from the other socket)
+
+    # - This tries to receive data from the DummySocket() which this socket is connected to -
+    def recv(self, buffersize):
+        received_data = bytearray()
+        if(self.linked_socket != None): #IF we're connected...THEN I guess we'll try receiving data?
+            recv_time = time.time()
+            for x in range(0,buffersize):
+                if(len(self.linked_socket.sent_data) > 0): #if there's data and we need it, we'll TAKE it!
+                        received_data.append( self.linked_socket.sent_data.pop(0) )
+                else: #if we couldn't get the data, we'll wait a small fraction of a second and then try several more times.
+                    #       If that doesn't work, we're going to exit the function and return what we have.
+                    while (time.time() - recv_time < self.timeout):
+                        time.sleep(self.RETRY_TIME) #there's no point in trying again and again without waiting for data to arrive...
+                        if(len(self.linked_socket.sent_data) > 0): #if there's data and we need it, we'll TAKE it!
+                            received_data.append( self.linked_socket.sent_data.pop(0) )
+                            break
+                if(time.time() - recv_time > self.timeout): #make sure we don't spend more time in this function than self.timeout allows.
+                    break
+        return received_data
+
+    # - This sends data to the DummySocket() which this socket is connected to -
+    def send(self, data): #NOTE: data is expected to be a bytes-like object which can be iterated through.
+        for x in range(0,len(data)):
+            self.sent_data.append(data[x])
+        return len(data)
+
+    # - In an offline scenario, this function just needs to return something ELSE than -1 -
+    def fileno(self):
+        return 1
+
+    # - Set the socket so it will wait a certain amount of time for data -
+    def settimeout(self, time):
+        self.timeout = time
+
+    # - Retrieve this socket's data wait timeout value -
+    def gettimeout(self):
+        return self.timeout
+
+    # - Set the socket so it will wait until it gets data -
+    def setblocking(self, boolean):
+        self.timeout = 9999 #set the value very large
+
+    # - In an offline scenario, this function does not need to do anything since it is purely ping related -
+    def close(self):
+        pass
+
+### - Quick DummySocket() test -
+##sa = DummySocket()
+##sb = DummySocket()
+##
+##sa.connect(sb)
+##sb.connect(sa)
+##
+##sa.send("encoded data".encode('utf-8'))
+##sb.send("sb encoded data".encode('utf-8'))
+##
+##print(sa.recv(7).decode('utf-8'))
+##print(sb.recv(7).decode('utf-8'))

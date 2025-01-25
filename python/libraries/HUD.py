@@ -1,5 +1,6 @@
 ##"HUD.py" library ---VERSION 0.07---
-##Copyright (C) 2022  Lincoln V.
+## - Pretty self-explanatory; Makes drawing a simple HUD onto a Pygame surface much easier -
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -147,7 +148,7 @@ class HUD(): #a sort-of simple class which should allow you to design HUDs which
     def delete_HUD(self,element_index): #deletes a HUD element of your choice
         del(self.HUD_attribs[element_index])
 
-###Example code: Create some HUD elements!
+### - Example code: Create some HUD elements! -
 ##anhud = HUD()
 ###add an HUD element which is scrolling text. Outline of white, background of grey, green letters of size 15 px on 640x480 screen.
 ##anhud.add_HUD_element("scrolling text",[[10,10],[100,6],[[255,255,255],[100,100,100],[0,255,0]],"Demo text which is scrolling"])

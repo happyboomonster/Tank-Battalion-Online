@@ -1,6 +1,6 @@
-##"entity.py" library ---VERSION 0.78---
+##"entity.py" library ---VERSION 0.85---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
-##Copyright (C) 2023  Lincoln V.
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@ import pygame #for transforming tiles
 import random
 import math
 import GFX #for fire in gas tank / explosive tip bullet
+import netcode #for data filtering in enter_data() in all entities
 
 path = ""
 
@@ -29,6 +30,9 @@ class Powerup(): #for collectible items within the map
         # - Needed for external functions -
         self.type = "Powerup" #define what this class is
         self.lock = _thread.allocate_lock()
+
+        # - Enter_data() data format -
+        self.DATA_FMT = ["<class 'str'>", ["<class 'float'>","<class 'float'>"], "<class 'int'>"]
         
         # - Positional stuff -
         self.map_location = location #where are we on the map?
@@ -46,14 +50,14 @@ class Powerup(): #for collectible items within the map
         self.powerup_effects.append("shells[0] += 6") #+X hollow shells
         self.powerup_effects.append("shells[1] += 4") #+X regular shells
         self.powerup_effects.append("shells[2] += 2") #+X explosive shells
-        self.powerup_effects.append("shells[3] += 1") #+X disk shells
+        self.powerup_effects.append("shells[3] += 2") #+X disk shells
 
         # - Visual stuff -
         self.image = image
 
         # - Timing -
         self.spawn_time = time.time() #this value never changes; used for managing image_vfx.
-        self.DESPAWN_TIME = 20.0 #seconds till despawn
+        self.DESPAWN_TIME = 7.5 #seconds till despawn
 
         # - Which type of powerup is this? -
         self.powerup_number = powerup_type
@@ -91,7 +95,9 @@ class Powerup(): #for collectible items within the map
         screen_coordinates[0] -= arena_offset[0] * TILE_SIZE * screen_scale[0]
         screen_coordinates[1] -= arena_offset[1] * TILE_SIZE * screen_scale[1]
         #draw the powerup/item onscreen
-        screen.blit(pygame.transform.scale(self.image,[int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
+        if(screen_coordinates[0] > -TILE_SIZE * screen_scale[0] and screen_coordinates[0] < screen.get_width()): #only draw if it's actually going to be onscreen
+            if(screen_coordinates[1] > -TILE_SIZE * screen_scale[1] and screen_coordinates[1] < screen.get_height()):
+                screen.blit(pygame.transform.scale(self.image,[int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
 
     #draws a yellow pixel on the minimap at the location of a powerup.
     def draw_minimap(self, minimap_surf):
@@ -100,20 +106,35 @@ class Powerup(): #for collectible items within the map
     def return_data(self, precision=2, clear_flags=None): #gathers data so this can be sent over netcode (certain attributes do not need to be sent)
         return [
             self.type,
-            [round(self.map_location[0],precision),round(self.map_location[1],precision)],
+            [float(round(self.map_location[0],precision)),float(round(self.map_location[1],precision))],
             self.powerup_number
             ]
 
-    def enter_data(self, data): #enters data from Powerup.return_data()
-        self.map_location[0] = data[1][0]
-        self.map_location[1] = data[1][1]
-        self.powerup_number = data[2]
+    def enter_data(self, data): #enters data from Powerup.return_data() IF the data is valid (to prevent server crashes)
+        if(netcode.data_verify(data, self.DATA_FMT)):
+            self.map_location[0] = data[1][0]
+            self.map_location[1] = data[1][1]
+            self.powerup_number = data[2]
+        else:
+            print("[ENTITY] Powerup failed to enter data! Data: " + str(data))
 
 class Bullet(): #specs_multiplier format: [ damage buff/nerf, penetration buff/nerf ]
     def __init__(self, image, team_name, shell_type, direction, specs_multiplier, tank):
         # - Needed for external functions -
         self.type = "Bullet" #define what this class is
         self.lock = _thread.allocate_lock()
+
+        # - Enter_data() data format (there's two possible formats) -
+        self.DATA_FMT = [
+            ["<class 'str'>", ["<class 'float'>","<class 'float'>"], "<class 'float'>", "<class 'int'>", "<class 'float'>", "<class 'float'>", "<class 'float'>", "<class 'str'>", "<class 'int'>",
+             "<class 'list'>", "<class 'str'>", "<class 'float'>"],
+            ["<class 'str'>", ["<class 'float'>","<class 'float'>"], "<class 'float'>", "<class 'int'>", "<class 'float'>", "<class 'float'>", "<class 'float'>", "<class 'str'>", "<class 'int'>",
+             "<class 'list'>", "<class 'NoneType'>", "<class 'float'>"],
+            ["<class 'str'>", ["<class 'float'>","<class 'float'>"], "<class 'int'>", "<class 'int'>", "<class 'float'>", "<class 'float'>", "<class 'float'>", "<class 'str'>", "<class 'int'>",
+             "<class 'list'>", "<class 'str'>", "<class 'float'>"],
+            ["<class 'str'>", ["<class 'float'>","<class 'float'>"], "<class 'int'>", "<class 'int'>", "<class 'float'>", "<class 'float'>", "<class 'float'>", "<class 'str'>", "<class 'int'>",
+             "<class 'list'>", "<class 'NoneType'>", "<class 'float'>"]
+            ]
 
         # - Who shot this bullet? We need to increment the damage counter for that tank when we hit a target -
         self.tank_origin = tank
@@ -125,7 +146,7 @@ class Bullet(): #specs_multiplier format: [ damage buff/nerf, penetration buff/n
         # - Reference constants -
         self.SHELL_NUM_TO_NAME = ["hollow", "regular", "explosive", "disk"]
         self.shell_specs = [ #Format: [damage, penetration]
-            [7, 7], #hollow
+            [8, 8], #hollow
             [12, 12], #regular
             [20, 7], #explosive
             [18, 14] #disk
@@ -223,24 +244,26 @@ class Bullet(): #specs_multiplier format: [ damage buff/nerf, penetration buff/n
         #offset the coordinates because of our arena offset.
         screen_coordinates[0] -= arena_offset[0] * TILE_SIZE * screen_scale[0]
         screen_coordinates[1] -= arena_offset[1] * TILE_SIZE * screen_scale[1]
-        if(self.shell_vfx == 'rotation'): #we need the bullet continuously rotating as it moves.
-            #degrees; how many the image needs to be rotated
-            rotation = self.rotation_speed * 360 * (time.time() - self.spawn_time)
-            rotated_image = pygame.transform.rotate(self.image, rotation % 360) #rotate the image
-            # - Find the scale between rotated_image and self.image -
-            image_scale = [rotated_image.get_width() / self.image.get_width(), rotated_image.get_height() / self.image.get_height()]
-            # - Find the difference in pixels between rotated_image and self.image -
-            image_difference = [(rotated_image.get_width() - self.image.get_width()) / 2.0, (rotated_image.get_height() - self.image.get_height()) / 2.0]
-            # - Scale "rotated_image" -
-            scaled_image = pygame.transform.scale(rotated_image, [int(TILE_SIZE * image_scale[0] * screen_scale[0]), int(TILE_SIZE * image_scale[1] * screen_scale[1])])
-            # - Draw it onscreen, taking into account the extra pixels created by rotating the image -
-            screen.blit(scaled_image, [int(screen_coordinates[0] - image_difference[0] * screen_scale[0]), int(screen_coordinates[1] - image_difference[1] * screen_scale[1])])
-        elif(self.shell_vfx == 'directional blit'): #we need to rotate the bullet image based on which direction it points
-            #we don't need to account for extra pixels because we're doing right-angle rotation
-            rotated_image = pygame.transform.rotate(self.image, self.direction)
-            screen.blit(pygame.transform.scale(rotated_image, [int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
-        else: #NO vfx? Simple! Just blit the image onscreen! (with scaling, of course)
-            screen.blit(pygame.transform.scale(self.image,[int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
+        if(screen_coordinates[0] > -TILE_SIZE * screen_scale[0] and screen_coordinates[0] < screen.get_width()): #only draw if it's actually going to be onscreen
+            if(screen_coordinates[1] > -TILE_SIZE * screen_scale[1] and screen_coordinates[1] < screen.get_height()):
+                if(self.shell_vfx == 'rotation'): #we need the bullet continuously rotating as it moves.
+                    #degrees; how many the image needs to be rotated
+                    rotation = self.rotation_speed * 360 * (time.time() - self.spawn_time)
+                    rotated_image = pygame.transform.rotate(self.image, rotation % 360) #rotate the image
+                    # - Find the scale between rotated_image and self.image -
+                    image_scale = [rotated_image.get_width() / self.image.get_width(), rotated_image.get_height() / self.image.get_height()]
+                    # - Find the difference in pixels between rotated_image and self.image -
+                    image_difference = [(rotated_image.get_width() - self.image.get_width()) / 2.0, (rotated_image.get_height() - self.image.get_height()) / 2.0]
+                    # - Scale "rotated_image" -
+                    scaled_image = pygame.transform.scale(rotated_image, [int(TILE_SIZE * image_scale[0] * screen_scale[0]), int(TILE_SIZE * image_scale[1] * screen_scale[1])])
+                    # - Draw it onscreen, taking into account the extra pixels created by rotating the image -
+                    screen.blit(scaled_image, [int(screen_coordinates[0] - image_difference[0] * screen_scale[0]), int(screen_coordinates[1] - image_difference[1] * screen_scale[1])])
+                elif(self.shell_vfx == 'directional blit'): #we need to rotate the bullet image based on which direction it points
+                    #we don't need to account for extra pixels because we're doing right-angle rotation
+                    rotated_image = pygame.transform.rotate(self.image, self.direction)
+                    screen.blit(pygame.transform.scale(rotated_image, [int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
+                else: #NO vfx? Simple! Just blit the image onscreen! (with scaling, of course)
+                    screen.blit(pygame.transform.scale(self.image,[int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])]), [int(screen_coordinates[0]), int(screen_coordinates[1])])
 
     #draws a pixel on the minimap at the location of a bullet. Color varies based on which team shot it and whose team the client player is on.
     def draw_minimap(self, minimap_surf, home_team, useless_parameter=True): #useless_paramter is there so that I can use the same draw command for Tank() and Bullet() objects.
@@ -256,35 +279,43 @@ class Bullet(): #specs_multiplier format: [ damage buff/nerf, penetration buff/n
             destroyed = 0
         return [
             self.type,
-            [round(self.map_location[0],precision),round(self.map_location[1],precision)],
+            [float(round(self.map_location[0],precision)),float(round(self.map_location[1],precision))],
             self.direction,
             self.shell_type,
-            round(self.damage,precision),
-            round(self.penetration,precision),
-            round(self.fire_inflict,precision),
+            float(round(self.damage,precision)),
+            float(round(self.penetration,precision)),
+            float(round(self.fire_inflict,precision)),
             self.team,
             destroyed,
             self.explosion_colors,
             self.shell_vfx,
-            round(time.time() - self.spawn_time,precision) #this is needed for proper disk shell rotation.
+            float(round(time.time() - self.spawn_time,precision)) #this is needed for proper disk shell rotation.
             ]
 
     def enter_data(self, data): #enters data into the Bullet() object from Bullet.return_data()
-        self.map_location[0] = data[1][0]
-        self.map_location[1] = data[1][1]
-        self.direction = data[2]
-        self.shell_type = data[3]
-        self.damage = data[4]
-        self.penetration = data[5]
-        self.fire_inflict = data[6]
-        self.team = data[7]
-        if(data[8] == 1):
-            self.destroyed = True
+        verified = False
+        for x in self.DATA_FMT:
+            if(netcode.data_verify(data, x)):
+                verified = True
+                break
+        if(verified):
+            self.map_location[0] = data[1][0]
+            self.map_location[1] = data[1][1]
+            self.direction = data[2]
+            self.shell_type = data[3]
+            self.damage = data[4]
+            self.penetration = data[5]
+            self.fire_inflict = data[6]
+            self.team = data[7]
+            if(data[8] == 1):
+                self.destroyed = True
+            else:
+                self.destroyed = False
+            self.explosion_colors = data[9]
+            self.shell_vfx = data[10]
+            self.spawn_time = time.time() - data[11]
         else:
-            self.destroyed = False
-        self.explosion_colors = data[9]
-        self.shell_vfx = data[10]
-        self.spawn_time = time.time() - data[11]
+            print("[ENTITY] Bullet failed to enter data! Data: " + str(data))
 
 class Brick():
     def __init__(self, HP, armor):
@@ -295,10 +326,47 @@ class Brick():
         self.fire = 0 #what would happen if a brick had fire in its gas tank?????? :P
 
 class Tank():
-    def __init__(self, image='pygame.image.load()...', names=["tank name","team name"], skip_image_load=False, team_num=0, team_ct=2):
+    def __init__(self, images='pygame.image.load()...', names=["tank name","team name"], skip_image_load=False, team_num=0, team_ct=2):
         # - Needed for external functions -
         self.type = "Tank" #define what this class is
         self.lock = _thread.allocate_lock()
+
+        # - Enter_data() data format -
+        self.DATA_FMT = [
+            ["<class 'str'>", "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             "<class 'float'>", "<class 'str'>", "<class 'str'>", "<class 'int'>",
+             "<class 'int'>", "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             ["<class 'float'>", "<class 'float'>"], "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             "<class 'int'>", "<class 'int'>", "<class 'float'>", "<class 'int'>",
+             "<class 'int'>", ["<class 'int'>", "<class 'int'>", "<class 'int'>", "<class 'int'>"], "<class 'list'>", "<class 'float'>",
+             "<class 'NoneType'>", "<class 'int'>", "<class 'int'>"],
+
+            ["<class 'str'>", "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             "<class 'float'>", "<class 'str'>", "<class 'str'>", "<class 'int'>",
+             "<class 'int'>", "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             ["<class 'float'>", "<class 'float'>"], "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             "<class 'int'>", "<class 'int'>", "<class 'float'>", "<class 'int'>",
+             "<class 'int'>", ["<class 'int'>", "<class 'int'>", "<class 'int'>", "<class 'int'>"], "<class 'list'>", "<class 'float'>",
+             "<class 'str'>", "<class 'int'>", "<class 'int'>"],
+
+            ["<class 'str'>", "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             "<class 'float'>", "<class 'str'>", "<class 'str'>", "<class 'int'>",
+             "<class 'int'>", "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             ["<class 'float'>", "<class 'float'>"], "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             "<class 'int'>", "<class 'int'>", "<class 'float'>", "<class 'int'>",
+             "<class 'NoneType'>", ["<class 'int'>", "<class 'int'>", "<class 'int'>", "<class 'int'>"], "<class 'list'>", "<class 'float'>",
+             "<class 'NoneType'>", "<class 'int'>", "<class 'int'>"],
+
+            ["<class 'str'>", "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             "<class 'float'>", "<class 'str'>", "<class 'str'>", "<class 'int'>",
+             "<class 'int'>", "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             ["<class 'float'>", "<class 'float'>"], "<class 'float'>", "<class 'float'>", "<class 'float'>",
+             "<class 'int'>", "<class 'int'>", "<class 'float'>", "<class 'int'>",
+             "<class 'NoneType'>", ["<class 'int'>", "<class 'int'>", "<class 'int'>", "<class 'int'>"], "<class 'list'>", "<class 'float'>",
+             "<class 'str'>", "<class 'int'>", "<class 'int'>"]
+            ]
+        
+        self.POWERUP_DATA_FMT = ["<class 'float'>", "<class 'str'>", "<class 'NoneType'>", "<class 'bool'>"] #powerups need a separate data format filter since they have too many data format combinations to include in self.DATA_FMT
         
         # - Tank specs -
         self.speed = 1.00 #how many tiles can be crossed in a second? How many turns can be made in 1/2 second?
@@ -399,12 +467,15 @@ class Tank():
         self.goal_rotation = 0 #how many degrees do we need to rotate if we're not facing the direction we want?
         self.old_direction = self.direction #where *were* we when we started rotating?
         self.last_motion = [0.0, 0.0] #the last movement we made from the last move() call
+        self.last_unmove_motion = [0.0, 0.0, False] #the last movement unmove() made, followed by whether it is worth continuing to move in the direction we last moved (self.last_motion).
 
         # - Timing stuff -
         self.old_time = time.time() #time variable
         self.time_difference = 0 #how long between each call of "clock()"?
         self.last_message = time.time() #when did the player send a message last?
         self.MESSAGE_COOLDOWN = 1.5 #seconds; How long does the player have to wait in between each message he sends?
+        self.unmove_timer = time.time() #this helps us with timing WHEN we should activate different kinds of centering to make tanks move as smoothly as possible through the arena
+        self.PARALLEL_CENTERING_TIMER = 0.125 #this is linked to unmove_timer (see above). This is the WHEN value in seconds.
 
         # - Rotation threshold constant - how close to desired direction must be achieved? -
         self.ROTATION_THRESHOLD = 10
@@ -414,22 +485,31 @@ class Tank():
         self.POS_CORRECTION_MIN_THRESHOLD = 0.025 #if we're less than X blocks off, we don't need to bother with positioning correction.
 
         # - Visual stuff -
-        self.spotted_image = image
-        if(str(type(self.spotted_image)) != "<class 'str'>"): #sometimes I use a string as an image IF I don't want to continually be loading images from disk when using Tank() objects server-side. When I do, I use "str" classes instead.
-            self.unspotted_image = pygame.Surface([self.spotted_image.get_width(), self.spotted_image.get_height()])
-            self.unspotted_image.blit(self.spotted_image,[0,0])
-            for x in range(0,self.spotted_image.get_width()): #use grey dithering to dim the self.spotted_image to generate self.unspotted_image
-                for y in range(0,self.spotted_image.get_width()):
+        self.spotted_images = "dummy image"
+        if(str(type(images)) != "<class 'str'>"): #sometimes I use a string as an image IF I don't want to continually be loading images from disk when using Tank() objects server-side. When I do, I use "str" classes instead.
+            self.spotted_images = images
+            self.unspotted_image = pygame.Surface([self.spotted_images[0].get_width(), self.spotted_images[0].get_height()])
+            self.unspotted_image.set_colorkey([0,0,0])
+            self.unspotted_image.blit(self.spotted_images[0],[0,0])
+            for x in range(0,self.spotted_images[0].get_width()): #use grey dithering to dim the self.spotted_image to generate self.unspotted_image
+                for y in range(0,self.spotted_images[0].get_width()):
                     if(y % 2 == 0):
                         if(x % 2 == 0):
-                            if(self.spotted_image.get_at([x,y])[3] != 0):
+                            if(self.spotted_images[0].get_at([x,y])[3] != 0):
                                 self.unspotted_image.set_at([x,y],[125,125,125])
+                            else:
+                                self.unspotted_image.set_at([x,y],[0,0,0]) #make sure our unspotted_image also has alpha channel where it is needed
                     else:
                         if(x % 2 != 0):
-                            if(self.spotted_image.get_at([x,y])[3] != 0):
+                            if(self.spotted_images[0].get_at([x,y])[3] != 0):
                                 self.unspotted_image.set_at([x,y],[75,75,75])
+                            else:
+                                self.unspotted_image.set_at([x,y],[0,0,0]) #make sure our unspotted_image also has alpha channel where it is needed
         else:
-            self.unspotted_image = self.spotted_image
+            self.unspotted_image = self.spotted_images[0]
+        self.image_ct = 0
+        self.shuffle_timer = time.time()
+        self.SHUFFLE_SPEED = 0.175 #smaller number makes the tread animations shuffle more quickly. Frame time = self.SHUFFLE_SPEED / self.speed
                     
 
         # - Bullet images -
@@ -469,20 +549,27 @@ class Tank():
               "End of report.")
 
     # - Allows changing images mid-game -
-    def load_image(self, image):
-        self.spotted_image = image
-        self.unspotted_image = pygame.Surface([self.spotted_image.get_width(), self.spotted_image.get_height()])
-        self.unspotted_image.blit(self.spotted_image,[0,0])
-        for x in range(0,self.spotted_image.get_width()): #use grey dithering to dim the self.spotted_image to generate self.unspotted_image
-            for y in range(0,self.spotted_image.get_width()):
+    def load_image(self, images):
+        if(self.image_ct > len(images) - 1): #avoid IndexErrors...
+            self.image_ct = 0
+        self.spotted_images = images
+        self.unspotted_image = pygame.Surface([self.spotted_images[0].get_width(), self.spotted_images[0].get_height()])
+        self.unspotted_image.set_colorkey([0,0,0])
+        self.unspotted_image.blit(self.spotted_images[0],[0,0])
+        for x in range(0,self.spotted_images[0].get_width()): #use grey dithering to dim the self.spotted_image to generate self.unspotted_image
+            for y in range(0,self.spotted_images[0].get_width()):
                 if(y % 2 == 0):
                     if(x % 2 == 0):
-                        if(self.spotted_image.get_at([x,y])[3] != 0):
+                        if(self.spotted_images[0].get_at([x,y])[3] != 0):
                             self.unspotted_image.set_at([x,y],[125,125,125])
+                        else:
+                            self.unspotted_image.set_at([x,y],[0,0,0]) #make alpha show where it's supposed to (our colorkey's black)
                 else:
                     if(x % 2 != 0):
-                        if(self.spotted_image.get_at([x,y])[3] != 0):
+                        if(self.spotted_images[0].get_at([x,y])[3] != 0):
                             self.unspotted_image.set_at([x,y],[75,75,75])
+                        else:
+                            self.unspotted_image.set_at([x,y],[0,0,0]) #make alpha show where it's supposed to (our colorkey's black)
 
     # - This is needed for account.py's upgrade details system -
     def update_acct_stats(self):
@@ -507,6 +594,16 @@ class Tank():
                 direction -= 360
             elif(direction < 0): #self.direction is less than 0?
                 direction += 360
+        return direction
+
+    #takes values in degrees; Changes them so that they are always negative, and never smaller than than -359.9(bar).
+    def no_360_or_positive(self,direction):
+        #we MAY NOT have a positive direction value, or one over 360.
+        while (direction <= -360 or direction > 0):
+            if(direction <= -360): #increment self.direction by 360 then
+                direction += 360
+            elif(direction > 0): #self.direction is greater than 0?
+                direction -= 360
         return direction
 
     #takes values in degrees; Changes them so that they are not smaller than -359.9(bar), or larger than 359.9(bar).
@@ -543,6 +640,7 @@ class Tank():
                 self.fire_cause.kills += 1
             self.destroyed = True
             self.explosion_done = False
+            self.speed = 3.75 #make sure we can spectate in a speedy manner
         # - Manage various time-based values in the tank; (fire, powerups) -
         if(self.fire > 0): #we need to slowly decrement our fire counter if we're on fire; we can't be burning forever!
             self.fire -= self.time_difference
@@ -641,52 +739,120 @@ class Tank():
 
     #attempts to move the tank in a direction;
     #If the tank is not already facing the direction, this function will rotate the tank over (rotate_period) seconds.
-    def move(self, direction, TILE_SIZE):
+    def move(self, direction, TILE_SIZE, screen_scale=[1,1]):
+        # - Find what direction we *were* moving in last (not pointing, moving) -
+        was_moving_dir = -1
+        if(self.last_motion[0] != 0):
+            if(self.last_motion[0] > 0):
+                was_moving_dir = 270
+            else:
+                was_moving_dir = 90
+        elif(self.last_motion[1] != 0):
+            if(self.last_motion[1] > 0):
+                was_moving_dir = 180
+            else:
+                was_moving_dir = 0
+        if(self.time_difference != 0):
+            align_speed = self.speed * (1 / self.time_difference / 90) #if we aren't hitting 90+ FPS (chosen arbitrarily), we're NOT re-aligning ourselves at our normal speed. We'll clip into a wall (used for corner correction)!
+        else:
+            align_speed = self.speed
         #we MAY NOT have a negative direction value, or one over 360.
         self.direction = self.no_360_or_negative(self.direction)
+        direction = self.no_360_or_negative(round(direction, 1)) #sine and cos functions are VERY INACCURATE, so rounding helps get rid of weird decimals (e.g. 90.000000000000001)
         #first we check if we are facing the direction we want. If so, we don't need to wait to rotate our tank.
         if(direction == self.old_direction): #we're already facing the direction we want?
             self.goal_rotation = 0 #set this back to 0 so that we don't feel like we need to rotate...
             self.direction = self.old_direction #in case self.direction was on an offset
-            # - now we need to actually move the tank -
-            if(direction == 0): #we're moving up
-                self.map_location[1] -= self.speed * self.time_difference
-                self.last_motion[1] = -self.speed * self.time_difference
-                self.last_motion[0] = 0.0
-            elif(direction == 180): #we're moving down
-                self.map_location[1] += self.speed * self.time_difference
-                self.last_motion[1] = self.speed * self.time_difference
-                self.last_motion[0] = 0.0
-            elif(direction == 270): #right
-                self.map_location[0] += self.speed * self.time_difference
-                self.last_motion[0] = self.speed * self.time_difference
-                self.last_motion[1] = 0.0
-            elif(direction == 90): #left
-                self.map_location[0] -= self.speed * self.time_difference
-                self.last_motion[0] = -self.speed * self.time_difference
-                self.last_motion[1] = 0.0
+            # - Now we need to actually move the tank -
+            if(was_moving_dir != direction or self.last_unmove_motion[2] == False):
+                self.last_unmove_motion[2] = False #clear our unmove flag for wall collision
+                self.map_location[1] += -round(math.sin(math.radians(direction) + math.pi/2), 3) * self.speed * self.time_difference #round() HAS to be here; otherwise sin(math.pi) != 0...and that causes problems.
+                self.map_location[0] += round(math.cos(math.radians(direction) + math.pi/2), 3) * self.speed * self.time_difference
+                self.last_motion[1] = -round(math.sin(math.radians(direction) + math.pi/2), 3) * self.speed * self.time_difference
+                self.last_motion[0] = round(math.cos(math.radians(direction) + math.pi/2), 3) * self.speed * self.time_difference
+            # - Check if we just *barely* didn't make it around a corner, and let the player make the corner if so. Also check if we can center ourselves in the axis we're moving -
+            elif(direction == was_moving_dir and self.last_unmove_motion[2] == True):
+                self.shuffle_timer = time.time() #because we weren't able to move, we shouldn't animate the treads.
+                # - Update our overall position so that it matches map_location -
+                #if we've been in an unmove() state for at least N seconds, we can probably center ourselves on our movement axis without incurring screen shake due to perpendicular centering.
+                if(time.time() - self.unmove_timer > self.PARALLEL_CENTERING_TIMER):
+                    self.overall_location[0] = self.map_location[0] + (self.screen_location[0] / screen_scale[0]) / TILE_SIZE
+                    self.overall_location[1] = self.map_location[1] + (self.screen_location[1] / screen_scale[1]) / TILE_SIZE
+                    if(round(abs(math.cos(math.radians(direction) + math.pi/2)), 3) == 1.0): #we should center ourselves horizontally (sometimes at low FPS we don't touch the block we're driving into due to unmove. This fixes that)
+                        self.overall_location[0] = float(round(self.overall_location[0], 0))
+                    elif(round(abs(math.sin(math.radians(direction) + math.pi/2)), 3) == 1.0): #we should center ourselves vertically (sometimes at low FPS we don't touch the block we're driving into due to unmove. This fixes that)
+                        self.overall_location[1] = float(round(self.overall_location[1], 0))
+                    self.goto(self.overall_location, TILE_SIZE, screen_scale) #this HAS to be run to sync overall_location[] and map_location[] after the above 4 lines of code
+                # - Handle perpendicular centering -
+                if(abs(self.overall_location[1] - round(self.overall_location[1],0)) < self.POS_CORRECTION_MAX_THRESHOLD): #positioning precision must be within 0.2 blocks for this correction to take effect
+                    if(abs(self.overall_location[1] - round(self.overall_location[1],0)) > self.POS_CORRECTION_MIN_THRESHOLD): #we don't have to be PERFECTLY precise tho...
+                        if(self.last_motion[0] != 0): #movement was in the X axis, so we need to center ourselves on the Y axis
+                            self.last_unmove_motion[2] = False #clear our unmove flag for wall collision
+                            if(self.overall_location[1] - round(self.overall_location[1],0) > 0):
+                                #decrease our Y position to get to the closest integer Y value
+                                self.map_location[1] -= align_speed * self.time_difference
+                            else:
+                                #increase our Y position to get to the closest integer Y value
+                                self.map_location[1] += align_speed * self.time_difference
+                if(abs(self.overall_location[0] - round(self.overall_location[0],0)) < self.POS_CORRECTION_MAX_THRESHOLD): #we're centering ourselves by moving in the X axis
+                    if(abs(self.overall_location[0] - round(self.overall_location[0],0)) > self.POS_CORRECTION_MIN_THRESHOLD):
+                        # - Now we try and ensure that we slowly center ourselves on the square we are *mostly* on, so that we can make the corner anyways...even if we hit a wall -
+                        if(self.last_motion[1] != 0): #movement is in the Y axis, so we need to center ourselves on the X axis
+                            self.last_unmove_motion[2] = False #clear our unmove flag for wall collision
+                            if(self.overall_location[0] - round(self.overall_location[0],0) > 0):
+                                #decrease X pos to get to nearest integer X pos
+                                self.map_location[0] -= align_speed * self.time_difference
+                            else:
+                                #increase X pos to get to nearest integer X pos
+                                self.map_location[0] += align_speed * self.time_difference
         elif(direction == self.no_360_or_negative(self.old_direction + 180)): #are we reversing?
             self.goal_rotation = 0 #set this back to 0 so that we don't feel like we need to rotate...
             self.direction = self.old_direction
-            # - now we need to actually move the tank -
-            if(direction == 0): #we're moving up
-                self.map_location[1] -= self.speed * self.time_difference
-                self.last_motion[1] = -self.speed * self.time_difference
-                self.last_motion[0] = 0.0
-            elif(direction == 180): #we're moving down
-                self.map_location[1] += self.speed * self.time_difference
-                self.last_motion[1] = self.speed * self.time_difference
-                self.last_motion[0] = 0.0
-            elif(direction == 270): #right
-                self.map_location[0] += self.speed * self.time_difference
-                self.last_motion[0] = self.speed * self.time_difference
-                self.last_motion[1] = 0.0
-            elif(direction == 90): #left
-                self.map_location[0] -= self.speed * self.time_difference
-                self.last_motion[0] = -self.speed * self.time_difference
-                self.last_motion[1] = 0.0
-        else: #we're gonna have to spend 0.5/self.speed seconds to rotate our tank...
-            if(self.goal_rotation == 0): #only set goal_rotation if it hasn't been set yet...
+            # - Now we need to actually move the tank -
+            if(was_moving_dir != direction or self.last_unmove_motion[2] == False):
+                self.last_unmove_motion[2] = False #clear our unmove flag for wall collision
+                self.map_location[1] += -round(math.sin(math.radians(direction) + math.pi/2), 3) * self.speed * self.time_difference #round() HAS to be here; otherwise sin(math.pi) != 0...and that causes problems.
+                self.map_location[0] += round(math.cos(math.radians(direction) + math.pi/2), 3) * self.speed * self.time_difference
+                self.last_motion[1] = -round(math.sin(math.radians(direction) + math.pi/2), 3) * self.speed * self.time_difference
+                self.last_motion[0] = round(math.cos(math.radians(direction) + math.pi/2), 3) * self.speed * self.time_difference
+            # - Check if we just *barely* didn't make it around a corner, and let the player make the corner if so. Also try to center ourselves in the axis of our motion -
+            elif(direction == was_moving_dir and self.last_unmove_motion[2] == True):
+                self.shuffle_timer = time.time() #because we weren't able to move, we shouldn't animate the treads.
+                # - Update our overall position so that it matches map_location -
+                #if we've been in an unmove() state for at least N seconds, we can probably center ourselves on our movement axis without incurring screen shake due to perpendicular centering.
+                if(time.time() - self.unmove_timer > self.PARALLEL_CENTERING_TIMER):
+                    self.overall_location[0] = self.map_location[0] + (self.screen_location[0] / screen_scale[0]) / TILE_SIZE
+                    self.overall_location[1] = self.map_location[1] + (self.screen_location[1] / screen_scale[1]) / TILE_SIZE
+                    if(round(abs(math.cos(math.radians(direction) + math.pi/2)), 3) == 1.0): #we should center ourselves horizontally (sometimes at low FPS we don't touch the block we're driving into due to unmove. This fixes that)
+                        self.overall_location[0] = float(round(self.overall_location[0], 0))
+                    elif(round(abs(math.sin(math.radians(direction) + math.pi/2)), 3) == 1.0): #we should center ourselves vertically (sometimes at low FPS we don't touch the block we're driving into due to unmove. This fixes that)
+                        self.overall_location[1] = float(round(self.overall_location[1], 0))
+                    self.goto(self.overall_location, TILE_SIZE, screen_scale) #this HAS to be run to sync overall_location[] and map_location[] after the above 4 lines of code
+                # - Handle perpendicular centering -
+                if(abs(self.overall_location[1] - round(self.overall_location[1],0)) < self.POS_CORRECTION_MAX_THRESHOLD): #positioning precision must be within 0.2 blocks for this correction to take effect
+                    if(abs(self.overall_location[1] - round(self.overall_location[1],0)) > self.POS_CORRECTION_MIN_THRESHOLD): #we don't have to be PERFECTLY precise tho...
+                        if(self.last_motion[0] != 0): #movement was in the X axis, so we need to center ourselves on the Y axis
+                            self.last_unmove_motion[2] = False #clear our unmove flag for wall collision
+                            if(self.overall_location[1] - round(self.overall_location[1],0) > 0):
+                                #decrease our Y position to get to the closest integer Y value
+                                self.map_location[1] -= align_speed * self.time_difference
+                            else:
+                                #increase our Y position to get to the closest integer Y value
+                                self.map_location[1] += align_speed * self.time_difference
+                if(abs(self.overall_location[0] - round(self.overall_location[0],0)) < self.POS_CORRECTION_MAX_THRESHOLD): #we're centering ourselves by moving in the X axis
+                    if(abs(self.overall_location[0] - round(self.overall_location[0],0)) > self.POS_CORRECTION_MIN_THRESHOLD):
+                        # - Now we try and ensure that we slowly center ourselves on the square we are *mostly* on, so that we can make the corner anyways...even if we hit a wall -
+                        if(self.last_motion[1] != 0): #movement is in the Y axis, so we need to center ourselves on the X axis
+                            self.last_unmove_motion[2] = False #clear our unmove flag for wall collision
+                            if(self.overall_location[0] - round(self.overall_location[0],0) > 0):
+                                #decrease X pos to get to nearest integer X pos
+                                self.map_location[0] -= align_speed * self.time_difference
+                            else:
+                                #increase X pos to get to nearest integer X pos
+                                self.map_location[0] += align_speed * self.time_difference
+        else: #we're gonna have to spend 0.5/self.speed seconds to rotate our tank 90 degrees...
+            #only set goal_rotation if it hasn't been set yet...or if we need a new one.
+            if(self.goal_rotation == 0 or self.no_360_or_negative(self.old_direction + self.goal_rotation) != self.no_360_or_negative(direction)):
                 #how far do we have to rotate? Rotating left/right may create a rotation difference...
                 possible_goal_rotation = self.no_360(direction - self.direction)
                 other_goal_rotation = self.offset_360(possible_goal_rotation)
@@ -696,27 +862,51 @@ class Tank():
                     self.goal_rotation = other_goal_rotation
                 self.old_direction = self.direction #bookmark our current rotation direction
             old_self_direction = self.direction #this old self.direction state is needed to calculate when we've reached the endpoint of our rotation.
-            self.direction += self.goal_rotation * self.time_difference * self.speed * 2 #start rotating!
+            # - Start rotating (90 degrees is considered "1" rotation, so if you try a 180 turn, it will take twice as long)
+            #   - The goal_rotation/abs(goal_rotation) term is in there to get the SIGN from goal_rotation so that we turn the right way...
+            self.direction += 90.0 * self.goal_rotation/abs(self.goal_rotation) * self.time_difference * self.speed * 2
             # - Check if we are within a certain threshold of our desired rotation value...
-            #If we are, we just set self.direction to that value -
-            if(self.direction + self.ROTATION_THRESHOLD > direction and self.direction - self.ROTATION_THRESHOLD < direction):
-                self.direction = direction
-                self.goal_rotation = 0
-                self.old_direction = self.direction
-            elif(old_self_direction < (self.goal_rotation + self.old_direction) and self.direction > (self.goal_rotation + self.old_direction) and self.goal_rotation > 0):
-                self.direction = direction
-                self.goal_rotation = 0
-                self.old_direction = self.direction
-            elif(old_self_direction > (self.goal_rotation + self.old_direction) and self.direction < (self.goal_rotation + self.old_direction) and self.goal_rotation < 0):
-                self.direction = direction
-                self.goal_rotation = 0
-                self.old_direction = self.direction
+            #   ...If we are, we just set self.direction to that value
+            if(self.goal_rotation > 0): #we're spinning to the left
+                if(self.old_direction + self.goal_rotation < self.direction and self.old_direction + self.goal_rotation > old_self_direction): #we're always adding (goal_rotation > 0) so we don't need any special no_360 functions...
+                    self.direction = direction
+                    self.goal_rotation = 0
+                    self.old_direction = direction
+            else: #we're spinning to the right
+                if(self.no_360_or_negative(self.old_direction + self.goal_rotation) > self.direction and self.no_360_or_negative(self.old_direction + self.goal_rotation) < old_self_direction):
+                    self.direction = direction
+                    self.goal_rotation = 0
+                    self.old_direction = direction
+                # - This statement is SPECIFICALLY for the 0 case...where 1 > 0 > 359...so I essentially check that the 1 (self.direction) is greater than the 0 (old_direction + goal_rotation) and that the 0 is greater than...
+                #   ...the 359 (old_self_direction). Then I also check that our destination is close enough to 0 that we have a high chance we WON'T get there using the normal IF statment above for finishing a rotation.
+                elif(self.no_360_or_negative(self.old_direction + self.goal_rotation) < self.direction and self.no_360_or_negative(self.old_direction + self.goal_rotation) > old_self_direction and abs(self.no_360(self.old_direction + self.goal_rotation)) <= 90.0 * 0.575 * self.time_difference * self.speed * 2):
+                    self.direction = direction
+                    self.goal_rotation = 0
+                    self.old_direction = direction
+        # - Update our tread animations here -
+        if(time.time() - self.shuffle_timer > self.SHUFFLE_SPEED / self.speed): #time to update?
+            self.shuffle_timer = time.time()
+            if(self.image_ct >= len(self.spotted_images) - 1):
+                self.image_ct = 0
+            else:
+                self.image_ct += 1
 
     def unmove(self): #reverts the last movement made by move().
-        self.map_location[1] -= self.last_motion[1]
-        self.map_location[0] -= self.last_motion[0]
-        self.overall_location[1] -= self.last_motion[1]
-        self.overall_location[0] -= self.last_motion[0]
+        self.shuffle_timer = time.time() #because we weren't able to move, we shouldn't animate the treads.
+        if(self.time_difference != 0):
+            align_speed = self.speed * (1 / self.time_difference / 90) #if we aren't hitting 90+ FPS (chosen arbitrarily), we're NOT re-aligning ourselves at our normal speed. We'll clip into a wall!
+        else:
+            align_speed = self.speed
+        if(self.last_unmove_motion[2] == False):
+            self.map_location[1] -= self.last_motion[1]
+            self.map_location[0] -= self.last_motion[0]
+            self.last_unmove_motion[0] = -self.last_motion[0]
+            self.last_unmove_motion[1] = -self.last_motion[1]
+            self.last_unmove_motion[2] = True #now we may not move in self.last_unmove_motion until we try moving a different direction first.
+            self.unmove_timer = time.time() #this helps us with timing WHEN we should activate different kinds of centering to make tanks move as smoothly as possible through the arena
+        else: #we need to compensate for the fact that we may have pushed ourselves back into another wall...
+            self.map_location[0] -= self.last_unmove_motion[0] * (1 / self.time_difference / 90)
+            self.map_location[1] -= self.last_unmove_motion[1] * (1 / self.time_difference / 90)
         # - Check if we just *barely* didn't make it around a corner, and let the player make the corner if so -
         if(abs(self.overall_location[1] - round(self.overall_location[1],0)) < self.POS_CORRECTION_MAX_THRESHOLD): #positioning precision must be within 0.2 blocks for this correction to take effect
             if(abs(self.overall_location[0] - round(self.overall_location[0],0)) < self.POS_CORRECTION_MAX_THRESHOLD):
@@ -726,17 +916,21 @@ class Tank():
                         if(self.last_motion[1] != 0): #movement is in the Y axis, so we need to center ourselves on the X axis
                             if(self.overall_location[0] - round(self.overall_location[0],0) > 0):
                                 #decrease X pos to get to nearest integer X pos
-                                self.map_location[0] -= self.speed * self.time_difference
+                                self.map_location[0] -= align_speed * self.time_difference
                             else:
                                 #increase X pos to get to nearest integer X pos
-                                self.map_location[0] += self.speed * self.time_difference
+                                self.map_location[0] += align_speed * self.time_difference
                         else: #movement was in the X axis, so we need to center ourselves on the Y axis
                             if(self.overall_location[1] - round(self.overall_location[1],0) > 0):
                                 #decrease our Y position to get to the closest integer Y value
-                                self.map_location[1] -= self.speed * self.time_difference
+                                self.map_location[1] -= align_speed * self.time_difference
                             else:
                                 #increase our Y position to get to the closest integer Y value
-                                self.map_location[1] += self.speed * self.time_difference
+                                self.map_location[1] += align_speed * self.time_difference
+
+    # - Makes sure player movement is not restricted due to the "unmove" flag being set -
+    def clear_unmove_flag(self):
+        self.last_unmove_motion[2] = False
 
     def draw(self, screen, screen_scale, TILE_SIZE, third_person_coords=None, client_only=True): #draw a tank onscreen
         # - Calculate the tank's onscreen coordinates -
@@ -748,14 +942,16 @@ class Tank():
             screen_coordinates[0] -= third_person_coords[0] * screen_scale[0] * TILE_SIZE
             screen_coordinates[1] -= third_person_coords[1] * screen_scale[1] * TILE_SIZE
         # - Find whether we want the spotted or unspotted image; If we are a COMPLETELY client-run engine, we may not want the unspotted image at all. -
-        if(not client_only and time.time() - self.client_spotted > self.MAX_SPOTTED): #we haven't received updates on this tank object for a while? We should use the unspotted image.
+        if(not client_only and time.time() - self.client_spotted > self.MAX_SPOTTED and self.destroyed == False): #we haven't received updates on this tank object for a while? We should use the unspotted image (if we're not dead).
             image_choice = self.unspotted_image
-        else: #use spotted image
-            image_choice = self.spotted_image
+        else: #use spotted image (if we're dead, or spotted recently, or in client mode)
+            image_choice = self.spotted_images[self.image_ct]
         # - Rotate the tank image, scale it, and paste it onscreen -
-        rotated_image = pygame.transform.rotate(image_choice, self.direction) #optional: switch self.direction to old_direction
-        scaled_image = pygame.transform.scale(rotated_image, [int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])])
-        screen.blit(scaled_image, [int(screen_coordinates[0]), int(screen_coordinates[1])])
+        if(screen_coordinates[0] > -TILE_SIZE * screen_scale[0] and screen_coordinates[0] < screen.get_width()): #only draw if it's actually going to be onscreen
+            if(screen_coordinates[1] > -TILE_SIZE * screen_scale[1] and screen_coordinates[1] < screen.get_height()):
+                rotated_image = pygame.transform.rotate(image_choice, self.direction) #optional: switch self.direction to old_direction
+                scaled_image = pygame.transform.scale(rotated_image, [int(TILE_SIZE * screen_scale[0]), int(TILE_SIZE * screen_scale[1])])
+                screen.blit(scaled_image, [int(screen_coordinates[0]), int(screen_coordinates[1])])
 
     #draws a red pixel on the minimap at the location of an enemy who isn't dead, and a green pixel on the minimap at the location of an ally who is alive.
     def draw_minimap(self, minimap_surf, home_team, client_only=True):
@@ -856,38 +1052,39 @@ class Tank():
         powerups = [] #No modification is needed on the client-side to convert the values sent through netcode to Tank() class compatible data.
         for x in range(0,len(self.powerups)):
             if(str(type(self.powerups[x])) == "<class 'float'>"):
-                powerups.append(round(self.powerups[x],precision))
+                powerups.append(float(round(self.powerups[x],precision)))
             elif(str(type(self.powerups[x])) == "<class 'str'>"):
-                powerups.append(str(round(eval(self.powerups[x]),precision)))
+                powerups.append(str(float(round(eval(self.powerups[x]),precision))))
             else:
                 powerups.append(self.powerups[x])
         return_list = [
-            self.type,
-            round(self.speed,precision),
-            round(self.direction,precision),
-            round(self.HP,precision),
-            round(self.armor,precision),
-            self.team,
-            self.name,
-            destroyed,
-            explosion_done,
-            round(self.start_HP,precision),
-            round(self.start_armor,precision),
-            round(self.fire,precision),
-            [round(self.overall_location[0],precision),round(self.overall_location[1],precision)],
-            round(self.goal_rotation,precision),
-            round(self.old_direction,precision),
-            round(time.time() - self.last_shot,precision), #seconds ago last shot happened
-            shot_pending, #does the CLIENT want to shoot? (sorry servers, you can't do that)
-            self.current_shell, #which shell does the client want to shoot?
-            round(self.total_damage,precision),
-            self.kills,
-            self.powerup_request,
-            self.shells,
-            powerups,
-            round(self.RPM,precision),
-            self.message_request,
-            self.team_num
+            self.type,                                                                              #"<class 'str'>"
+            float(round(self.speed,precision)),                                                     #"<class 'float'>"
+            float(round(self.direction,precision)),                                                 #"<class 'float'>"
+            float(round(self.HP,precision)),                                                        #"<class 'float'>" ---
+            float(round(self.armor,precision)),                                                     #"<class 'float'>"
+            self.team,                                                                              #"<class 'str'>"
+            self.name,                                                                              #"<class 'str'>"
+            destroyed,                                                                              #"<class 'int'>" ---
+            explosion_done,                                                                         #"<class 'int'>"
+            float(round(self.start_HP,precision)),                                                  #"<class 'float'>"
+            float(round(self.start_armor,precision)),                                               #"<class 'float'>"
+            float(round(self.fire,precision)),                                                      #"<class 'float'>" ---
+            [float(round(self.overall_location[0],precision)),float(round(self.overall_location[1],precision))],  #["<class 'float'>", "<class 'float'>"]
+            float(round(self.goal_rotation,precision)),                                             #"<class 'float'>"
+            float(round(self.old_direction,precision)),                                             #"<class 'float'>"
+            float(round(time.time() - self.last_shot,precision)), #seconds ago last shot happened   #"<class 'float'>" ---
+            shot_pending, #does the CLIENT want to shoot? (sorry servers, you can't do that)        #"<class 'int'>"
+            self.current_shell, #which shell does the client want to shoot?                         #"<class 'int'>"
+            float(round(self.total_damage,precision)),                                              #"<class 'float'>"
+            self.kills,                                                                             #"<class 'int'>" ---
+            self.powerup_request,                                                                   #"<class 'int'>" / "<class 'NoneType'>"
+            self.shells,                                                                            #["<class 'int'>", "<class 'int'>", "<class 'int'>", "<class 'int'>"]
+            powerups,                                                                               #List of 6 elements: Can be "<class 'bool'>","<class 'NoneType'>","<class 'str'>", or "<class 'float'>"; Has to be verified separately.
+            float(round(self.RPM,precision)),                                                       #"<class 'float'>" ---
+            self.message_request,                                                                   #"<class 'NoneType'>" / "<class 'str'>"
+            self.team_num,                                                                          #"<class 'int'>"
+            self.image_ct                                                                           #"<class 'int'>"
             ]
         if(clear_flags):
             self.powerup_request = None #clear the powerup_request flag
@@ -896,55 +1093,73 @@ class Tank():
         return return_list
 
     def enter_data(self, data, TILE_SIZE=20, screen_scale=[1,1], server=False): #enters the data from Tank.return_data()
-        if(not server):
-            self.speed = data[1]
-        self.direction = data[2]
-        if(not server):
-            self.HP = data[3]
-            self.armor = data[4]
-            self.team = data[5]
-            self.name = data[6]
-            if(data[7] == 1):
-                self.destroyed = True
-            else:
-                self.destroyed = False
-            if(data[8] == 1):
-                self.explosion_done = True
-            else:
-                self.explosion_done = False
-            self.start_HP = data[9]
-            self.start_armor = data[10]
-            self.fire = data[11]
-        self.overall_location[0] = data[12][0]
-        self.overall_location[1] = data[12][1]
-        self.goto(data[12], TILE_SIZE, screen_scale) #set our screen/map_location accordingly
-        self.goal_rotation = data[13]
-        self.old_direction = data[14]
-        if(not server):
-            self.last_shot = time.time() - data[15]
-        if(server): #yes, this only happens if the enter_data is from the server.
-            if(data[16] == 1):
-                self.shot_pending = True
-            else:
-                self.shot_pending = False
-            self.use_shell(data[17]) #make sure that cooldown gets measured properly...
-        if(not server):
-            self.total_damage = data[18]
-            self.kills = data[19]
-        if(server):
-            self.powerup_request = data[20]
-            self.use_powerup(data[20], server)
-        if(not server):
-            self.shells = data[21]
-            self.powerups = data[22]
-            self.RPM = data[23]
-        if(server):
-            self.message_request = data[24]
-        if(not server):
-            self.team_num = data[25]
-        # - If NOT server, then we need to reset self.client_spotted so that the client knows that this tank object HAS been spotted -
-        if(not server):
-            self.client_spotted = time.time()
+        verified = False
+        for x in self.DATA_FMT:
+            if(netcode.data_verify(data, x)):
+                verified = True
+                break
+        if(verified):
+            for x in data[22]: #check if our powerup list contains valid data
+                verified = False
+                for scan in range(0,len(self.POWERUP_DATA_FMT)):
+                    if(netcode.data_verify(x, self.POWERUP_DATA_FMT[scan])):
+                        verified = True
+                        break
+                if(not verified): #an item failed the verification?
+                    break #we'll exit; verified will equal False, so no data will be entered.
+        if(verified):
+            if(not server):
+                self.speed = data[1]
+            self.direction = data[2]
+            if(not server):
+                self.HP = data[3]
+                self.armor = data[4]
+                self.team = data[5]
+                self.name = data[6]
+                if(data[7] == 1):
+                    self.destroyed = True
+                else:
+                    self.destroyed = False
+                if(data[8] == 1):
+                    self.explosion_done = True
+                else:
+                    self.explosion_done = False
+                self.start_HP = data[9]
+                self.start_armor = data[10]
+                self.fire = data[11]
+            self.overall_location[0] = data[12][0]
+            self.overall_location[1] = data[12][1]
+            self.goto(data[12], TILE_SIZE, screen_scale) #set our screen/map_location accordingly
+            self.goal_rotation = data[13]
+            self.old_direction = data[14]
+            if(not server):
+                self.last_shot = time.time() - data[15]
+            if(server): #yes, this only happens if the enter_data is from the server.
+                if(data[16] == 1):
+                    self.shot_pending = True
+                else:
+                    self.shot_pending = False
+                self.use_shell(data[17]) #make sure that cooldown gets measured properly...
+            if(not server):
+                self.total_damage = data[18]
+                self.kills = data[19]
+            if(server):
+                self.powerup_request = data[20]
+                self.use_powerup(data[20], server)
+            if(not server):
+                self.shells = data[21]
+                self.powerups = data[22]
+                self.RPM = data[23]
+            if(server):
+                self.message_request = data[24]
+            if(not server):
+                self.team_num = data[25]
+            # - If NOT server, then we need to reset self.client_spotted so that the client knows that this tank object HAS been spotted -
+            if(not server):
+                self.client_spotted = time.time()
+            self.image_ct = data[26] % len(self.spotted_images) #since clients and servers might not have the same number of tank movement frames, this will prevent IndexErrors from occurring.
+        else:
+            print("[ENTITY] Tank failed to enter data! Data: " + str(data))
 
 class Bot(): #AI player which can fill a player queue if there is not enough players.
     def __init__(self,team_number=0,player_number=0,player_rating=0.85):
@@ -958,7 +1173,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
         self.tactic = None #how should this bot organize its positional strategy?
         #which direction to move? The bot needs something concrete to follow along to, rather than constantly changing its mind about where to turn.
         self.direction = random.randint(0,3) * 90 #this only gets set when the bot is moving towards its destination.
-        self.last_directions = [self.direction, self.direction + 90,0] #Important: Index 2 is a counter. Based on what it is, we modify either index 0 or index 1 when we change direction. we always try to move in this direction, or continue moving in self.direction. ALWAYS. (unless no wall)
+        self.last_directions = [self.direction, self.direction + 90 * [1, -1][random.randint(0,1)]] #We always try to move in one of these directions, or continue moving in self.direction. ALWAYS. (unless no wall)
         self.current_position = [0,0]
         self.destination_time = None #how long has this bot been trying to reach its destination?
         self.goal_base = None #what base is the bot trying to attack?
@@ -973,14 +1188,15 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
         self.PATHFIND_OVERSHOOT = 0.05
         self.DESTINATION_TIME_LIMIT = 45.0 #seconds
         #this is a threshold (in blocks) which allows bots to be within (pathfind_error) blocks of their destination for it to be considered completed.
-        self.PATHFIND_ERROR = 0.25
+        self.PATHFIND_ERROR = 1.05
         self.bot_vision = 5 #how far (in blocks) the bot can see
         self.DECISION_PRIORITY = ["bullet","player"] #first index is first priority, second index is second priority of focus, etc.
         self.CENTER_THRESHOLD = 0.15 #how close to the center of a block the bot may be to simply set his position to center.
         self.OPPOSITE_DIRECTIONS = [[90,270],[0,180]]
         self.FORCED_MOVE_TIME = 1.5
         self.LR_ANGLE = 30 #this angle determines how far left/right the bots will venture when attempting a side attack.
-        self.AGGRO_DIR_THRESH = 1.25 #when bots are at or beyond this rating, they WILL point towards any entity they are aggroed onto. Otherwise, they may point 180 degrees away sometimes.
+        self.AGGRO_DIR_THRESH = 1.00 #when bots are at or beyond this rating, they WILL point towards any entity they are aggroed onto. Otherwise, they may point 180 degrees away sometimes.
+        self.DEFAULT_SIGHT_DISTANCE = 10 #how far (in blocks) do bots get to see? Multiply by self.rating to get the sight distance bots get.
 
         # - Powerup selection constants -
         self.ARMOR_BOOST_THRESHOLD = 20 * math.sqrt(player_rating) #threshold at which the bot still decides that using armor boost is worth it.
@@ -1012,7 +1228,10 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                     opposite = players[self.player_number].overall_location[0] - len(arena.arena[0]) / 2
                     Y_dimension = players[self.player_number].overall_location[1] - len(arena.arena) / 2
                     hypotenuse = math.sqrt(opposite * opposite + Y_dimension * Y_dimension)
-                    new_direction = math.degrees(math.asin(opposite/hypotenuse))
+                    if(hypotenuse != 0):
+                        new_direction = math.degrees(math.asin(opposite/hypotenuse))
+                    else:
+                        new_direction = 45 * random.randint(0,7) #we're EXACTLY @ center, so...just pick a random direction, I guess...
                     if(opposite > 0):
                         if(Y_dimension > 0): #Quadrant I
                             pass
@@ -1032,7 +1251,10 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                     opposite = players[self.player_number].overall_location[0] - len(arena.arena[0]) / 2
                     Y_dimension = players[self.player_number].overall_location[1] - len(arena.arena) / 2
                     hypotenuse = math.sqrt(opposite * opposite + Y_dimension * Y_dimension)
-                    new_direction = math.degrees(math.asin(opposite/hypotenuse))
+                    if(hypotenuse != 0):
+                        new_direction = math.degrees(math.asin(opposite/hypotenuse))
+                    else:
+                        new_direction = 45 * random.randint(0,7) #we're EXACTLY @ center, so...just pick a random direction, I guess...
                     if(opposite > 0):
                         if(Y_dimension > 0): #Quadrant I
                             pass
@@ -1083,50 +1305,40 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                 self.destination = new_destination
             # - Now, we have to check if our destination is ontop of a block. If it is, we have to shift our destination until it isn't -
             is_on_block = False
-            dummy_tank = Tank(image='', names=["dt","tn"], skip_image_load=True)
-            dummy_tank.overall_location = self.destination[:]
-            dummy_collision = arena.check_collision([1,1], dummy_tank.overall_location[:], dummy_tank.return_collision(arena.TILE_SIZE,1))
-            for dummy_tile in dummy_collision:
-                if(dummy_tile[0] in blocks):
-                    # - Uhoh...now we know that our destination IS on a block! -
-                    is_on_block = True
+            self.destination[0] = int(round(self.destination[0],0)) #we have to truncate the floating part of our destination variable to use it as an arena index.
+            self.destination[1] = int(round(self.destination[1],0))
+            if(self.destination[1] > len(arena.arena) - 1 or self.destination[1] < 0 or self.destination[0] > len(arena.arena[0]) - 1 or self.destination[0] < 0 or arena.arena[self.destination[1]][self.destination[0]] in blocks): #if this is true, our destination is ontop of a block (unreachable)
+                is_on_block = True
             if(is_on_block): #now we have to shift self.destination around until we get a tile where it isn't on a block...
                 directions = [
                     [1,0],
-                    [0,-1],
+                    [0,1],
                     [-1,0],
-                    [0,1]
+                    [0,-1]
                     ]
                 position = self.destination[:]
                 size = 0 #how wide the circle is that we are using to check for a new destination point
                 while is_on_block == True:
                     size += 2
                     for z in range(0,4):
-                        for length in range(0,size):
+                        for length in range(0,size): #size is radius...so we need to double that for diameter
                             # - Update the new potential self.destination point -
                             position[0] += directions[z][0]
                             position[1] += directions[z][1]
                             # - Check if the new self.destination point is NOT ontop of any blocks -
-                            dummy_tank.overall_location = position[:]
-                            dummy_collision = arena.check_collision([1,1], dummy_tank.overall_location[:], dummy_tank.return_collision(arena.TILE_SIZE,1))
-                            is_on_block = False #we start by assuming we're not on a block...
-                            for dummy_tile in dummy_collision:
-                                if(dummy_tile[0] in blocks):
-                                    # - Uhoh...now we know that our destination IS on a block! -
-                                    is_on_block = True
-                            if(not is_on_block): #we found a valid destination???
-                                # - We still need to check if this destination is *outside* the map. If it is, we're not ever going to get there -
-                                if(position[0] >= len(arena.arena[0]) or position[0] <= 0 or position[1] <= 0 or position[1] >= len(arena.arena)):
-                                    is_on_block = True #this is not a valid position
-                                else: #this is a valid position
-                                    self.destination = position[:]
-                                    break
+                            is_on_block = False #reset is_on_block
+                            if(position[1] > len(arena.arena) - 1 or position[1] < 0 or position[0] > len(arena.arena[0]) - 1 or position[0] < 0 or arena.arena[position[1]][position[0]] in blocks):
+                                is_on_block = True
+                            elif(not is_on_block): #we found a valid destination???
+                                break
                         if(not is_on_block):
                             break
                     position[0] -= 1
-                    position[1] += 1
+                    position[1] -= 1
                     if(not is_on_block):
                         break
+                self.destination[0] = position[0] #actually ASSIGN the new destination I found to our destination variable (I forgot to do this for over a year of using this code LOL)
+                self.destination[1] = position[1]
 
     def start_pos(self,players,arena,screen_scale): #ez way to get the bot to start on the flag's site.
         players[self.player_number].goto(arena.flag_locations[self.team_number][:], arena.TILE_SIZE, screen_scale)
@@ -1140,7 +1352,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                 direction = 90 #left
             else:
                 direction = 270 #right
-            players[self.player_number].move(direction, TILE_SIZE)
+            players[self.player_number].move(direction, TILE_SIZE, screen_scale)
         elif(abs(players[self.player_number].overall_location[1] - round(players[self.player_number].overall_location[1],0)) > self.CENTER_THRESHOLD):
             centered = False
             #we're not centered on the Y axis!
@@ -1149,7 +1361,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                 direction = 0 #up
             else:
                 direction = 180 #down
-            players[self.player_number].move(direction, TILE_SIZE)
+            players[self.player_number].move(direction, TILE_SIZE, screen_scale)
         else: #we're CLOSE ENOUGH to centered. Let's teleport the rest of the way there...
             centered = True
             players[self.player_number].goto([round(players[self.player_number].overall_location[0],0), round(players[self.player_number].overall_location[1],0)],TILE_SIZE,screen_scale)
@@ -1167,55 +1379,25 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
 
     def find_directions(self,players,arena,collideable_tiles,TILE_SIZE,offset=1): #finds which direction the bot can move in.
         #We can go any direction where there is not a block in our way.
-        available_directions = [0,180,90,270]
-        visible_tiles = [2,2]
-        # - How much further are we trying to go in each direction? -
-        #   - We move a dummy tank this amount from our current position to tell if we can move...
-        increment = offset / TILE_SIZE * 1.025
-        #first, we're checking if we can move left.
-        dummy_tank = Tank(image='', names=["dt","tn"], skip_image_load=True)
-        dummy_tank.map_location[0] = players[self.player_number].overall_location[0] - increment #round(players[self.player_number].overall_location[0],0) - 1
-        dummy_tank.map_location[1] = players[self.player_number].overall_location[1] #round(players[self.player_number].overall_location[1],0)
-        dummy_tank.clock(TILE_SIZE)
-        tile_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-        dummy_collision = arena.check_collision(visible_tiles, tile_offset, dummy_tank.return_collision(TILE_SIZE,offset))
-        for dummy_tile in dummy_collision:
-            if(dummy_tile[0] in collideable_tiles):
-                available_directions.remove(90)
-                break
-        #next, we're checking if we can move right.
-        dummy_tank = Tank(image='', names=["dt","tn"], skip_image_load=True)
-        dummy_tank.map_location[0] = players[self.player_number].overall_location[0] + increment #round(players[self.player_number].overall_location[0],0) + 1
-        dummy_tank.map_location[1] = players[self.player_number].overall_location[1] #round(players[self.player_number].overall_location[1],0)
-        dummy_tank.clock(TILE_SIZE)
-        tile_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-        dummy_collision = arena.check_collision(visible_tiles, tile_offset, dummy_tank.return_collision(TILE_SIZE,offset))
-        for dummy_tile in dummy_collision:
-            if(dummy_tile[0] in collideable_tiles):
-                available_directions.remove(270)
-                break
-        #Now we're checking if we can move up.
-        dummy_tank = Tank(image='', names=["dt","tn"], skip_image_load=True)
-        dummy_tank.map_location[0] = players[self.player_number].overall_location[0] #round(players[self.player_number].overall_location[0],0)
-        dummy_tank.map_location[1] = players[self.player_number].overall_location[1] - increment #round(players[self.player_number].overall_location[1],0) - 1
-        dummy_tank.clock(TILE_SIZE)
-        tile_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-        dummy_collision = arena.check_collision(visible_tiles, tile_offset, dummy_tank.return_collision(TILE_SIZE,offset))
-        for dummy_tile in dummy_collision:
-            if(dummy_tile[0] in collideable_tiles):
-                available_directions.remove(0)
-                break
-        #first, we're checking if we can move down.
-        dummy_tank = Tank(image='', names=["dt","tn"], skip_image_load=True)
-        dummy_tank.map_location[0] = players[self.player_number].overall_location[0] #round(players[self.player_number].overall_location[0],0)
-        dummy_tank.map_location[1] = players[self.player_number].overall_location[1] + increment #round(players[self.player_number].overall_location[1],0) + 1
-        dummy_tank.clock(TILE_SIZE)
-        tile_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-        dummy_collision = arena.check_collision(visible_tiles, tile_offset, dummy_tank.return_collision(TILE_SIZE,offset))
-        for dummy_tile in dummy_collision:
-            if(dummy_tile[0] in collideable_tiles):
-                available_directions.remove(180)
-                break
+        total_directions = [0, 180, 90, 270]
+        available_directions = [0, 90, 180, 270]
+        # - We'll assume the bot is directly ontop of a square. This way we can just check the ones adjacent and find out which ones are open -
+        rounded_direction = [
+            int(round(players[self.player_number].overall_location[0],0)),
+            int(round(players[self.player_number].overall_location[1],0))
+            ]
+        newpos = [0,0]
+        # - To check each direction, we'll use the expression: sin(math.radians(available_directions[x]) + math.pi/2) -
+        for x in range(0,len(total_directions)):
+            newpos = [0,0]
+            newpos[0] = math.cos(math.radians(total_directions[x]) + math.pi/2) + rounded_direction[0]
+            newpos[1] = -math.sin(math.radians(total_directions[x]) + math.pi/2) + rounded_direction[1]
+            newpos[0] = int(round(newpos[0],0)) #rounding MUST come first; otherwise a 3.99999 will turn into 3...and then the wrong arena tile will be checked =(
+            newpos[1] = int(round(newpos[1],0))
+            if(newpos[0] < 0 or newpos[1] < 0 or newpos[0] > len(arena.arena[0]) - 1 or newpos[1] > len(arena.arena) - 1):
+                available_directions.remove(total_directions[x])
+            elif(arena.arena[newpos[1]][newpos[0]] in collideable_tiles):
+                available_directions.remove(total_directions[x])
         return available_directions
 
     def entity_alligned(self,players,entity,TILE_SIZE): #tries to get within direct line of sight vertically or horizontally with an enemy.
@@ -1236,18 +1418,18 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                     else:
                         return False
                 else: #up
-                    if(players[self.player_number].direction == 0): #180 is down in my entity engine (I know, you're all annoyed at me).
+                    if(players[self.player_number].direction == 0): #0 is up in my entity engine (I know, you're all annoyed at me).
                         return True
                     else:
                         return False
             else:
                 if(position_difference[0] > 0): #right
-                    if(players[self.player_number].direction == 270): #180 is down in my entity engine (I know, you're all annoyed at me).
+                    if(players[self.player_number].direction == 270): #270 is right in my entity engine (I know, you're all annoyed at me).
                         return True
                     else:
                         return False
                 else: #left
-                    if(players[self.player_number].direction == 90): #180 is down in my entity engine (I know, you're all annoyed at me).
+                    if(players[self.player_number].direction == 90): #90 is left in my entity engine (I know, you're all annoyed at me).
                         return True
                     else:
                         return False
@@ -1256,133 +1438,63 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
             return False
 
     #points the bot's tank in the specified direction + moves in that direction if auto_move == True
-    def point_in_direction(self,direction,players,TILE_SIZE,auto_move=False):
+    def point_in_direction(self,direction,players,TILE_SIZE,screen_scale,auto_move=False):
         if(players[self.player_number].old_direction != direction): #we're NOT already pointing in the right direction?
             #are we 90 degrees off? If so, we can just move towards the right direction.
             if(players[self.player_number].old_direction == self.no_360_or_negative(direction + 90) or players[self.player_number].old_direction == self.no_360_or_negative(direction - 90)):
-                players[self.player_number].move(direction,TILE_SIZE)
+                players[self.player_number].move(direction,TILE_SIZE,screen_scale)
             else: #we're 180 degrees - aka, backwards. We need to rotate 90 degrees before we can point in the right direction to avoid reversing.
-                players[self.player_number].move(self.no_360_or_negative(direction + 90),TILE_SIZE)
+                players[self.player_number].move(self.no_360_or_negative(direction + 90),TILE_SIZE,screen_scale)
             return False
         else: #let our bot program know we're pointing in the right direction!
             if(auto_move):
-                players[self.player_number].move(direction,TILE_SIZE)
+                players[self.player_number].move(direction,TILE_SIZE,screen_scale)
             return True
 
     #checks for entities within the bot's line of sight. Returns either the first one seen, or None.
     def check_visible_entities(self,players,entities,arena,collideable_tiles,TILE_SIZE):
         seen = None
-        visible_tiles = [2,2] #for checking arena collision
         for x in range(0,len(entities)):
             if(entities[x].team == players[self.player_number].team): #entities on our own team don't count!
                 continue
-            if(entities[x].destroyed == True): #we don't check for destroyed entities.
+            elif(entities[x].destroyed == True): #we don't check for destroyed entities.
                 continue
-            # - Check on the X and Y axis until a wall/brick is reached to see if we have found an entity -
-            dummy_tank = Tank(image='img', names=["dt","tn"], skip_image_load=True)
-            dummy_tank.map_location = [round(players[self.player_number].overall_location[0],0),round(players[self.player_number].overall_location[1],0)]
-            dummy_tank.clock(TILE_SIZE)
-            wall = False #this becomes true if we try looking through a wall.
-            for check_x in range(0,self.bot_vision + 1): #the bot can only see this far in each direction
-                #check if we are trying to look through a wall...
-                arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-                collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
-                for tile in collided_tiles:
-                    if(tile[0] in collideable_tiles): #we're trying to look through a wall...
-                        wall = True
-                        break #exit the collision loop
-                if(wall):
-                    break
-                dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another enemy.
-                if(check_collision(dummy_tank, entities[x], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
+            elif(seen == None):
+                seen = check_visible(arena, [players[self.player_number], entities[x]], collideable_tiles, int(math.ceil(self.DEFAULT_SIGHT_DISTANCE * self.rating)), proximity=False)
+                if(seen == True): #if we spotted this player, we need to set seen to its index in the entities[] list
                     seen = x
                     break
-                dummy_tank.map_location[0] -= 1 #keep updating the dummy tank's position and check if an entity has collided with it.
-            if(seen == None): #check the other way on the X axis
-                dummy_tank.map_location = [round(players[self.player_number].overall_location[0],0),round(players[self.player_number].overall_location[1],0)]
-                dummy_tank.clock(TILE_SIZE)
-                wall = False #this becomes true if we try looking through a wall.
-                for check_x in range(0,self.bot_vision): #the bot can only see this far in each direction
-                    #check if we are trying to look through a wall...
-                    arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-                    collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
-                    for tile in collided_tiles:
-                        if(tile[0] in collideable_tiles): #we're trying to look through a wall...
-                            wall = True
-                            break #exit the collision loop
-                    if(wall):
-                        break
-                    dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another enemy.
-                    if(check_collision(dummy_tank, entities[x], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
-                        seen = x
-                        break
-                    dummy_tank.map_location[0] += 1 #keep updating the dummy tank's position and check if an entity has collided with it.
-            if(seen == None):
-                wall = False
-                dummy_tank.map_location = [round(players[self.player_number].overall_location[0],0),round(players[self.player_number].overall_location[1],0)]
-                dummy_tank.clock(TILE_SIZE)
-                for check_y in range(0,self.bot_vision + 1):
-                    #check if we are trying to look through a wall...
-                    arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-                    collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
-                    for tile in collided_tiles:
-                        if(tile[0] in collideable_tiles): #we're trying to look through a wall...
-                            wall = True
-                            break #exit the collision loop
-                    if(wall):
-                        break
-                    dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another entity.
-                    if(check_collision(dummy_tank, entities[x], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
-                        seen = x
-                        break
-                    dummy_tank.map_location[1] -= 1 #keep updating the dummy tank's position and check if an entity has collided with it.
-            if(seen == None):
-                wall = False
-                dummy_tank.map_location = [round(players[self.player_number].overall_location[0],0),round(players[self.player_number].overall_location[1],0)]
-                dummy_tank.clock(TILE_SIZE)
-                for check_y in range(0, self.bot_vision):
-                    #check if we are trying to look through a wall...
-                    arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-                    collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
-                    for tile in collided_tiles:
-                        if(tile[0] in collideable_tiles): #we're trying to look through a wall...
-                            wall = True
-                            break #exit the collision loop
-                    if(wall):
-                        break
-                    dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another entity.
-                    if(check_collision(dummy_tank, entities[x], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
-                        seen = x
-                        break
-                    dummy_tank.map_location[1] += 1 #keep updating the dummy tank's position and check if an entity has collided with it.
-            else: #if the bot has found an entity, it needs to shoot it, not get distracted by another one!
-                break
+                else:
+                    seen = None
         return seen
 
+    #Teleports the bot this Bot() object controls to the nearest integer coordinate/tile. This helps pathfinding work better since it doesn't need to deal with players with decimal tile coordinates.
+    def tp_center(self, players):
+        players[self.player_number].overall_location[0] = int(round(players[self.player_number].overall_location[0],0))
+        players[self.player_number].overall_location[1] = int(round(players[self.player_number].overall_location[1],0))
+
     #Tries to move in one of a few given directions. Input a list of preferred directions, starting with highest priority.
-    def directional_move(self,players,available_directions,preferred_directions,TILE_SIZE,arena,collideable_tiles,screen=None):
+    def directional_move(self,players,available_directions,preferred_directions,TILE_SIZE,screen_scale,arena,collideable_tiles,screen=None):
         # - Needed debug info -
-        #screen_scale = arena.get_scale([10,10],screen)
+        #screen_scale = arena.get_scale([15,15],screen)
         #player_offset = players[0].map_location[:]
+        # - Set our bot's location to an integer value -
+        self.tp_center(players)
         # - A few of these checks have to pass the self.last_turn_location check: Basically, has the bot already made a turn on this square last? -
         rounded_position = [round(players[self.player_number].overall_location[0],0),round(players[self.player_number].overall_location[1],0)]
         wall = False #do we have a wall between us and our destination??
         # - Negative 1st: Find whether there is a SINGLE wall between us and our destination -
         position_difference = [self.destination[0] - rounded_position[0], self.destination[1] - rounded_position[1]]
-        dummy_tank = Tank("img",["dt","tn"],True) #create a tank with no images
         if(position_difference[0] == 0): #catch any 0div errors, when X difference = 0 (vertical)
             progression = position_difference[1] #move position_difference[1] without moving right/left
             trace = rounded_position[1]
             for x in range(0,int(abs(progression))):
                 # - Now we check if we hit a block (we only have to check THE block because this script rounds) -
-                dummy_tank.overall_location = [rounded_position[0], trace]
                 # - This is debug -
-                #pygame.draw.rect(screen,[255,255,255],[(dummy_tank.overall_location[0] - player_offset[0]) * TILE_SIZE * screen_scale[0],(dummy_tank.overall_location[1] - player_offset[1]) * TILE_SIZE * screen_scale[1],TILE_SIZE * screen_scale[0],TILE_SIZE * screen_scale[1]],5)
-                # - Continuing... -
-                collision = arena.check_collision([1,1], dummy_tank.overall_location[:], dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
-                for x in collision:
-                    if(x[0] in collideable_tiles):
-                        wall = True
+                #pygame.draw.rect(screen,[255,255,255],[(rounded_position[0] - player_offset[0]) * TILE_SIZE * screen_scale[0],(trace - player_offset[1]) * TILE_SIZE * screen_scale[1],TILE_SIZE * screen_scale[0],TILE_SIZE * screen_scale[1]],5)
+                if(trace < 0 or rounded_position[0] < 0 or rounded_position[0] > len(arena.arena[0]) - 1 or trace > len(arena.arena) - 1 or arena.arena[int(trace)][int(rounded_position[0])] in collideable_tiles): #wall?
+                    wall = True
+                    break #we found a wall; that's all that matters
                 if(progression > 0):
                     trace += 1
                 else:
@@ -1398,34 +1510,39 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
             y_trace = rounded_position[1]
             for x in range(0,abs(int(position_difference[0])) + 1): #trace a direct line from us to our destination
                 for y in range(0,int(progression) + 1):
-                    # - Now we check if we hit a block (we only have to check THE block because this script rounds) -
-                    dummy_tank.overall_location = [x_trace, y_trace]
                     # - This is debug -
-                    #pygame.draw.rect(screen,[255,255,255],[(dummy_tank.overall_location[0] - player_offset[0]) * TILE_SIZE * screen_scale[0],(dummy_tank.overall_location[1] - player_offset[1]) * TILE_SIZE * screen_scale[1],TILE_SIZE * screen_scale[0],TILE_SIZE * screen_scale[1]],5)
-                    # - Continuing... -
-                    collision = arena.check_collision([1,1], dummy_tank.overall_location[:], dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
-                    for b in collision:
-                        if(b[0] in collideable_tiles):
-                            wall = True
+                    #pygame.draw.rect(screen,[255,255,255],[(x_trace - player_offset[0]) * TILE_SIZE * screen_scale[0],(y_trace - player_offset[1]) * TILE_SIZE * screen_scale[1],TILE_SIZE * screen_scale[0],TILE_SIZE * screen_scale[1]],5)
+                    if(x_trace < 0 or y_trace < 0 or x_trace > len(arena.arena[0]) - 1 or y_trace > len(arena.arena) - 1 or arena.arena[int(y_trace)][int(x_trace)] in collideable_tiles): #wall?
+                        wall = True
+                        break #we found a wall; that's all that matters
                     if(progression > 0):
                         y_trace += 1
                     else:
                         y_trace -= 1
                 y_trace = round(progression * x + rounded_position[1],0)
                 x_trace += direction
+                if(wall): #finishing this computation would just waste CPU time since we've already found the boolean flag we're looking for
+                    break
         # - Setup -
         successful_move = False
         player_direction = self.direction
+        #data sanity check: we need self.last_directions[0:2] to NOT have opposite directions in them. Otherwise, bots will just run back and forth without ever navigating anywhere useful...
+        if(self.last_directions[0] == self.no_360_or_negative(self.last_directions[1] + 180)):
+            #print("Sanity Check Triggered") #debug
+            index_change = random.randint(0,1)
+            #we need to modify index index_change so that it isn't the opposite of index (index_change + 1) % 2
+            self.last_directions[index_change] += [90, -90][random.randint(0,1)]
+            self.last_directions[index_change] = self.no_360_or_negative(self.last_directions[index_change])
         # - First: Check if we can just keep moving in the direction we are currently moving in -
-        if(successful_move == False and player_direction in available_directions and (player_direction in preferred_directions or (wall and (player_direction == self.last_directions[0] or player_direction == self.last_directions[1])))):
+        if(successful_move == False and player_direction in available_directions and (player_direction in preferred_directions or (wall and player_direction in self.last_directions))):
             successful_move = True
             #print("Streight ahead") #debug
         # - Second: Check if we can move in either of our self.last_directions IF wall -
         if(successful_move == False and wall):
             for x in range(0,len(available_directions)):
-                if(available_directions[x] == self.last_directions[0] and self.no_360_or_negative(180 + available_directions[x]) != self.direction or available_directions[x] == self.last_directions[1] and self.no_360_or_negative(180 + available_directions[x]) != self.direction):
+                if((available_directions[x] == self.last_directions[0] and self.no_360_or_negative(180 + available_directions[x]) != self.direction) or (available_directions[x] == self.last_directions[1] and self.no_360_or_negative(180 + available_directions[x]) != self.direction)):
                     self.last_directions.insert(0,self.direction)
-                    self.last_directions.pop(1)
+                    self.last_directions.pop(2) #was 1, but should be 2 (this way we cycle through the directions we've traveled last)
                     self.direction = available_directions[x]
                     self.last_turn_location = rounded_position[:]
                     successful_move = True
@@ -1435,7 +1552,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
             for x in range(0,len(available_directions)):
                 if(available_directions[x] in preferred_directions and self.no_360_or_negative(180 + available_directions[x]) != self.direction):
                     self.last_directions.insert(0,self.direction)
-                    self.last_directions.pop(1)
+                    self.last_directions.pop(2)
                     self.direction = available_directions[x]
                     self.last_turn_location = rounded_position[:]
                     successful_move = True
@@ -1445,7 +1562,7 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
             for x in range(0,len(available_directions)):
                 if(available_directions[x] == self.last_directions[0] and self.no_360_or_negative(180 + available_directions[x]) != self.direction or available_directions[x] == self.last_directions[1] and self.no_360_or_negative(180 + available_directions[x]) != self.direction):
                     self.last_directions.insert(0,self.direction)
-                    self.last_directions.pop(1)
+                    self.last_directions.pop(2)
                     self.direction = available_directions[x]
                     self.last_turn_location = rounded_position[:]
                     successful_move = True
@@ -1453,17 +1570,26 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
         # - Fifth: Just pick a random available direction -
         #if we haven't found a direction by now...well I give up. Usually this occurs when we're cornered.
         if(successful_move == False and len(available_directions) > 0):
-            self.last_directions[self.last_directions[2] % 2] = self.direction
-            self.last_directions[2] += 1 #change the modifier factor in self.last_directions
-            if(self.last_directions[2] >= 2):
-                self.last_directions[2] = 0
-            self.direction = available_directions[random.randint(0,len(available_directions) - 1)]
+            self.last_directions.insert(0,self.direction)
+            self.last_directions.pop(2)
+            start_num = random.randint(0,len(available_directions) - 1) #this is the direction we will *try* to go in. However, if this is opposite the direction we are currently going, we will do ANYTHING to go another way.
+            for getnum in range(0,len(available_directions)):
+                if(self.no_360_or_negative(available_directions[start_num] + 180) == self.direction): #this is opposite to the direction we are currently moving? If we can, we're gonna pick another way.
+                    if(len(available_directions) > 1): #there is another way?
+                        start_num += 1 #pick it!
+                        if(start_num > len(available_directions) - 1):
+                            start_num = 0
+                        pass #we'll take it! Otherwise, this loop will end automatically and start_num will point to the index of the only direction available.
+                else: #this direction is fine? We'll take it!
+                    #print("Got wanted direction!", end="") #debug (if this is uncommented, uncomment the print statement below containing "RNG" to see how many times bots get the RNG outcomes they want.
+                    break
+            self.direction = available_directions[start_num]
             if(self.direction != players[self.player_number].old_direction):
                 self.last_turn_location = rounded_position[:] #reset our turn location variable
             #print("RNG") #debug for when the bot resorts to an RNG roll
-        players[self.player_number].move(self.direction,TILE_SIZE)
+        players[self.player_number].move(self.direction,TILE_SIZE,screen_scale)
 
-    def track_location(self,players,arena,TILE_SIZE,collideable_tiles,tank_collision_offset,screen): #tries to reach self.destination.
+    def track_location(self,players,arena,TILE_SIZE,screen_scale,collideable_tiles,tank_collision_offset,screen): #tries to reach self.destination.
         # - Check: Which directions CAN we move in? -
         available_directions = self.find_directions(players,arena,collideable_tiles,TILE_SIZE,tank_collision_offset)
         # - Check: Which directions do we WANT to move in? -
@@ -1477,13 +1603,15 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
         elif(players[self.player_number].overall_location[1] < self.destination[1] - self.PATHFIND_ERROR / 4): #we're above our destination.
             goal_directions.append(180)
         #print("Goal: " + str(goal_directions) + " Available: " + str(available_directions)) #debug
-        self.directional_move(players,available_directions,goal_directions,TILE_SIZE,arena,collideable_tiles,screen)
+        self.directional_move(players,available_directions,goal_directions,TILE_SIZE,screen_scale,arena,collideable_tiles,screen)
 
     def find_shell(self,players): #simple script which decides which shell the AI is going to shoot
         #We need to make sure we are using shells which we can shoot! We shouldn't waste time trying to shoot a shell which we don't own!
         player_HP = (players[self.player_number].HP / players[self.player_number].start_HP) / self.rating
         if(player_HP > 1.0): #due to the division by self.rating, I need to check if player_HP is above 1.0 to make sure the bot functions as expected.
             player_HP = 1.0
+        if(player_HP == 0): #since we divide by player_HP a lot, we NEED to make sure this value ISN'T zero.
+            player_HP = 0.01 #the bot's already dead...but just to ensure that no zerodiv errors occur, we'll override the value.
         if(int(1 / player_HP) > len(players[self.player_number].shells) - 1): #are we trying to shoot a shell which doesn't exist?
             #fix that!
             player_HP = 1 / len(players[self.player_number].shells) #this line prevents index errors when using arguments such as list[int(1 / player_HP) - 1].
@@ -1521,7 +1649,11 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
     def use_powerups(self,players,bullets,player_aggro,bullet_aggro): #this function decides which powerups (and when) the bot is going to use them
         player_HP = players[self.player_number].HP / players[self.player_number].start_HP
         if(player_aggro != None): #we're fighting another player?
-            powerup = int(1 / (players[self.player_number].armor / players[self.player_number].start_armor) * self.rating) - 1 #we can't be using powerups like crazy!
+            if(players[self.player_number].armor != 0):
+                armor_percentage = (players[self.player_number].armor / players[self.player_number].start_armor)
+            else:
+                armor_percentage = 0.001 #this CAN NOT equal zero because it will lead to zerodiv errors otherwise
+            powerup = int(1 / armor_percentage * self.rating) - 1 #we can't be using powerups like crazy!
             if(powerup > len(self.POWERUP_AGGRESSION_LIST) - 1): #if we lost most of our armor...we're going random!
                 powerup = random.randint(0,len(self.POWERUP_AGGRESSION_LIST) - 1)
             elif(powerup < 0):
@@ -1562,12 +1694,22 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
         #For finding player locations: [round(players[x].overall_location[0],0), round(players[x].overall_location[1],0)]
         #For finding bullet locations: [round(bullets[x].map_location[0],0), round(bullets[x].map_location[1],0)]
         #For finding arena base locations: arena.flag_locations[x]
+        # - Check whether we *somehow* gliched our way outside the map boundaries (this can happen due to lag) -
+        if(players[self.player_number].overall_location[0] < 0 or players[self.player_number].overall_location[0] >= len(arena.arena[0])):
+            players[self.player_number].HP = -1.0
+            players[self.player_number].armor = 0.0
+        elif(players[self.player_number].overall_location[1] < 0 or players[self.player_number].overall_location[1] >= len(arena.arena)):
+            players[self.player_number].HP = -1.0
+            players[self.player_number].armor = 0.0
+        if(players[self.player_number].destroyed): #we're DEAD? We don't need to do any computations anymore...
+            return None
         potential_bullet = None
         move = False
         centering = False #this flag is important; It tells us whether to move at the bottom of analyse_game() or not.
         if(time.time() - self.last_compute_frame > self.FORCED_MOVE_TIME): #we need to move again?
             # - We need to center ourselves. Once we're centered, we can reset last_compute_frame -
             centered = self.self_center(players,TILE_SIZE,screen_scale)
+            players[self.player_number].clear_unmove_flag()
             centering = True
             if(centered): #we've centered ourselves?
                 # - Now we can set move to True, and reset last_compute_frame -
@@ -1611,13 +1753,13 @@ class Bot(): #AI player which can fill a player queue if there is not enough pla
                     if(tracked == True): #we're in line?
                         potential_bullet = players[self.player_number].shoot(TILE_SIZE)
             # - Continuing towards our destination...which might be a bullet which we need to shoot! -
-            self.track_location(players,arena,TILE_SIZE,collideable_tiles,tank_collision_offset,screen)
+            self.track_location(players,arena,TILE_SIZE,screen_scale,collideable_tiles,tank_collision_offset,screen)
         elif(not centering): #just keep moving the same direction we have been to reduce CPU load
             #we only keep moving the direction we are IF we're not aggroed onto something.
             if(self.bullet_aggro == None and self.player_aggro == None or self.rating < self.AGGRO_DIR_THRESH):
-                players[self.player_number].move(self.direction, TILE_SIZE)
+                players[self.player_number].move(self.direction, TILE_SIZE, screen_scale)
             else: #if we ARE aggroed onto something, we NEED to be pointing the direction of it, NOT the other way.
-                self.point_in_direction(self.direction,players,TILE_SIZE,auto_move=True)
+                self.point_in_direction(self.direction,players,TILE_SIZE,screen_scale,auto_move=True)
         return potential_bullet
                 
 #The following function accepts two entity objects as a list.
@@ -1635,8 +1777,8 @@ def handle_damage(Entities): #Entities format: [ Entity 1, Entity 2 ]
         #if entity1 can do damage, entity1.damage * (entity1.penetration / entity2.armor)
         if(Entities[0].type == "Tank"): #we know that Entities[1].type == "Bullet" then.
             if(Entities[1].fire_inflict > 1): #uh-oh. Did we get inflicted with "fire in gas tank"?
-                Entities[0].fire = Entities[1].fire_inflict
                 Entities[0].fire_cause = Entities[1].tank_origin
+                Entities[0].fire = Entities[1].fire_inflict
             if(Entities[0].armor > 0.0025):
                 damage_numbers[0] = Entities[1].damage * (Entities[1].penetration / Entities[0].armor) #calculate the damage numbers
                 if(damage_numbers[0] < 0): #negative damage? (this can happen in rare frame-perfect cases)
@@ -1655,8 +1797,8 @@ def handle_damage(Entities): #Entities format: [ Entity 1, Entity 2 ]
             Entities[1].destroyed = True #the bullet is done after it hits a tank.
         elif(Entities[1].type == "Tank"): #we know that Entities[0].type == "Bullet" then.
             if(Entities[0].fire_inflict > 1): #uh-oh. Did we get inflicted with "fire in gas tank"?
-                Entities[1].fire = Entities[0].fire_inflict
                 Entities[1].fire_cause = Entities[0].tank_origin
+                Entities[1].fire = Entities[0].fire_inflict
             if(Entities[1].armor > 0.0025):
                 damage_numbers[1] = Entities[0].damage * (Entities[0].penetration / Entities[1].armor) #calculate the damage numbers
                 if(damage_numbers[1] < 0): #negative damage? (this can happen in rare frame-perfect cases)
@@ -1680,17 +1822,17 @@ def handle_damage(Entities): #Entities format: [ Entity 1, Entity 2 ]
             Entity1HP = Entities[1].damage
             Entity1Armor = Entities[1].penetration
             # - Damage Entity1 first -
-            damage_numbers[1] = Entities[0].damage * (Entities[0].penetration / Entity1Armor)
+            damage_numbers[1] = Entities[0].damage * (Entities[0].penetration / Entities[1].penetration)
             if(damage_numbers[1] < 0): #this bullet did negative damage? (this can happen in rare frame-perfect cases)
                 damage_numbers[1] = 0
             else:
-                Entity1Armor -= Entities[0].damage * (Entities[0].penetration / Entity1Armor)
+                Entity1Armor -= Entities[0].damage * (Entities[0].penetration / Entities[1].penetration)
                 if(Entity1Armor <= 0): #this bullet lost all its penetration (momentum, armor, whatever you want to call it)
                     damage_numbers[1] += Entity1Armor #correct this damage number so that it isn't greater than the other bullet's penetration value.
                     Entities[1].destroyed = True #the bullet lost all momentum (penetration), so its useless.
             # - Damage Entity0 second -
             damage_numbers[0] = Entities[1].damage * (Entities[1].penetration / Entities[0].penetration)
-            if(damage_numbers[0] > 0): #this bullet did negative damage? (this can happen in rare frame-perfect cases)
+            if(damage_numbers[0] < 0): #this bullet did negative damage? (this can happen in rare frame-perfect cases)
                 damage_numbers[0] = 0
             else:
                 Entities[0].penetration -= Entities[1].damage * (Entities[1].penetration / Entities[0].penetration)
@@ -1737,120 +1879,90 @@ def check_collision(Entity1, Entity2, TILE_SIZE, tank_collision_offset=1):
     else:
         return [collided, None]
 
-POWERUP_SPAWN_TIME = 45.0 #X seconds between each powerup spawn
-last_powerup_spawn = time.time() - POWERUP_SPAWN_TIME / 1.5 #when did we last spawn powerups?
+POWERUP_SPAWN_TIME = 20.0 #X seconds between each powerup spawn
+last_powerup_spawn = time.time() - 7.5 #when did we last spawn powerups?
 POWERUP_CT = 10 #how many different powerups can we spawn on the map?
+# - This list HAS to add up to 100; giving more ###s to a specific powerup type gives it a higher probability. Numbers are in % -
+POWERUP_PROB = [6, 6, 6, 6, 6, 6,
+                16, 16, 16, 16] #I intentionally biased the powerup probability towards ammunition; It is very easy to run out of ammo in larger battles, so it is very important to give the team a good supply.
 def spawn_powerups(arena,powerups,images): #spawns powerups every POWERUP_SPAWN_TIME
     global POWERUP_SPAWN_TIME #we need a few global variables defined right above this function.
     global last_powerup_spawn
     global POWERUP_CT
+    global POWERUP_PROB
     if(time.time() - last_powerup_spawn >= POWERUP_SPAWN_TIME): #time to spawn a powerup?
         last_powerup_spawn = time.time() #reset our powerup spawn timer
-        for x in range(0,len(arena.flag_locations)):
-            powerups.append(Powerup(images[x], random.randint(0,POWERUP_CT - 1), arena.flag_locations[x]))
+        # - Randomly pick a powerup for ALL bases to receive simultaneously; I want the matches to be even, meaning each base gets the same resources -
+        new_powerup_prob = random.randint(0,100)
+        powerup_num = 0 #this is the index of the powerup we're going to choose
+        for x in range(0,len(POWERUP_PROB)):
+            if(x == len(POWERUP_PROB) - 1): #This powerup HAS to be the one selected, since there are no more alternatives.
+                powerup_num = x
+                break
+            else: #check if this is the powerup we should spawn
+                lowsum = 0
+                highsum = 0
+                for getlowsum in range(0,x):
+                    lowsum += POWERUP_PROB[getlowsum]
+                for gethighsum in range(0,x + 1):
+                    highsum += POWERUP_PROB[gethighsum]
+                if(new_powerup_prob >= lowsum and new_powerup_prob <= highsum): #the random number fell in the range of the probability of the powerup we're looking at right now?
+                    powerup_num = x
+                    break
+                
+        for x in range(0,len(arena.flag_locations)): #spawn the powerup we picked at all base locations
+            powerups.append(Powerup(images[powerup_num], powerup_num, arena.flag_locations[x]))
 
 # - Checks if the two entities in entities[] are able to spot one another -
-def check_visible(arena,entities,collideable_tiles,vision=5):
-    TILE_SIZE = arena.TILE_SIZE
+def check_visible(arena,entities,collideable_tiles,vision=5, proximity=True):
     seen = False
-    visible_tiles = [2,2] #for checking arena collision
-    # - Check on the X and Y axis until a wall/brick is reached to see if we have found an entity -
-    dummy_tank = Tank(image='img', names=["dt","tn"], skip_image_load=True)
-    dummy_tank.map_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
-    dummy_tank.overall_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
-    dummy_tank.clock(TILE_SIZE)
-    wall = False #this becomes true if we try looking through a wall.
-    for check_x in range(0,vision + 1): #the bot can only see this far in each direction
-        #check if we are trying to look through a wall...
-        arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-        collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
-        for tile in collided_tiles:
-            if(tile[0] in collideable_tiles): #we're trying to look through a wall...
-                wall = True
-                break #exit the collision loop
-        if(wall):
-            break
-        dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another enemy.
-        if(check_collision(dummy_tank, entities[1], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
-            seen = True
-            break
-        dummy_tank.map_location[0] -= 1 #keep updating the dummy tank's position and check if an entity has collided with it.
-        dummy_tank.overall_location[0] -= 1
-    if(seen == False): #check the other way on the X axis
-        dummy_tank.map_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
-        dummy_tank.overall_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
-        dummy_tank.clock(TILE_SIZE)
-        wall = False #this becomes true if we try looking through a wall.
-        for check_x in range(0,vision): #the bot can only see this far in each direction
-            #check if we are trying to look through a wall...
-            arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-            collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
-            for tile in collided_tiles:
-                if(tile[0] in collideable_tiles): #we're trying to look through a wall...
-                    wall = True
-                    break #exit the collision loop
-            if(wall):
-                break
-            dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another enemy.
-            if(check_collision(dummy_tank, entities[1], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
-                seen = True
-                break
-            dummy_tank.map_location[0] += 1 #keep updating the dummy tank's position and check if an entity has collided with it.
-            dummy_tank.overall_location[0] += 1
-    if(seen == False):
-        wall = False
-        dummy_tank.map_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
-        dummy_tank.overall_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
-        dummy_tank.clock(TILE_SIZE)
-        for check_y in range(0,vision + 1):
-            #check if we are trying to look through a wall...
-            arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-            collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
-            for tile in collided_tiles:
-                if(tile[0] in collideable_tiles): #we're trying to look through a wall...
-                    wall = True
-                    break #exit the collision loop
-            if(wall):
-                break
-            dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another entity.
-            if(check_collision(dummy_tank, entities[1], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
-                seen = True
-                break
-            dummy_tank.map_location[1] -= 1 #keep updating the dummy tank's position and check if an entity has collided with it.
-            dummy_tank.overall_location[1] -= 1
-    if(seen == False):
-        wall = False
-        dummy_tank.map_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
-        dummy_tank.overall_location = [round(entities[0].overall_location[0],0),round(entities[0].overall_location[1],0)]
-        dummy_tank.clock(TILE_SIZE)
-        for check_y in range(0,vision):
-            #check if we are trying to look through a wall...
-            arena_offset = [int(dummy_tank.overall_location[0]), int(dummy_tank.overall_location[1])]
-            collided_tiles = arena.check_collision(visible_tiles, arena_offset, dummy_tank.return_collision(TILE_SIZE,TILE_SIZE * 0.1))
-            for tile in collided_tiles:
-                if(tile[0] in collideable_tiles): #we're trying to look through a wall...
-                    wall = True
-                    break #exit the collision loop
-            if(wall):
-                break
-            dummy_tank.clock(TILE_SIZE) # - If so, we need to try and target him until...he gets out of view, or we get distracted by another entity.
-            if(check_collision(dummy_tank, entities[1], TILE_SIZE, TILE_SIZE * 0.15)[0] == True): #we can see another entity who is NOT on our team???
-                seen = True
-                break
-            dummy_tank.map_location[1] += 1 #keep updating the dummy tank's position and check if an entity has collided with it.
-            dummy_tank.overall_location[1] += 1
-    if(seen == False): #Check if someone got proximity spotted (vision / 2 distance)
+    # - First we have to grab locations for both entities -
+    locations = []
+    for x in range(0,2):
+        if(entities[x].type == "Bullet" or entities[x].type == "Powerup"): #use .map_location[] then
+            locations.append([entities[x].map_location[0], entities[x].map_location[1]])
+        else: #use .overall_location[] then
+            locations.append([entities[x].overall_location[0], entities[x].overall_location[1]])
+    rounded_locations = [
+        [int(round(locations[0][0], 0)), int(round(locations[0][1], 0))],
+        [int(round(locations[1][0], 0)), int(round(locations[1][1], 0))]
+        ]
+    # - Rearrange rounded_locations so the smaller number always comes first (it doesn't matter if we swap X/Y coordinates with one entity to another in this case) -
+    if(rounded_locations[0][0] > rounded_locations[1][0]):
+        tmp = rounded_locations[0][0]
+        rounded_locations[0][0] = rounded_locations[1][0]
+        rounded_locations[1][0] = tmp
+    if(rounded_locations[0][1] > rounded_locations[1][1]):
+        tmp = rounded_locations[0][1]
+        rounded_locations[0][1] = rounded_locations[1][1]
+        rounded_locations[1][1] = tmp
+    # - Now we check for alignment in an axis, and check if there are blocks in between the two entities -
+    if(rounded_locations[0][0] == rounded_locations[1][0] and abs(rounded_locations[0][1] - rounded_locations[1][1]) <= vision): #alignment in the X axis + players are within sight distance of each other
+        seen = True
+        for y in range(rounded_locations[0][1], rounded_locations[1][1] + 1):
+            if(y < len(arena.arena) and rounded_locations[0][0] < len(arena.arena[0]) and y >= 0 and rounded_locations[0][0] >= 0): #no index errors?
+                if(arena.arena[y][rounded_locations[0][0]] in collideable_tiles):
+                    seen = False
+                    break #we can't see anything on this axis.
+    if(seen == False and rounded_locations[0][1] == rounded_locations[1][1] and abs(rounded_locations[0][0] - rounded_locations[1][0]) <= vision): #alignment in the Y axis + players are within sight distance of each other
+        seen = True
+        for x in range(rounded_locations[0][0], rounded_locations[1][0] + 1):
+            if(x < len(arena.arena[0]) and rounded_locations[0][1] < len(arena.arena) and x >= 0 and rounded_locations[0][1] >= 0): #no index errors?
+                if(arena.arena[rounded_locations[0][1]][x] in collideable_tiles):
+                    seen = False
+                    break #we can't see anything on this axis.
+    if(seen == False and proximity == True): #Check if someone got proximity spotted (vision / 2 distance)
         uncombined_distance = [
-            entities[0].overall_location[0] - entities[1].overall_location[0],
-            entities[0].overall_location[1] - entities[1].overall_location[1]
+            locations[0][0] - locations[1][0],
+            locations[0][1] - locations[1][1]
             ]
         distance = math.sqrt(pow(abs(uncombined_distance[0]),2) + pow(abs(uncombined_distance[1]),2))
         if(distance < vision / 2):
             seen = True 
     return seen
 
-###Small demo to test the entity system
-##tank = Tank(pygame.image.load("../../pix/Characters(gub)/p1U.png"), names=["tank name","team name"])
+### - Small demo to test the entity system -
+##tank = Tank([pygame.image.load("../../pix/tanks/P1U1.png"),pygame.image.load("../../pix/tanks/P1U2.png")], names=["tank name","team name"])
 ##
 ### - ...Okay, this turned into a bigger demo than I thought, but it works SO WELL!!! -
 ##keypresses = []
@@ -1951,7 +2063,7 @@ def check_visible(arena,entities,collideable_tiles,vision=5):
 ##
 ##    if(len(keypresses) > 0): #we're trying to move?
 ##        try:
-##            tank.move(directions.index(keypresses[0]) * 90, 20)
+##            tank.move(directions.index(keypresses[0]) * 90, 20, [1,1])
 ##        except: #the keypress was not one of the arrow keys?
 ##            pass
 ##        try:

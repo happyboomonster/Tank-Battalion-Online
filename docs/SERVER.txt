@@ -1,0 +1,23 @@
+##Tank Battalion Online Server Manual ---VERSION 1.0---
+##Copyright (C) 2024  Lincoln V.
+##
+##This program is free software: you can redistribute it and/or modify
+##it under the terms of the GNU General Public License as published by
+##the Free Software Foundation, either version 3 of the License, or
+##(at your option) any later version.
+##
+##This program is distributed in the hope that it will be useful,
+##but WITHOUT ANY WARRANTY; without even the implied warranty of
+##MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+##GNU General Public License for more details.
+##
+##You should have received a copy of the GNU General Public License
+##along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+The goal of this manual is to show you how to start and manage your own TBO server, since there is no official server.
+
+Starting a LAN server is very simple; Simply run the "start_server.py" script located in "python/libraries" with Python 3. By default, the server uses port 5031. However, you can change the port constant (located on line ~193 in "battle_server.py" in "python/libraries") to a different value if port 5031 is not suitable. Also, remember to open/forward whatever port you are planning on using if you want the TBO server present on the WAN. However, be aware that the server script is not programmed with security in mind, and could very possibly accumulate viruses by even amateur hackers.
+
+Save data is stored in "python/libraries/saves" in a Pickle file. You can modify that data with the "save_admin_tool.py" script. It is rather primitive, but makes it possible to manipulate player account data by manually assigning new values to variables in Account() data types (see "account.py" in "python/libraries" for all variable names). Entering "help" in the save tool will give you all the commands the tool accepts. "Modify account" is one of the most useful commands. When using it, you must first select the account you want to modify. Then you can modify a variable in the player's Account() data class via the following command syntax: ".[variable name] = [new value]"
+
+The server can be closed whenever no player is in the process of leaving (the save data is rewritten each time a player leaves the server, so the data could become corrupted if it is interrupted half-way).

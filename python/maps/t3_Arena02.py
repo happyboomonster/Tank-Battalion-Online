@@ -1,5 +1,6 @@
-##"t3_Arena02.py" - Three-team battlefield (but a triangle)
-##Copyright (C) 2022  Lincoln V.
+##"t3_Arena02.py" ---VERSION 0.01---
+## - Three-team battlefield for TBO -
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -20,41 +21,48 @@ ARENA_NAME = "t3_Arena02"
 
 def get_arena(path="", convert=False):
     # - Define the tiles used for this arena -
-    tiles = [pygame.image.load(path + "../../pix/blocks/ground/asphalt.png"), #0
-            pygame.image.load(path + "../../pix/blocks/ground/forest.png"),
-            pygame.image.load(path + "../../pix/blocks/ground/grass.png"), #2
-            pygame.image.load(path + "../../pix/blocks/ground/dirt.png"),
-            pygame.image.load(path + "../../pix/blocks/ground/cement.png"),
-            pygame.image.load(path + "../../pix/blocks/ground/water-1.png"), #5
-            pygame.image.load(path + "../../pix/blocks/ground/water-2.png"),
-            pygame.image.load(path + "../../pix/blocks/ground/water-3.png"),
-            pygame.image.load(path + "../../pix/blocks/ground/water-4.png"), #8
-            pygame.image.load(path + "../../pix/blocks/brick/brick0h.png"), #9
-            pygame.image.load(path + "../../pix/blocks/brick/brick1h.png"),
-            pygame.image.load(path + "../../pix/blocks/brick/brick2h.png"), #11
-            pygame.image.load(path + "../../pix/blocks/brick/brick3h.png"),
-            pygame.image.load(path + "../../pix/blocks/brick/brick_destroyed.png"), #13
-            pygame.image.load(path + "../../pix/blocks/wall/wall.png"), #14
-            pygame.image.load(path + "../../pix/blocks/wall/wall-edge/wall-edge-top.png"),
-            pygame.image.load(path + "../../pix/blocks/wall/wall-edge/wall-edge-bottom.png"),
-            pygame.image.load(path + "../../pix/blocks/wall/wall-edge/wall-edge-left.png"),
-            pygame.image.load(path + "../../pix/blocks/wall/wall-edge/wall-edge-right.png"), #18
-            pygame.image.load(path + "../../pix/blocks/wall/wall-double-edge/wall-double-edge-horizontal.png"),
-            pygame.image.load(path + "../../pix/blocks/wall/wall-double-edge/wall-double-edge-vertical.png"), #20
-            pygame.image.load(path + "../../pix/blocks/wall/wall-corner/wall-corner-top-right.png"),
-            pygame.image.load(path + "../../pix/blocks/wall/wall-corner/wall-corner-bottom-right.png"), #22
-            pygame.image.load(path + "../../pix/blocks/wall/wall-corner/wall-corner-bottom-left.png"),
-            pygame.image.load(path + "../../pix/blocks/wall/wall-corner/wall-corner-top-left.png"), #24
-            pygame.image.load(path + "../../pix/blocks/wall/wall-peninsula/wall-peninsula-top.png"),
-            pygame.image.load(path + "../../pix/blocks/wall/wall-peninsula/wall-peninsula-bottom.png"), #26
-            pygame.image.load(path + "../../pix/blocks/wall/wall-peninsula/wall-peninsula-left.png"),
-            pygame.image.load(path + "../../pix/blocks/wall/wall-peninsula/wall-peninsula-right.png"), #28
-            pygame.image.load(path + "../../pix/blocks/wall/wall-island.png"), #29
-            pygame.image.load(path + "../../pix/fortresses/team-blue.png"), #30
-            pygame.image.load(path + "../../pix/fortresses/team-green.png"), #31
-            pygame.image.load(path + "../../pix/fortresses/team-red.png"), #32
-            pygame.image.load(path + "../../pix/fortresses/team-yellow.png") #33
-             ]
+    tiles = [pygame.image.load(path + "../../pix/blocks/original_20x20/ground/asphalt.png"), #0
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-1.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-2.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-1.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-3.png"), #4
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-1.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-2.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-1.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-3.png"), #8
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/dirt.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/cement.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-1.png"), #11
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-2.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-3.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-4.png"), #14
+             pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-5.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick0h.png"), #16
+             pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick1h.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick2h.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick3h.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick_destroyed.png"), #20
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall.png"), #21
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-top.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-bottom.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-left.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-right.png"), #25
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-double-edge/wall-double-edge-horizontal.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-double-edge/wall-double-edge-vertical.png"), #27
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-top-right.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-bottom-right.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-bottom-left.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-top-left.png"), #31
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-top.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-bottom.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-left.png"),
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-right.png"), #35
+             pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-island.png"), #36
+             pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-1.png"), #37
+             pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-2.png"), #38
+             pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-3.png"), #39
+             pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-4.png") #40
+            ]
 
     # - Convert all images IF we requested them to be converted -
     if(convert):
@@ -63,51 +71,37 @@ def get_arena(path="", convert=False):
 
     # - Define a shuffle pattern for tile images -
     shuffle_pattern = [
-        [5,6],
+        [11,12], #water
+        [12,13],
+        [13,14],
+        [14,15],
+        [15,11],
+        [1,2], #forest
+        [2,3],
+        [3,4],
+        [4,1],
+        [5,6], #grass
         [6,7],
         [7,8],
-        [8,5],
-        ]
+        [8,5]]
 
     # - Which tiles are smashable, and which order do they smash in? -
     bricks = [
-        9,
-        10,
-        11,
-        12
+        16, #0 hits
+        17,
+        18,
+        19 #3 hits
         ]
 
-    # - Which tiles are flags? -
-    flags = [30,31,32]
-
     # - The destroyed brick tile -
-    destroyed_brick = 13
+    destroyed_brick = 20
 
     # - The blocks we cannot run through (needs to be implemented inside import_arena) -
-    blocks = []
-    for x in range(9,30):
-        blocks.append(x)
-    blocks.remove(13) #destroyed bricks can be driven through!
+    blocks = [16,17,18,19,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36]
+
+    # - Which tiles are flags? -
+    flags = [37,38,39]
 
     # - Define the arena -
-    arena = [ #size 15x19
-         [24,15,15,15,15,15,15,19,15,15,15,15,15,15,21],
-         [17,14,14,14,14,14,18,30,17,14,14,14,14,14,18],
-         [17,14,14,14,14,14,18, 4,23,14,14,14,14,14,18],
-         [17,14,14,14,14,14,22, 4, 4,17,14,14,14,14,18],
-         [17,14,14,14,14,18, 4, 4, 4,23,14,14,14,14,18],
-         [17,14,14,14,14,18, 4,10, 0, 0,17,14,14,14,18],
-         [17,14,14,14,14,22, 4,10, 0, 0,17,14,14,14,18],
-         [17,14,14,14,18, 0, 0, 3, 3, 3,23,14,14,14,18],
-         [17,14,14,14,18, 0,27,28, 3, 3, 3,17,14,14,18],
-         [17,14,14,14,22, 2, 2, 2, 3, 9, 3,17,14,14,18],
-         [17,14,14,18, 0, 2, 3, 3, 3, 1, 3,23,14,14,18],
-         [17,14,14,18, 0,27,28, 3,25, 1, 1, 0,17,14,18],
-         [17,14,14,22, 0, 0, 3, 3,26, 2,10, 0,23,14,18],
-         [17,14,18, 0, 0,25, 3, 2, 2, 2, 1, 0, 4,17,18],
-         [17,14,18, 0, 4,20, 2, 2,10, 0, 2,29, 4,17,18],
-         [17,14,22, 0, 4,20, 3, 2,25, 0,25, 4, 4,17,18],
-         [17,22, 4, 4, 4,26, 4, 3,26, 0,26, 4, 4,23,18],
-         [20,32, 4, 4, 4, 4, 4,25, 0, 0, 0, 4, 4,31,20],
-         [23,19,19,19,19,19,19,16,19,19,19,19,19,19,22]]
+    arena = [[31, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 28], [27, 6, 5, 19, 1, 9, 0, 37, 9, 9, 9, 19, 5, 6, 27], [27, 7, 31, 35, 19, 36, 0, 9, 9, 19, 34, 26, 28, 9, 27], [27, 9, 27, 6, 0, 0, 0, 32, 6, 2, 9, 7, 33, 10, 27], [27, 9, 27, 5, 19, 0, 2, 27, 10, 3, 32, 9, 10, 10, 27], [27, 10, 33, 8, 19, 0, 1, 27, 10, 4, 30, 22, 35, 11, 27], [27, 10, 10, 9, 19, 0, 16, 33, 10, 1, 10, 33, 11, 11, 27], [27, 11, 11, 36, 19, 0, 3, 0, 10, 19, 10, 16, 11, 11, 27], [27, 19, 11, 16, 3, 0, 2, 34, 35, 19, 10, 32, 11, 11, 27], [27, 11, 11, 32, 4, 16, 1, 0, 10, 4, 10, 30, 28, 11, 27], [27, 11, 31, 29, 1, 0, 4, 0, 10, 1, 0, 0, 27, 11, 27], [27, 10, 33, 7, 2, 16, 3, 34, 35, 0, 16, 0, 33, 10, 27], [27, 10, 19, 6, 3, 0, 0, 18, 18, 3, 6, 0, 19, 9, 27], [27, 9, 36, 5, 4, 36, 19, 34, 35, 19, 7, 0, 9, 9, 27], [27, 6, 0, 8, 1, 0, 4, 10, 10, 1, 0, 0, 16, 31, 25], [24, 35, 0, 16, 19, 32, 3, 17, 10, 19, 36, 9, 16, 30, 25], [27, 0, 0, 0, 0, 33, 2, 16, 4, 19, 0, 0, 0, 0, 27], [27, 9, 39, 9, 9, 4, 1, 32, 1, 4, 9, 38, 9, 9, 27], [30, 26, 26, 26, 26, 26, 26, 23, 26, 26, 26, 26, 26, 26, 29]]
     return [arena, tiles, shuffle_pattern, blocks, bricks, destroyed_brick, flags]

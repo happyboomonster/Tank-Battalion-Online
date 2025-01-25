@@ -1,0 +1,18 @@
+"gunshot_01.tap", "driving.tap", "crack.tap", "thump.tap", and "explosion_large.tap" (located inside sound_programs)
+ - Commodore VIC-20 tape images containing BASIC programs that generate the sound effects used in Tank Battalion Online
+Copyright (C) 2025  Lincoln V.
+
+These programs are free software: you can redistribute them and/or modify
+them under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+These programs are distributed in the hope that they will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with these programs.  If not, see <https://www.gnu.org/licenses/>.
+
+NOTE: The source code for "explosion_large.tap" corrupted itself while saving. I tried to re-create the source code as well as possible, but I couldn't figure out how to exactly reproduce the sound in "explosion_large.wav".

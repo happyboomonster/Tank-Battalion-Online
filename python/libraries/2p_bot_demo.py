@@ -1,5 +1,6 @@
-##"2p_bot_demo.py" demo ---VERSION 0.06---
-##Copyright (C) 2022  Lincoln V.
+##"2p_bot_demo.py" demo ---VERSION 0.08---
+## - A two-player offline version of TBO with no store or menus and configurable settings (see the variables below before the game loop) -
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -14,7 +15,7 @@
 ##You should have received a copy of the GNU General Public License
 ##along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import pygame, arena, entity, GFX, time, random, HUD, menu, sys, battle_client as battle
+import pygame, arena, entity, GFX, time, random, HUD, menu, sys, account, battle_client as battle
 sys.path.insert(0, "../maps")
 import import_arena
 
@@ -24,80 +25,83 @@ screen = pygame.display.set_mode([320, 240], pygame.RESIZABLE) # | pygame.SCALED
 p1_screen = pygame.Surface([screen.get_width() / 2, screen.get_height() / 2])
 p2_screen = pygame.Surface([screen.get_width() / 2, screen.get_height() / 2])
 screens = [p1_screen, p2_screen]
-
 #tank images
-T1U = pygame.image.load("../../pix/Characters(gub)/p1U.png")
-T2U = pygame.image.load("../../pix/Characters(gub)/p2U.png")
-T3U = pygame.image.load("../../pix/Characters(gub)/p3U.png")
-T4U = pygame.image.load("../../pix/Characters(gub)/p4U.png")
-T5U = pygame.image.load("../../pix/Characters(gub)/p5U.png")
-t_images = [T1U, T2U, T3U]
+T1 = [pygame.image.load("../../pix/tanks/P1U1.png"),pygame.image.load("../../pix/tanks/P1U2.png")]
+T2 = [pygame.image.load("../../pix/tanks/P2U1.png"),pygame.image.load("../../pix/tanks/P2U2.png")]
+T3 = [pygame.image.load("../../pix/tanks/P3U1.png"),pygame.image.load("../../pix/tanks/P3U2.png")]
+T4 = [pygame.image.load("../../pix/tanks/P4U1.png"),pygame.image.load("../../pix/tanks/P4U2.png")]
 
 #list of all blocks we cannot run through
-blocks = []
-for x in range(9,30):
-    blocks.append(x)
-blocks.remove(13) #destroyed bricks can be driven through!
+blocks = blocks = [15,16,17,18,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35]
 
 #our arena map we will be drawing
-my_map = [[24,19,19,19,19,19,19,19,19,19,19,21],
-          [20, 2, 2, 1, 0, 0, 2, 1, 0, 0, 0,12],
-          [20, 4,33,11, 9, 9,27,19,21,32, 3,20],
-          [20, 4, 3,11, 4, 4, 3, 3,20, 4, 3,20],
-          [20, 6, 7,11, 0,27,28, 9,20, 8, 7,20],
-          [20, 0, 2, 7, 0, 0, 2, 5,20, 7, 2,20],
-          [20, 4, 3, 6, 5, 6, 3, 6,26, 9, 3,20],
-          [20, 4, 3, 3, 4, 7, 9, 7, 4, 9, 3,20],
-          [20, 0, 1, 2, 0, 0, 9, 9, 0, 9, 1,20],
-          [20, 0,30, 1, 0, 0, 2, 9, 9,31, 2,20],
-          [20, 0, 3, 3, 4, 4, 3, 3, 4, 4, 2,20],
-          [23,12,19,19,19,19,19,19,19,19,19,22]]
+my_map = [[30,25,25,25,25,25,25,25,25,25,25,27],
+          [26,36, 5, 6,10,11,11,11,11,11,37,26],
+          [26, 0, 7, 8,10,11, 1, 1,10,10,10,26],
+          [26, 1, 7,11,30,21,27,10,10, 5, 6,26],
+          [26, 2,11,11,23,20,24, 1, 2, 6, 7,26],
+          [26,11,11, 6,29,22,28, 2, 3, 7, 8,26],
+          [26, 4, 2, 7, 9, 9, 9, 3, 4, 8, 5,26],
+          [26, 1,35, 8,31, 9, 9,30,25,34, 6,26],
+          [26, 2, 1,33,35,34, 9,26, 2, 6, 7,26],
+          [26, 3, 2, 6,32, 0, 0,32, 3, 4, 1,26],
+          [26,39, 3, 7, 0, 0, 0, 3, 4, 1,38,26],
+          [29,25,25,25,25,25,25,25,25,25,25,28]]
 
 #all the tiles we can draw in the arena
-my_tiles = [pygame.image.load("../../pix/blocks/ground/asphalt.png"), #0
-            pygame.image.load("../../pix/blocks/ground/forest.png"),
-            pygame.image.load("../../pix/blocks/ground/grass.png"),
-            pygame.image.load("../../pix/blocks/ground/dirt.png"),
-            pygame.image.load("../../pix/blocks/ground/cement.png"),
-            pygame.image.load("../../pix/blocks/ground/water-1.png"), #5
-            pygame.image.load("../../pix/blocks/ground/water-2.png"),
-            pygame.image.load("../../pix/blocks/ground/water-3.png"),
-            pygame.image.load("../../pix/blocks/ground/water-4.png"), #8
-            pygame.image.load("../../pix/blocks/brick/brick0h.png"), #9
-            pygame.image.load("../../pix/blocks/brick/brick1h.png"),
-            pygame.image.load("../../pix/blocks/brick/brick2h.png"),
-            pygame.image.load("../../pix/blocks/brick/brick3h.png"),
-            pygame.image.load("../../pix/blocks/brick/brick_destroyed.png"), #13
-            pygame.image.load("../../pix/blocks/wall/wall.png"), #14
-            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-top.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-bottom.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-left.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-edge/wall-edge-right.png"), #18
-            pygame.image.load("../../pix/blocks/wall/wall-double-edge/wall-double-edge-horizontal.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-double-edge/wall-double-edge-vertical.png"), #20
-            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-top-right.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-bottom-right.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-bottom-left.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-corner/wall-corner-top-left.png"), #24
-            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-top.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-bottom.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-left.png"),
-            pygame.image.load("../../pix/blocks/wall/wall-peninsula/wall-peninsula-right.png"), #28
-            pygame.image.load("../../pix/blocks/wall/wall-island.png"), #29
-            pygame.image.load("../../pix/fortresses/team-blue.png"), #30
-            pygame.image.load("../../pix/fortresses/team-green.png"), #31
-            pygame.image.load("../../pix/fortresses/team-red.png"), #32
-            pygame.image.load("../../pix/fortresses/team-yellow.png") #33
-            ]
+path = "./"
+my_tiles = [pygame.image.load(path + "../../pix/blocks/original_20x20/ground/asphalt.png"), #0
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-1.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-2.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-1.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/forest-3.png"), #4
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-1.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-2.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-1.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/grass-3.png"), #8
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/dirt.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/cement.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-1.png"), #11
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-2.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-3.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-4.png"), #14
+            pygame.image.load(path + "../../pix/blocks/original_20x20/ground/water-5.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick0h.png"), #16
+            pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick1h.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick2h.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick3h.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/brick/brick_destroyed.png"), #20
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall.png"), #21
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-top.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-bottom.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-left.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-edge/wall-edge-right.png"), #25
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-double-edge/wall-double-edge-horizontal.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-double-edge/wall-double-edge-vertical.png"), #27
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-top-right.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-bottom-right.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-bottom-left.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-corner/wall-corner-top-left.png"), #31
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-top.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-bottom.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-left.png"),
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-peninsula/wall-peninsula-right.png"), #35
+            pygame.image.load(path + "../../pix/blocks/original_20x20/wall/wall-island.png"), #36
+            pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-1.png"), #37
+            pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-2.png"), #38
+            pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-3.png"), #39
+            pygame.image.load(path + "../../pix/blocks/original_20x20/flags/team-4.png") #40
+           ]
+            
 
 #define our list of powerup images
 powerup_images = [
-    pygame.image.load("../../pix/blocks/powerups/fuel.png"),
-    pygame.image.load("../../pix/blocks/powerups/fire-extinguisher.png"),
-    pygame.image.load("../../pix/blocks/powerups/dangerous-loading.png"),
-    pygame.image.load("../../pix/blocks/powerups/explosive-tip.png"),
-    pygame.image.load("../../pix/blocks/powerups/amped-gun.png"),
-    pygame.image.load("../../pix/blocks/powerups/makeshift-armor.png"),
+    pygame.image.load("../../pix/powerups/fuel.png"),
+    pygame.image.load("../../pix/powerups/fire-extinguisher.png"),
+    pygame.image.load("../../pix/powerups/dangerous-loading.png"),
+    pygame.image.load("../../pix/powerups/explosive-tip.png"),
+    pygame.image.load("../../pix/powerups/amped-gun.png"),
+    pygame.image.load("../../pix/powerups/makeshift-armor.png"),
     pygame.image.load("../../pix/ammunition/hollow_shell_button.png"),
     pygame.image.load("../../pix/ammunition/regular_shell_button.png"),
     pygame.image.load("../../pix/ammunition/explosive_shell_button.png"),
@@ -106,25 +110,33 @@ powerup_images = [
     
 
 #define our tile shuffle system
-my_shuffle = [[5,6],
+my_shuffle = [[11,12], #water
+              [12,13],
+              [13,14],
+              [14,11],
+              [1,2], #forest
+              [2,3],
+              [3,4],
+              [4,1],
+              [5,6], #grass
               [6,7],
               [7,8],
               [8,5]]
 
 #define our flag tiles
-flag_tiles = [30,31,32,33]
+flag_tiles = [36,37,38,39]
 
 #way in which bricks change to destroyed - listed from least to most destroyed
 bricks = [
-    9, #0 hits
-    10,
-    11,
-    12, #3 hits
-    13 #destroyed
+    15, #0 hits
+    16,
+    17,
+    18, #3 hits
+    19 #destroyed
     ]
 
 # - Import an external map -
-arena_data = import_arena.return_arena("t3_Arena01")
+arena_data = import_arena.return_arena("t3_Arena02")
 my_map = arena_data[0]
 my_tiles = arena_data[1]
 my_shuffle = arena_data[2]
@@ -135,7 +147,7 @@ flag_tiles = arena_data[6]
 
 my_arena = arena.Arena(my_map, my_tiles, my_shuffle) #create an arena object
 my_arena.stretch = False
-visible_arena = [10,10] #what viewport size are we aiming for?
+visible_arena = [15,15] #what viewport size are we aiming for?
 screen_scale = my_arena.get_scale(visible_arena,p1_screen) #define our screen_scale - needed to properly position the players
 
 #create a battle engine
@@ -156,35 +168,42 @@ p2_hud.default_display_size = [p2_screen.get_width(), p2_screen.get_height()]
 p2_mh = menu.Menuhandler()
 p2_mh.default_display_size = [p2_screen.get_width(), p2_screen.get_height()]
 
+#Set the account rating of all our players and bots
+ACCT_RATING = 31.0
+#Players Per Team
+ppt = 4
+#Bot Intelligence Rating
+bir = 1.00
+
 #create our tank object
-#tank = entity.Tank(T1U, "Player Team")
-p1_acct = battle_engine.create_account(15.0,"Player 1")
-p1_acct.specialization = random.randint(-p1_acct.upgrade_limit,p1_acct.upgrade_limit)
-tank = p1_acct.create_tank(T5U, "Player Team")
-#increase the tank's RPM
-#tank.RPM = 25.0
-#tank.damage_multiplier = 9
-#tank.penetration_multiplier = 5.0
-#tank.speed = 1.25
+p1_acct = battle_engine.create_account(ACCT_RATING,"Player 1")
+p1_acct.specialization = random.randint(-account.upgrade_limit,account.upgrade_limit)
+tank = p1_acct.create_tank(T1, "Player Team")
+##[hacks] increase the tank's stats
+##tank.RPM = 150.0
+##tank.shells = [99,99,99,99]
+##tank.damage_multiplier = 9.0
+##tank.penetration_multiplier = 5.0
+##tank.speed = 4.0
 #set its location onscreen
-tank.screen_location = [(screen.get_width() / 4) - (my_arena.TILE_SIZE / 2) * screen_scale[0], (screen.get_height() / 4) - (my_arena.TILE_SIZE / 2) * screen_scale[1]]
+tank.screen_location = [(p1_screen.get_width() / 2) - (my_arena.TILE_SIZE / 2) * screen_scale[0], (p1_screen.get_height() / 2) - (my_arena.TILE_SIZE / 2) * screen_scale[1]]
 tank.goto(my_arena.flag_locations[0], my_arena.TILE_SIZE, my_arena.get_scale(visible_arena,p1_screen))
 #add an HUD bar to the side of p1's screen so that p1 can see his own HP
-hud.add_HUD_element("vertical bar",[[0,0],[10,p1_screen.get_height()],[[0,255,0],[0,0,0],[0,0,255]],1.0])
+hud.add_HUD_element("vertical bar",[[0,0],[10,120],[[0,255,0],[0,0,0],[0,0,255]],1.0])
 #add a label to p1's HP/armor bar
-hud.add_HUD_element("text",[[1,p1_screen.get_height() / 2],5,[[100,100,100],None,None],"a."])
+hud.add_HUD_element("text",[[1,120 / 2],5,[[100,100,100],None,None],"a."])
 #add a numerical indicator of p1's HP/armor
-hud.add_HUD_element("text",[[1,p1_screen.get_height() / 2 + 4],3,[[100,100,100],None,None],"100"])
+hud.add_HUD_element("text",[[1,120 / 2 + 4],3,[[100,100,100],None,None],"100"])
 #add some menu elements to p1's screen
 mh.create_menu(["","","","","","","","","",""],
                [
                 #start by adding our powerup items to the menu
-                ["../../pix/blocks/powerups/fuel.png",[10,0]],
-                ["../../pix/blocks/powerups/fire-extinguisher.png",[10,20]],
-                ["../../pix/blocks/powerups/dangerous-loading.png",[10,40]],
-                ["../../pix/blocks/powerups/explosive-tip.png",[10,60]],
-                ["../../pix/blocks/powerups/amped-gun.png",[10,80]],
-                ["../../pix/blocks/powerups/makeshift-armor.png",[10,100]],
+                ["../../pix/powerups/fuel.png",[10,0]],
+                ["../../pix/powerups/fire-extinguisher.png",[10,20]],
+                ["../../pix/powerups/dangerous-loading.png",[10,40]],
+                ["../../pix/powerups/explosive-tip.png",[10,60]],
+                ["../../pix/powerups/amped-gun.png",[10,80]],
+                ["../../pix/powerups/makeshift-armor.png",[10,100]],
                 #add our shells to the menu
                 ["../../pix/ammunition/hollow_shell_button.png",[40,0]],
                 ["../../pix/ammunition/regular_shell_button.png",[60,0]],
@@ -216,92 +235,89 @@ bullets = []
 #list of powerup objects
 powerups = []
 
-#spawn P2...
-#p2_tank = entity.Tank(T1U, "Player Team")
-p2_acct = battle_engine.create_account(15.0,"Player 2")
-p2_acct.specialization = random.randint(-p2_acct.upgrade_limit,p2_acct.upgrade_limit)
-p2_tank = p2_acct.create_tank(T5U, "Bot Team")
-#p2_tank.destroyed = True
-#increase the tank's RPM
-#p2_tank.RPM = 25.0
-#p2_tank.damage_multiplier = 9
-#p2_tank.penetration_multiplier = 5.0
-#p2_tank.speed = 1
-#set the tank's screen location
-p2_tank.screen_location = [(screen.get_width() / 4) - (my_arena.TILE_SIZE / 2) * screen_scale[0], (screen.get_height() / 4) - (my_arena.TILE_SIZE / 2) * screen_scale[1]]
+#spawn P2 (bot)...
+p2_acct = battle_engine.create_account(ACCT_RATING,"Player 2")
+p2_acct.specialization = -6 #random.randint(-account.upgrade_limit,account.upgrade_limit)
+p2_tank = p2_acct.create_tank(T2, "Bot Team")
+##hacks
+##p2_tank.RPM = 150.0
+##p2_tank.shells = [99,99,99,99]
+##p2_tank.damage_multiplier = 9.0
+##p2_tank.penetration_multiplier = 5.0
 #set the tank's map location
+p2_tank.screen_location = [(p2_screen.get_width() / 2) - (my_arena.TILE_SIZE / 2) * screen_scale[0], (p2_screen.get_height() / 2) - (my_arena.TILE_SIZE / 2) * screen_scale[1]]
 p2_tank.goto(my_arena.flag_locations[1], my_arena.TILE_SIZE, my_arena.get_scale(visible_arena,p2_screen))
-#add an HUD bar to the side of p2's screen so that p2 can see his own HP
-p2_hud.add_HUD_element("vertical bar",[[0,0],[10,p2_screen.get_height()],[[0,255,0],[0,0,0],[0,0,255]],1.0])
-#add a label to p2's HP/armor bar
-p2_hud.add_HUD_element("text",[[1,p2_screen.get_height() / 2],5,[[100,100,100],None,None],"a."])
-#add a numerical indicator of p2's HP/armor
-p2_hud.add_HUD_element("text",[[1,p2_screen.get_height() / 2 + 4],3,[[100,100,100],None,None],"100"])
-#add some menu elements to p2's screen
+#add an HUD bar to the side of p1's screen so that p1 can see his own HP
+p2_hud.add_HUD_element("vertical bar",[[0,0],[10,120],[[0,255,0],[0,0,0],[0,0,255]],1.0])
+#add a label to p1's HP/armor bar
+p2_hud.add_HUD_element("text",[[1,120 / 2],5,[[100,100,100],None,None],"a."])
+#add a numerical indicator of p1's HP/armor
+p2_hud.add_HUD_element("text",[[1,120 / 2 + 4],3,[[100,100,100],None,None],"100"])
+#add some menu elements to p1's screen
 p2_mh.create_menu(["","","","","","","","","",""],
                [
                 #start by adding our powerup items to the menu
-                ["../../pix/blocks/powerups/fuel.png",[10,0]],
-                ["../../pix/blocks/powerups/fire-extinguisher.png",[10,20]],
-                ["../../pix/blocks/powerups/dangerous-loading.png",[10,40]],
-                ["../../pix/blocks/powerups/explosive-tip.png",[10,60]],
-                ["../../pix/blocks/powerups/amped-gun.png",[10,80]],
-                ["../../pix/blocks/powerups/makeshift-armor.png",[10,100]],
-                #add our shells to the menu (index 6-9)
+                ["../../pix/powerups/fuel.png",[10,0]],
+                ["../../pix/powerups/fire-extinguisher.png",[10,20]],
+                ["../../pix/powerups/dangerous-loading.png",[10,40]],
+                ["../../pix/powerups/explosive-tip.png",[10,60]],
+                ["../../pix/powerups/amped-gun.png",[10,80]],
+                ["../../pix/powerups/makeshift-armor.png",[10,100]],
+                #add our shells to the menu
                 ["../../pix/ammunition/hollow_shell_button.png",[40,0]],
                 ["../../pix/ammunition/regular_shell_button.png",[60,0]],
                 ["../../pix/ammunition/explosive_shell_button.png",[80,0]],
                 ["../../pix/ammunition/disk_shell_button.png",[100,0]]
                 ],
                [],buttonindexes=[],name="")
-#add numerical indicators of p2's powerup cooldown states (index 3-8)
+#add numerical indicators of p1's powerup cooldown states (index 4-9)
 p2_hud.add_HUD_element("text",[[11,1],9,[[255,0,0],None,None],"cooldown powerup 1"])
 p2_hud.add_HUD_element("text",[[11,21],9,[[255,0,0],None,None],"cooldown powerup 2"])
 p2_hud.add_HUD_element("text",[[11,41],9,[[255,0,0],None,None],"cooldown powerup 3"])
 p2_hud.add_HUD_element("text",[[11,61],9,[[255,0,0],None,None],"cooldown powerup 4"])
 p2_hud.add_HUD_element("text",[[11,81],9,[[255,0,0],None,None],"cooldown powerup 5"])
 p2_hud.add_HUD_element("text",[[11,101],9,[[255,0,0],None,None],"cooldown powerup 6"])
-#add numerical indicators of p2's shell reload times (index 9-12)
+#add numerical indicators of p1's shell reload times (index 10-13)
 p2_hud.add_HUD_element("text",[[41,1],9,[[255,0,0],None,None],"hollow shell"])
 p2_hud.add_HUD_element("text",[[61,1],9,[[255,0,0],None,None],"regular shell"])
 p2_hud.add_HUD_element("text",[[81,1],9,[[255,0,0],None,None],"explosive shell"])
 p2_hud.add_HUD_element("text",[[101,1],9,[[255,0,0],None,None],"disk shell"])
-#add numerical indicators of p2's shells left (index 13-16)
+#add numerical indicators of p1's shells left (index 14-17)
 p2_hud.add_HUD_element("text",[[41,10],9,[[255,255,0],None,None],"hollow shell"])
 p2_hud.add_HUD_element("text",[[61,10],9,[[255,255,0],None,None],"regular shell"])
 p2_hud.add_HUD_element("text",[[81,10],9,[[255,255,0],None,None],"explosive shell"])
 p2_hud.add_HUD_element("text",[[101,10],9,[[255,255,0],None,None],"disk shell"])
 
 players = [tank, p2_tank]
-old_positions = [None,None]
+old_positions = [None, None]
 # - Uncomment the commented list to make the players become bots, and you can passively watch a completely bot-only battle! -
-bot_player_managers = [None, None] #[entity.Bot(0, 0, 1.40), entity.Bot(1, 1, 1.00)]
+bot_player_managers = [None, None] #[entity.Bot(0, 0, bir), entity.Bot(1, 1, bir)]
 huds = [hud, p2_hud]
 
 #add some extra bots to the game...LOL
-for x in range(0,10):
-    bot_player_managers.append(entity.Bot(x % 2, x + 2, [2.00,0.85][x % 2])) #create the bot manager
+for x in range(0,(ppt - 1) * 2):
+    bot_player_managers.append(entity.Bot(x % 2, x + 2, [bir,bir][x % 2])) #create the bot manager
     #create the bot account, and create a bot tank. Append that to the players list...
-    bot_acct = battle_engine.create_account(15.0,"Bot Player " + str(x))
-    players.append(bot_acct.create_tank([T1U,T2U][x % 2], ["Player Team","Bot Team"][x % 2]))
-    bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
-    bot_player_managers[x + 2].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
-# - Uncomment this to add a third team of only bots! -
-for x in range(0,6):
-    bot_player_managers.append(entity.Bot(2, x + 2 + 10, 1.00)) #create the bot manager
-    #create the bot account, and create a bot tank. Append that to the players list...
-    bot_acct = battle_engine.create_account(15.0,"Bot Player " + str(x + 12))
-    players.append(bot_acct.create_tank(T3U, "2nd Bot Team"))
-    bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
-    bot_player_managers[x + 2 + 10].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
-### - Uncomment this to add a fourth team of only bots! -
-##for x in range(0,6):
-##    bot_player_managers.append(entity.Bot(3, x + 2 + 10 + 6, 1.00)) #create the bot manager
-##    #create the bot account, and create a bot tank. Append that to the players list...
-##    bot_acct = battle_engine.create_account(15.0,"Bot Player " + str(x + 12 + 7))
-##    players.append(bot_acct.create_tank(T4U, "3nd Bot Team"))
-##    bot_acct.specialization = random.randint(-bot_acct.upgrade_limit,bot_acct.upgrade_limit)
-##    bot_player_managers[x + 2 + 10 + 6].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p2_screen))
+    bot_acct = battle_engine.create_account(ACCT_RATING,"Bot Player " + str(x))
+    bot_acct.specialization = random.randint(-account.upgrade_limit,account.upgrade_limit)
+    players.append(bot_acct.create_tank([T1,T2][x % 2], ["Player Team","Bot Team"][x % 2]))
+    bot_player_managers[x + 2].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p1_screen))
+if(len(flag_tiles) > 2): #third bot team
+    for x in range(0,ppt):
+        bot_player_managers.append(entity.Bot(2, x + ppt * 2, bir)) #create the bot manager
+        #create the bot account, and create a bot tank. Append that to the players list...
+        bot_acct = battle_engine.create_account(ACCT_RATING,"Bot Player " + str(x + ppt * 2))
+        bot_acct.specialization = random.randint(-account.upgrade_limit,account.upgrade_limit)
+        players.append(bot_acct.create_tank(T3, "2nd Bot Team"))
+        bot_player_managers[x + ppt * 2].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p1_screen))
+if(len(flag_tiles) > 3):
+    for x in range(0,ppt):
+        bot_player_managers.append(entity.Bot(3, x + ppt * 3, bir)) #create the bot manager
+        #create the bot account, and create a bot tank. Append that to the players list...
+        bot_acct = battle_engine.create_account(ACCT_RATING,"Bot Player " + str(x + ppt * 3))
+        bot_acct.specialization = random.randint(-account.upgrade_limit,account.upgrade_limit)
+        players.append(bot_acct.create_tank(T4, "3nd Bot Team"))
+        bot_player_managers[x + ppt * 3].start_pos(players,my_arena,my_arena.get_scale(visible_arena,p1_screen))
 
 player_bar_hud_start = 17
 for x in range(0,len(players)): #add the HUD elements for all players to p1's and p2's HUD engines
@@ -315,6 +331,17 @@ for x in range(0,len(players)): #add the HUD elements for all players to p1's an
 ##for x in range(0,len(players)):
 ##    players[x].penetration_multiplier = 0.01
 ##    players[x].damage_multiplier += 100.0
+
+# - Print out the arena size, and the squares of space available to one player -
+free_space = 0
+for y in range(0,len(my_arena.arena)):
+    for x in range(0,len(my_arena.arena[y])):
+        if(my_arena.arena[y][x] not in blocks and my_arena.arena[y][x] not in bricks): #we've found a tile of free space!
+            free_space += 1
+print("Arena size: " + str(len(my_map[0])) + " x " + str(len(my_map)) + " = " + str(len(my_map[0]) * len(my_map)))
+print("Free space: " + str(free_space))
+print("1p arena space: " + str(round(len(my_map) * len(my_map[0]) / len(players),1)))
+print("1p free space: " + str(round(free_space / len(players),1)))
 
 #this is a list of constants; unscaled mouse positions to click on p2 and p1's powerup items
 powerup_positions = [
@@ -362,7 +389,7 @@ p2_tank_bullets = [pygame.K_7,
                 pygame.K_9,
                 pygame.K_0
                 ]
-p2_tank_shoot = pygame.K_SPACE
+p2_tank_shoot = pygame.K_RSHIFT
 p2_tank_powerups = [pygame.K_t,
                  pygame.K_y,
                  pygame.K_u,
@@ -433,7 +460,7 @@ while running:
     #tank controls handling
     for x in range(0,len(tank_move)):
         if(tank_move[x] in keypresses):
-            tank.move(x * 90, my_arena.TILE_SIZE) #move in whatever direction needed
+            tank.move(x * 90, my_arena.TILE_SIZE, screen_scale) #move in whatever direction needed
     for x in range(0,len(tank_bullets)):
         if(tank_bullets[x] in keypresses):
             tank.use_shell(x) #change bullets
@@ -448,7 +475,7 @@ while running:
     #P2 control handling
     for x in range(0,len(p2_tank_move)):
         if(p2_tank_move[x] in keypresses):
-            p2_tank.move(x * 90, my_arena.TILE_SIZE) #move in whatever direction needed
+            p2_tank.move(x * 90, my_arena.TILE_SIZE, screen_scale) #move in whatever direction needed
     for x in range(0,len(p2_tank_bullets)):
         if(p2_tank_bullets[x] in keypresses):
             p2_tank.use_shell(x) #change bullets
@@ -464,31 +491,30 @@ while running:
     # - Bot analysis SHOULD go here -
 
     #check if any bullets have hit eachother
-    exit_loop = False
+    decx = 0
     for x in range(0,len(bullets)):
-        if(exit_loop): #useful for exiting nested loops like this
-            break
+        decy = 0
         for y in range(0,len(bullets)):
-            if(x == y): #we can't be checking collision against ourself!
+            if(x >= y): #we can't be checking collision against ourself! We also want to avoid double-checking collision.
                 continue
             else: #proceed with checking bullet-bullet collision
-                collision = entity.check_collision(bullets[x],bullets[y], my_arena.TILE_SIZE)
+                collision = entity.check_collision(bullets[x - decx],bullets[y - decy], my_arena.TILE_SIZE)
                 if(collision[0] == True): #the bullets hit eachother???
-                    damage_outcome = entity.handle_damage([bullets[x],bullets[y]]) #both bullets get damaged then...
+                    damage_outcome = entity.handle_damage([bullets[x - decx],bullets[y - decy]]) #both bullets get damaged then...
                     if(damage_outcome != None): #print out the damage, AND add an explosion effect
-                        GFX.create_explosion(particles, [bullets[x].map_location[0] + 0.5,bullets[x].map_location[1] + 0.5], 0.5, [0.1, 0.35], bullets[x].explosion_colors, [[0,0,0],[50,50,50],[100,100,100]], 0.35, 0, None, my_arena.TILE_SIZE)
-                        GFX.create_explosion(particles, [bullets[y].map_location[0] + 0.5,bullets[y].map_location[1] + 0.5], 0.5, [0.1, 0.35], bullets[y].explosion_colors, [[0,0,0],[50,50,50],[100,100,100]], 0.35, 0, None, my_arena.TILE_SIZE)
+                        GFX.create_explosion(particles, [bullets[x - decx].map_location[0] + 0.5,bullets[x - decx].map_location[1] + 0.5], 0.5, [0.1, 0.35], bullets[x - decx].explosion_colors, [[0,0,0],[50,50,50],[100,100,100]], 0.35, 0, None, my_arena.TILE_SIZE)
+                        GFX.create_explosion(particles, [bullets[y - decy].map_location[0] + 0.5,bullets[y - decy].map_location[1] + 0.5], 0.5, [0.1, 0.35], bullets[y - decy].explosion_colors, [[0,0,0],[50,50,50],[100,100,100]], 0.35, 0, None, my_arena.TILE_SIZE)
                         #draw damage numbers
-                        particles.append(GFX.Particle(bullets[x].map_location, [bullets[x].map_location[0], bullets[x].map_location[1] + 1], 1, 0.75, [200,200,0], [50,50,50], time.time(), time.time() + 2.5, str(int(damage_outcome[0]))))
-                        particles.append(GFX.Particle(bullets[y].map_location, [bullets[y].map_location[0], bullets[y].map_location[1] - 1], 1, 0.75, [200,200,0], [50,50,50], time.time(), time.time() + 2.5, str(int(damage_outcome[1]))))
-                if(bullets[x].destroyed == True): #a bullet broke?
-                    del(bullets[x])
-                    exit_loop = True
-                    break
-                elif(bullets[y].destroyed == True): #a bullet broke?
-                    del(bullets[y])
-                    exit_loop = True
-                    break
+                        particles.append(GFX.Particle(bullets[x - decx].map_location, [bullets[x - decx].map_location[0], bullets[x - decx].map_location[1] + 1], 1, 0.75, [200,200,0], [50,50,50], time.time(), time.time() + 2.5, str(int(damage_outcome[0]))))
+                        particles.append(GFX.Particle(bullets[y - decy].map_location, [bullets[y - decy].map_location[0], bullets[y - decy].map_location[1] - 1], 1, 0.75, [200,200,0], [50,50,50], time.time(), time.time() + 2.5, str(int(damage_outcome[1]))))
+                if(bullets[x - decx].destroyed == True): #a bullet broke?
+                    del(bullets[x - decx])
+                    decx += 1
+                    decy += 1
+                elif(bullets[y - decy].destroyed == True): #a bullet broke?
+                    del(bullets[y - decy])
+                    decx += 1
+                    decy += 1
 
     # - Handle on-arena powerups -
     for x in range(0,len(powerups)):
@@ -694,6 +720,7 @@ while running:
         for x in collided_tiles: #iterate through all collision boxes we hit (every tile we're touching)
             if(x[0] in blocks): #we're touching something Not Allowed?
                 players[p].unmove()
+                break #don't call unmove() more than once per tank per frame; Wall clipping could result.
 
     #check if any tanks are DEAD
     for x in range(0,len(players)):
@@ -736,20 +763,29 @@ while running:
                 particles.append(GFX.Particle(bullets[x].map_location, [bullets[x].map_location[0], bullets[x].map_location[1] + 1], 1, 0.75, [200,200,0], [50,50,50], time.time(), time.time() + 2.5, str(int(damage_outcome[0]))))
                 #b[2] is the tile position in the arena (index)
                 if(tmp_brick.armor < 2): #the brick took at least 13HP of damage? Destroyed!! (only shell that does this is disk, 20 damage)
-                    #brick is destroyed (ID 13)
-                    my_arena.modify_tiles([[b[2],13]])
+                    #brick is destroyed (*was* ID 13)
+                    my_arena.modify_tiles([[b[2],bricks[len(bricks) - 1]]])
+                    # - Reset the "unmove" flag on ALL tanks; tanks driving up against a brick that is destroyed can't start driving through it otherwise -
+                    for find_entities in range(0,len(players)):
+                        players[find_entities].clear_unmove_flag()
                 elif(tmp_brick.armor < 7): #the brick took ~10HP of damage (a little less to make sure explosive and regular shells damage bricks)
-                    #shuffle tiles by 2! (if b[0] <= 13 - 2 then we can increment b[0] by 2, otherwise block is destroyed.)
-                    if(b[0] <= 13 - 2):
+                    #shuffle tiles by 2! (if b[0] <= bricks[len(bricks) - 1] - 2 then we can increment b[0] by 2, otherwise block is destroyed.)
+                    if(b[0] <= bricks[len(bricks) - 1] - 2):
                         my_arena.modify_tiles([[b[2],b[0] + 2]])
                     else: #Destroyed!!
-                        my_arena.modify_tiles([[b[2],13]])
-                elif(tmp_brick.armor < 10): #the brick took ~5HP of damage (comment this out if hollow shell brick damage should be disabled).
-                    #shuffle brick tile by 1! (if b[0] <= 13 - 1 then increment b[0] by 1, else block is destroyed.)
-                    if(b[0] <= 13 - 1):
+                        my_arena.modify_tiles([[b[2],bricks[len(bricks) - 1]]])
+                        # - Reset the "unmove" flag on ALL tanks; tanks driving up against a brick that is destroyed can't start driving through it otherwise -
+                        for find_entities in range(0,len(players)):
+                            players[find_entities].clear_unmove_flag()
+                elif(tmp_brick.armor < 12): #the brick took ~3HP of damage (comment this out if hollow shell brick damage should be disabled).
+                    #shuffle brick tile by 1! (if b[0] <= bricks[len(bricks) - 1] - 1 then increment b[0] by 1, else block is destroyed.)
+                    if(b[0] <= bricks[len(bricks) - 1] - 1):
                         my_arena.modify_tiles([[b[2],b[0] + 1]])
                     else: #Destroyed!
-                        my_arena.modify_tiles([[b[2],13]])
+                        my_arena.modify_tiles([[b[2],bricks[len(bricks) - 1]]])
+                        # - Reset the "unmove" flag on ALL tanks; tanks driving up against a brick that is destroyed can't start driving through it otherwise -
+                        for find_entities in range(0,len(players)):
+                            players[find_entities].clear_unmove_flag()
             elif(b[0] in blocks): #if the bullet hits a wall, it is most definitely destroyed, and the tank who shot it...gets a bump on his whiff counter.
                 bullets[x].tank_origin.missed_shots += 1
                 bullets[x].destroyed = True
@@ -775,6 +811,27 @@ while running:
         particles[x].draw(my_arena.TILE_SIZE, screen_scale, tank.map_location, p1_screen)
     mh.draw_menu([0,0],[p1_screen.get_width(),p1_screen.get_height()],p1_screen,mousepos) #draw P1's menu system
     hud.draw_HUD(p1_screen) #draw P1's HUD
+    # - Draw the minimap (P1) - #
+    minimap_surf = my_arena.draw_minimap(blocks) #draw the arena on the minimap
+    for entities in [bullets, powerups, players]:
+        for x in entities:
+            if(x.type == "Tank" or x.type == "Bullet"):
+                x.draw_minimap(minimap_surf, tank.team, True)
+            else: #powerup?
+                x.draw_minimap(minimap_surf)
+    for x in range(0,len(particles)):
+        particles[x].draw_minimap(minimap_surf)
+    possible_minimap_sizes = [int(p1_screen.get_width() / 3), int(p1_screen.get_height() / 3)]
+    scale_qtys = [minimap_surf.get_width() / minimap_surf.get_height(), minimap_surf.get_height() / minimap_surf.get_width()]
+    final_minimap_size = [1,1]
+    if(possible_minimap_sizes[0] * scale_qtys[1] < possible_minimap_sizes[1]):
+        final_minimap_size[0] = possible_minimap_sizes[0]
+        final_minimap_size[1] = int(possible_minimap_sizes[0] * scale_qtys[1])
+    else:
+        final_minimap_size[1] = possible_minimap_sizes[1]
+        final_minimap_size[0] = int(possible_minimap_sizes[1] * scale_qtys[0])
+    minimap_surf = pygame.transform.scale(minimap_surf, final_minimap_size) #scale the minimap so it retains its size
+    p1_screen.blit(minimap_surf, [p1_screen.get_width() - minimap_surf.get_width(), p1_screen.get_height() - minimap_surf.get_height()]) #copy the minimap to the bottom-right corner of the screen
     #draw everything onscreen (p2 viewport)
     my_arena.draw_arena(visible_arena,players[1].map_location,p2_screen)
     players[1].draw(p2_screen, screen_scale, my_arena.TILE_SIZE)
@@ -794,6 +851,27 @@ while running:
     #draw P2's menu system
     p2_mh.draw_menu([0,0],[p2_screen.get_width(),p2_screen.get_height()],p2_screen,[mousepos[0] - p1_screen.get_width(),mousepos[1] - p1_screen.get_height()])
     p2_hud.draw_HUD(p2_screen) #draw P2's HUD
+    # - Draw the minimap (P2) - #
+    minimap_surf = my_arena.draw_minimap(blocks) #draw the arena on the minimap
+    for x in range(0,len(particles)):
+        particles[x].draw_minimap(minimap_surf)
+    for entities in [bullets, powerups, players]:
+        for x in entities:
+            if(x.type == "Tank" or x.type == "Bullet"):
+                x.draw_minimap(minimap_surf, p2_tank.team, True)
+            else: #powerup?
+                x.draw_minimap(minimap_surf)
+    possible_minimap_sizes = [int(p2_screen.get_width() / 3), int(p2_screen.get_height() / 3)]
+    scale_qtys = [minimap_surf.get_width() / minimap_surf.get_height(), minimap_surf.get_height() / minimap_surf.get_width()]
+    final_minimap_size = [1,1]
+    if(possible_minimap_sizes[0] * scale_qtys[1] < possible_minimap_sizes[1]):
+        final_minimap_size[0] = possible_minimap_sizes[0]
+        final_minimap_size[1] = int(possible_minimap_sizes[0] * scale_qtys[1])
+    else:
+        final_minimap_size[1] = possible_minimap_sizes[1]
+        final_minimap_size[0] = int(possible_minimap_sizes[1] * scale_qtys[0])
+    minimap_surf = pygame.transform.scale(minimap_surf, final_minimap_size) #scale the minimap so it retains its size
+    p2_screen.blit(minimap_surf, [p2_screen.get_width() - minimap_surf.get_width(), p2_screen.get_height() - minimap_surf.get_height()]) #copy the minimap to the bottom-right corner of the screen
 
     #run the bot game analysis script for each bot
     for x in range(0,len(bot_player_managers)):

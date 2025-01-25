@@ -1,4 +1,5 @@
-##Copyright (C) 2022  Lincoln V.
+##"ArenaTest.py", "EntityTest.py"
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -13,5 +14,5 @@
 ##You should have received a copy of the GNU General Public License
 ##along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-This folder contains several demos of various libraries used within this game.
+This folder contains two demos which show the functionality of various libraries used within this game.
 Simply move the demo you want to try into the "libraries" folder (relative path: "../") and run it.

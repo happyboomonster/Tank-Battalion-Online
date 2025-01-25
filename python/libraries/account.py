@@ -1,7 +1,6 @@
-##"account.py" library ---VERSION 0.35---
-## - REQUIRES: "entity.py"
+##"account.py" library ---VERSION 0.41---
 ## - For managing account data in Tank Battalion Online -
-##Copyright (C) 2023  Lincoln V.
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -16,13 +15,84 @@
 ##You should have received a copy of the GNU General Public License
 ##along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import entity
-import random
-import math
-import time
+import entity, netcode #my own libraries
+import random, math, time #other people's libraries
+
+# - Define what data types are allowed to pass unrestricted through enter_data() -
+DATA_TYPES = [
+    ["<class 'str'>",
+    ["<class 'float'>", "<class 'float'>"],
+    [["<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>"], "<class 'list'>", ["<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>"], "<class 'int'>"],
+    "<class 'float'>",
+    "<class 'float'>",
+    ["<class 'str'>", "<class 'str'>", "<class 'str'>", ["<class 'str'>", "<class 'int'>", "<class 'float'>", ["<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>"]]]],
+
+    ["<class 'str'>",
+    ["<class 'float'>", "<class 'float'>"],
+    [["<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>"], "<class 'list'>", ["<class 'int'>","<class 'int'>","<class 'int'>","<class 'int'>"], "<class 'int'>"],
+    "<class 'float'>",
+    "<class 'float'>",
+    ["<class 'NoneType'>"]]
+    ]
+PU_DATA_TYPES = ["<class 'NoneType'>", "<class 'bool'>"]
+
+# - Constants for purchase DETAILS -
+# - What are the stats of the various bullets? -
+shell_specs = [ #Format: [damage, penetration]
+    [8, 8], #hollow
+    [12, 12], #regular
+    [20, 7], #explosive
+    [18, 14] #disk
+    ]
+upgrade_details = [
+    "D.M./P.M. ",
+    "RPM ",
+    "Armor ",
+    "Speed "
+    ]
+
+# - How many of each shell may you own?? I can't just let people run around with disk shells all day because they saved their ^ -
+max_shells = [
+    50, #hollow
+    20,
+    7,
+    5 #disk
+    ]
+
+# - The price of all things in the store -
+shell_prices = [
+    0.5, #hollow
+    6.0,
+    27.5,
+    25.0 #disk
+    ]
+powerup_price = 12.5 #X^ per powerup
+upgrade_start_price = 1000.0 #sqrt(self.upgrade_increment * upgrade_num) + self.upgrade_start_price = cost
+upgrade_increment = 375*375 #sqrt(self.upgrade_increment * upgrade_num) + self.upgrade_start_price = cost
+
+specialization_start_price = 1000.0 #sqrt(self.specialization_increment * upgrade_num) + self.specialization_start_price = cost
+specialization_increment = 6500.0*6500.0 #sqrt(self.specialization_increment * upgrade_num) + self.specialization_start_price = cost
+
+# - The price of all things battle related -
+KILL_REWARD = 25.0 #^ - This value should be at least double the cost of a powerup, since you'll often want to use powerups when killing another tank
+DEATH_COST = KILL_REWARD * 2.5 #^
+CASH_DAMAGE_MULTIPLIER = 1.00 #all shell prices are calculated with this constant in mind, so don't change it unless you're planning to heavily overhaul the cost of everything.
+
+# - How much % of original value do you gain when you get a refund?
+REFUND_PERCENT = 0.75
+
+# - Experience prices -
+EXP_KILL_REWARD = 10.0 #exp += self.EXP_KILL_REWARD
+EXP_DEATH_COST = 2.5 * EXP_KILL_REWARD #exp += -self.EXP_DEATH_COST
+EXPERIENCE_DAMAGE_MULTIPLIER = 0.025 #exp += damage * self.EXPERIENCE_DAMAGE_MULTIPLIER
+HIT_EXPERIENCE = 1.0 #exp += shots * self.HIT_EXPERIENCE
+WHIFF_EXPERIENCE = HIT_EXPERIENCE * 5 #exp += -shots * self.WHIFF_EXPERIENCE
+
+#how many upgrades are we allowed to do on each part? How much can we specialize?
+upgrade_limit = 6 #6 upgrades/ +/-6 specialization on a tank allowed
 
 class Account():
-    def __init__(self,name="a name",password="123 is a bad password",bot=False): #this sets the beginning stats for any new account.
+    def __init__(self,name="a name",password="123 is a bad password",bot=False,requested_rating=None): #this sets the beginning stats for any new account.
         #Account name and password
         self.name = name
         self.password = password
@@ -47,9 +117,10 @@ class Account():
         #Simple flag which tells whether this account is for a bot or not.
         self.bot = bot
 
-        if(self.bot): #if we're a bot, zero our cash and experience.
+        if(self.bot): #if we're a bot, zero our cash and experience. Also, we might need to know exactly what the bot's requested intelligence rating is when we actually get the bot going.
             self.cash = 0
             self.experience = 0
+            self.requested_rating = requested_rating
             
         #Tank stats
         self.shells = [ #ammunition left in tank
@@ -79,57 +150,6 @@ class Account():
         self.damage_multiplier = 1.00
         self.penetration_multiplier = 1.00 #this isn't used in calculating bullet costs, but I figured I'd add it since I use it later on in battle_client.py.
 
-        # - Constants for purchase DETAILS -
-        # - What are the stats of the various bullets? -
-        self.shell_specs = [ #Format: [damage, penetration]
-            [7, 7], #hollow
-            [12, 12], #regular
-            [20, 7], #explosive
-            [18, 14] #disk
-            ]
-        self.upgrade_details = [
-            "D.M./P.M. ",
-            "RPM ",
-            "Armor ",
-            "Speed "
-            ]
-
-        # - How many of each shell may you own?? I can't just let people run around with disk shells all day because they saved their ^ -
-        self.max_shells = [
-            30,
-            20,
-            7,
-            5
-            ]
-
-        # - The price of all things in the store -
-        self.shell_prices = [
-            1.0, #hollow: 1.0^
-            4.0,
-            20.0,
-            25.0 #disk: 25.0^
-            ]
-        self.powerup_price = 10.0 #X^ per powerup
-        self.upgrade_start_price = 5.0 #first upgrade starts at X^. Next upgrades: pow(X^, upgrade#)
-
-        # - The price of all things battle related -
-        self.DEATH_COST = 25.0 #^
-        self.KILL_REWARD = 10.0 #^
-        self.CASH_DAMAGE_MULTIPLIER = 1.00
-
-        # - How much % of original value do you gain when you get a refund?
-        self.REFUND_PERCENT = 0.75
-
-        # - Experience prices -
-        self.EXP_DEATH_COST = 35.0 #experience
-        self.EXP_KILL_REWARD = 15.0
-        self.EXPERIENCE_DAMAGE_MULTIPLIER = 0.1 #for 100 damage, +10 exp
-        self.HIT_EXPERIENCE = 5 #35/5 = 7 shots needed to equal self.EXP_DEATH_COST
-        self.WHIFF_EXPERIENCE = self.HIT_EXPERIENCE * 0.75
-
-        #how many upgrades are we allowed to do on each part? How much can we specialize?
-        self.upgrade_limit = 6 #6 upgrades/ +/-6 specialization on a tank allowed
-
     def __str__(self): #for if we want to print out the account's stats
         return (
             "Account name: " + self.name + "\n" +
@@ -145,28 +165,53 @@ class Account():
     def return_data(self,precision=2): #useful for gathering a useful set of information for netcode transmission. Encoded in a list in the same order as __str__().
         return [
             self.name,
-            [round(self.cash,precision), round(self.experience,precision)],
+            [float(round(self.cash,precision)), float(round(self.experience,precision))],
             [self.shells,self.powerups,self.upgrades,self.specialization],
-            round(self.damage_multiplier,precision),
-            round(self.penetration_multiplier,precision),
+            float(round(self.damage_multiplier,precision)),
+            float(round(self.penetration_multiplier,precision)),
             self.settings[:]
             ]
 
     def enter_data(self,data): #Takes data returned from return_data() and inputs it into this Account() object.
-        self.name = data[0]
-        self.cash = data[1][0]
-        self.experience = data[1][1]
-        self.shells = data[2][0][:]
-        self.powerups = data[2][1][:]
-        self.upgrades = data[2][2][:]
-        self.specialization = data[2][3]
-        self.damage_multiplier = data[3]
-        self.penetration_multiplier = data[4]
-        self.settings = data[5][:]
+        global DATA_TYPES, PU_DATA_TYPES
+        verify = False
+        for x in DATA_TYPES:
+            if(netcode.data_verify(data, x)):
+                verify = True
+                break
+        if(verify): #we still haven't verified our powerup list...
+            pu_verify = False
+            for d in data[2][1]:
+                vf_element = False
+                for x in PU_DATA_TYPES:
+                    if(netcode.data_verify(d, x)):
+                        vf_element = True
+                        break
+                if(vf_element == False):
+                    pu_verify = False
+                    break
+                else:
+                    pu_verify = True
+            if(pu_verify):
+                self.name = data[0]
+                self.cash = data[1][0]
+                self.experience = data[1][1]
+                self.shells = data[2][0][:]
+                self.powerups = data[2][1][:]
+                self.upgrades = data[2][2][:]
+                self.specialization = data[2][3]
+                self.damage_multiplier = data[3]
+                self.penetration_multiplier = data[4]
+                self.settings = data[5][:]
+            else:
+                print("[ACCOUNT.py] Couldn't verify data packet on pu_verify! Data: " + str(data))
+        else:
+            print("[ACCOUNT.py] Couldn't verify data packet on main verify! Data: " + str(data))
 
     def check_free_stuff(self): #gives a player a free stock of hollow shells every 24hrs. This is to keep players from becoming completely broke if they have some bad battles.
+        global max_shells
         if(time.time() - self.last_free_stuff >= 24 * 60 * 60): #it's been 24hrs since last time we got free stuff? The player gets free hollow shells.
-            self.shells[0] = self.max_shells[0]
+            self.shells[0] = max_shells[0]
             self.last_free_stuff = time.time()
 
     def randomize_account(self): #scrambles the account data to create a unique account. Good for testing matchmaking or creating bots.
@@ -213,7 +258,7 @@ class Account():
             sum_shells += x
         # - Take the sum of the maximum amount of shells we could have -
         sum_max_shells = 0
-        for x in self.max_shells:
+        for x in max_shells:
             sum_max_shells += x
         if(sum_shells > 0): #avoid div0 errors
             if(sum_shells / (sum_max_shells / 2.5) >= 1): #we can get upgrades + powerups since we already have a good amount of shells
@@ -261,7 +306,7 @@ class Account():
             sum_shells += x
         # - Take the sum of the maximum amount of shells we could have -
         sum_max_shells = 0
-        for x in self.max_shells:
+        for x in max_shells:
             sum_max_shells += x
         if(sum_shells > 0): #avoid div0 errors
             if(sum_shells / (sum_max_shells / 3.5) <= 1): #we can sell upgrades + powerups if we don't have enough shells
@@ -333,34 +378,55 @@ class Account():
     #You give the account() the tank you used in a battle; This function returns the cost to rebuy everything, rebuys necessary items,
     #  Handles cash gain/loss and experience gain/loss.
     def return_tank(self,tank,rebuy=False,bp_to_cash=True,experience=False,verbose=False):
+        global CASH_DAMAGE_MULTIPLIER, DEATH_COST, KILL_REWARD
+        global EXP_KILL_REWARD, EXP_DEATH_COST, WHIFF_EXPERIENCE, HIT_EXPERIENCE, EXPERIENCE_DAMAGE_MULTIPLIER
+        global powerup_price, shell_prices
         # - If we set this flag to True, convert our battle performance to cash -
         if(bp_to_cash):
             # - First, we handle cash -
             earned = 0.0
             # - Convert the tank's total damage to cash -
-            self.cash += tank.total_damage * self.CASH_DAMAGE_MULTIPLIER
-            earned += tank.total_damage * self.CASH_DAMAGE_MULTIPLIER
+            self.cash += tank.total_damage * CASH_DAMAGE_MULTIPLIER
+            earned += tank.total_damage * CASH_DAMAGE_MULTIPLIER
+            if(verbose):
+                print(" - Damage dealt: " + str(round(tank.total_damage,1)) + " -> ^ earned from Damage: " + str(round(earned,1)))
+                last_earned = earned
             # - Convert our death to negative cash (sad) -
             if(tank.destroyed == True):
-                self.cash -= self.DEATH_COST
-                earned -= self.DEATH_COST
+                self.cash -= DEATH_COST
+                earned -= DEATH_COST
+                if(verbose):
+                    print(" - ^ Lost from death: " + str(round(earned - last_earned,1)))
+                    last_earned = earned
             # - We also need to convert kills to cash -
-            self.cash += tank.kills * self.KILL_REWARD
-            earned += tank.kills * self.KILL_REWARD
+            self.cash += tank.kills * KILL_REWARD
+            earned += tank.kills * KILL_REWARD
+            if(verbose):
+                print(" - Kills: " + str(tank.kills) + " -> ^ earned from kills: " + str(round(earned - last_earned,1)))
             # - Second, we handle experience -
             old_experience = self.experience #bookmark what *was* our experience
             if(experience):
-                self.experience += tank.kills * self.EXP_KILL_REWARD #kills
+                self.experience += tank.kills * EXP_KILL_REWARD #kills
+                if(verbose):
+                    print(" - Experience from kills: " + str(round(tank.kills * EXP_KILL_REWARD,1)))
                 if(tank.destroyed == True): #deaths
-                    self.experience -= self.EXP_DEATH_COST
+                    self.experience -= EXP_DEATH_COST
+                    if(verbose):
+                        print(" - " + str(round(EXP_DEATH_COST,1)) + " experience lost from death")
                 # - Handle the hit/miss experience earned -
                 total_shots = 0
                 for x in range(0,len(tank.shells_used)):
                     total_shots += tank.shells_used[x]
-                self.experience -= tank.missed_shots * self.WHIFF_EXPERIENCE #missed shots
-                self.experience += (total_shots - tank.missed_shots) * self.HIT_EXPERIENCE #hit shots
+                bookmarked_exp = self.experience
+                self.experience -= tank.missed_shots * WHIFF_EXPERIENCE #missed shots
+                self.experience += (total_shots - tank.missed_shots) * HIT_EXPERIENCE #hit shots
+                if(verbose):
+                    print(" - Experience gained from accuracy: " + str(round(self.experience - bookmarked_exp,1)))
                 # - Handle damage -
-                self.experience += tank.total_damage * self.EXPERIENCE_DAMAGE_MULTIPLIER
+                bookmarked_exp = self.experience
+                self.experience += tank.total_damage * EXPERIENCE_DAMAGE_MULTIPLIER
+                if(verbose):
+                    print(" - Experience gained from damage: " + str(round(self.experience - bookmarked_exp,1)))
                 # - Check if we're below 0 EXP and make sure that we aren't below 0 EXP if that's the case -
                 if(self.experience < 0):
                     self.experience = 0
@@ -371,23 +437,23 @@ class Account():
             if(tank.powerups_used[x] > 0):
                 for buy in range(0,tank.powerups_used[x]):
                     self.purchase("powerup",x)
-                    pu_cost += self.powerup_price
+                    pu_cost += powerup_price
             else: #did we collect more powerups off the map then we used?
                 for refund in range(0,abs(tank.powerups_used[x])): #we gets money for that extra powerup.
-                    self.cash += self.powerup_price
-                    pu_cost -= self.powerup_price
+                    self.cash += powerup_price
+                    pu_cost -= powerup_price
         # - Rebuy all shells if we set rebuy to True -
         shell_cost = 0.0
-        for x in range(0,len(self.shell_prices)): #how much would it cost to rebuy all shells?
-            shell_cost += self.shell_prices[x] * tank.shells_used[x] * self.damage_multiplier
+        for x in range(0,len(shell_prices)): #how much would it cost to rebuy all shells?
+            shell_cost += shell_prices[x] * tank.shells_used[x] * self.damage_multiplier
             if(rebuy): #if we have this setting on, rebuy all our shells.
                 for buy in range(0,tank.shells_used[x]):
                     self.purchase("shell",x)
         # - Sell extra shells (e.g. if we got explosive shells during the game and we have 9/7 shells, sell 2) -
-        for x in range(0,len(self.shell_prices)):
-            while(self.shells[x] > self.max_shells[x]):
+        for x in range(0,len(shell_prices)):
+            while(self.shells[x] > max_shells[x]):
                 self.refund("shell",x)
-                shell_cost -= self.shell_prices[x] * self.damage_multiplier
+                shell_cost -= shell_prices[x] * self.damage_multiplier
         print("[PLAYER " + str(tank.name) + "] Powerup costs: " + str(pu_cost) + " Shell costs: " + str(shell_cost))
         if(bp_to_cash):
             # - Print out how much we earned (before cost of anything like powerups/bullets, and after) -
@@ -401,9 +467,12 @@ class Account():
             return [earned, shell_cost, pu_cost, earned - shell_cost - pu_cost, self.experience - old_experience]
 
     def purchase(self, item, item_index, view_price=False): #if your account balance permits, purchase the item selected.
+        global powerup_price, shell_prices, upgrade_start_price, upgrade_increment
+        global specialization_start_price, specialization_increment
+        global upgrade_limit, max_shells, shell_specs, upgrade_details
         details = None #this variable allows this function to return details on EXACTLY what you're planning on purchasing if view_price == True.
         if(item == "powerup"): #powerups?
-            price = self.powerup_price
+            price = powerup_price * self.damage_multiplier
             details = None #no details on powerup
             #Check if account has powerup_price availible. If so, deduct powerup_price from account's balance.
             #Give the account the powerup.
@@ -416,11 +485,11 @@ class Account():
                         self.powerups[item_index] = None #make sure powerup is not there and everyone else knows it =(
                     return False #we couldn't get item
         elif(item == "shell"): #ammunition?
-            price = self.shell_prices[item_index] * self.damage_multiplier
-            details = "Base D/P - " + str(round(self.shell_specs[item_index][0],1)) + "/" + str(round(self.shell_specs[item_index][1],1))
+            price = shell_prices[item_index] * self.damage_multiplier
+            details = "Base D/P - " + str(round(shell_specs[item_index][0],1)) + "/" + str(round(shell_specs[item_index][1],1))
             if(not view_price):
                 if(self.cash >= price): #we has the money?
-                    if(self.max_shells[item_index] > self.shells[item_index]): #we're not at our max?
+                    if(max_shells[item_index] > self.shells[item_index]): #we're not at our max?
                         self.cash -= price
                         self.shells[item_index] += 1
                     else:
@@ -428,7 +497,8 @@ class Account():
                 else:
                     return False #we couldn't buy the item
         elif(item == "upgrade"): #an upgrade?
-            price = pow(self.upgrade_start_price, self.upgrades[item_index] + 1)
+            #OLD PRICE: #price = pow(self.upgrade_start_price, self.upgrades[item_index] + 1)
+            price = math.sqrt(upgrade_increment * (self.upgrades[item_index] + 1)) + upgrade_start_price
             # - Calculate the purchase details, which is basically how much of an upgrade this purchase will be -
             if(view_price):
                 old_tank = self.create_tank("image","dummy team",[0,0,0,0],True)
@@ -452,14 +522,14 @@ class Account():
                     for b in difference:
                         variables_str += "+" + str(round(b,1)) + "/"
                     variables_str = variables_str[0:len(variables_str) - 1]
-                    details = self.upgrade_details[x] + variables_str
+                    details = upgrade_details[x] + variables_str
                 else:
                     details = ""
             # - Now the purchase can begin -
             if(not view_price):
-                if(self.upgrades[item_index] < self.upgrade_limit): #we haven't reached the upgrade cap yet?
-                    if(self.cash >= pow(self.upgrade_start_price, self.upgrades[item_index] + 1)): #we has da money?
-                        self.cash -= pow(self.upgrade_start_price, self.upgrades[item_index] + 1)
+                if(self.upgrades[item_index] < upgrade_limit): #we haven't reached the upgrade cap yet?
+                    if(self.cash >= price): #we has da money?
+                        self.cash -= price
                         self.upgrades[item_index] += 1
                         # - Update the damage multiplier for your tank -
                         self.damage_multiplier = self.create_tank("image","dummy team",[0,0,0,0],True).damage_multiplier
@@ -469,7 +539,8 @@ class Account():
                 else: #already upgraded to the max!
                     return False
         elif(item == "specialize"): #we're specializing our tank!
-            price = pow(self.upgrade_start_price, abs(self.specialization + item_index))
+            #OLD PRICE: #price = pow(self.upgrade_start_price, abs(self.specialization + item_index))
+            price = math.sqrt(specialization_increment) * abs(self.specialization + item_index) + specialization_start_price
             if(not view_price):
                 # - Now, before we are allowed to check whether we have the experience, I need to make sure people sell their shells in their tank to avoid switching to heavy, selling shells and making 100s of ^ -
                 noshells = True
@@ -478,7 +549,7 @@ class Account():
                         noshells = False
                         break
                 if(noshells):
-                    if(abs(self.specialization + item_index) <= self.upgrade_limit): #we haven't reached the specialization cap?
+                    if(abs(self.specialization + item_index) <= upgrade_limit): #we haven't reached the specialization cap?
                         if(self.experience >= price):
                             self.specialization += item_index
                             # - Update the damage multiplier for your tank -
@@ -495,23 +566,28 @@ class Account():
         return True #we were able to buy item!
 
     def refund(self, item, item_index, view_price=False): #return the item selected if you own it.
+        global powerup_price, shell_prices, upgrade_start_price, upgrade_increment
+        global specialization_start_price, specialization_increment
+        global upgrade_limit, max_shells, shell_specs, upgrade_details
+        global REFUND_PERCENT
         success = False
         details = None
         if(item == "powerup"): #powerups?
-            price = self.powerup_price * self.REFUND_PERCENT
+            price = powerup_price * self.damage_multiplier * REFUND_PERCENT
             if(not view_price and self.powerups[item_index] != False):
                 self.cash += price
                 self.powerups[item_index] = None
                 success = True
         elif(item == "shell"): #ammunition?
-            price = self.shell_prices[item_index] * self.REFUND_PERCENT
-            details = "Base D/P - " + str(round(self.shell_specs[item_index][0],1)) + "/" + str(round(self.shell_specs[item_index][1],1))
+            price = shell_prices[item_index] * self.damage_multiplier * REFUND_PERCENT
+            details = "Base D/P - " + str(round(shell_specs[item_index][0],1)) + "/" + str(round(shell_specs[item_index][1],1))
             if(not view_price and self.shells[item_index] > 0):
                 self.cash += price
                 self.shells[item_index] -= 1
                 success = True
         elif(item == "upgrade"): #an upgrade?
-            price = pow(self.upgrade_start_price, self.upgrades[item_index]) * self.REFUND_PERCENT
+            #OLD PRICE: #price = pow(self.upgrade_start_price, self.upgrades[item_index]) * self.REFUND_PERCENT
+            price = (math.sqrt(upgrade_increment * self.upgrades[item_index]) + upgrade_start_price) * REFUND_PERCENT
             # - Calculate the purchase details, starting with HOW much of a downgrade this refund will be -
             if(view_price):
                 old_tank = self.create_tank("image","dummy team",[0,0,0,0],True)
@@ -535,7 +611,7 @@ class Account():
                     for b in difference:
                         variables_str += str(round(b,1)) + "/"
                     variables_str = variables_str[0:len(variables_str) - 1]
-                    details = self.upgrade_details[x] + variables_str
+                    details = upgrade_details[x] + variables_str
                 else:
                     details = ""
             # - Now we try refund -
@@ -552,9 +628,16 @@ class Account():
             return False
         return True #else we actually bought something.
 
-###quick test to see whether the currency/purchasing system worked. It does!
+### - Quick test to see whether the currency/purchasing system worked. It does! -
 ##account = Account()
-##account.experience = 10000000
-##print(account.purchase("upgrade",3,True))
+##account.experience = 1000000
+##account.cash = 1000000
+##pu_opts = ["upgrade","shell","powerup","specialize"]
+##pu_ranges = [[0,4], [0,4], [0,6], [-6,7]]
+##for opts in range(0,len(pu_opts)):
+##    for rpt in range(0,50):
+##        for x in range(pu_ranges[opts][0],pu_ranges[opts][1]):
+##            account.purchase(pu_opts[opts], x, False)
+##            account.purchase(pu_opts[opts], x, True)
 ##tank = account.create_tank("armor","team")
 ##print(tank)

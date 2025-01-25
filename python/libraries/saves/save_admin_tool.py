@@ -1,6 +1,6 @@
 ##"save_admin_tool.py" ---VERSION 0.02---
-## - A small program to assist managing TBO accounts
-##Copyright (C) 2023  Lincoln V.
+## - A small program to manage and modify TBO accounts -
+##Copyright (C) 2024  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by

@@ -1,0 +1,88 @@
+Release ready
+ - MacOS binary (use Karsten's computer)
+ - Beta testing
+ - Post finished game
+
+DONE!
+ - Movement anti-cheat
+ - Update game music (constant menu track, better in-game stuff)
+ - Add option to "next/previous track"
+ - Game music can be added by pasting it in the correct directory (sfx/music/lobby, ingame, queue)
+ - Remember game settings server-side
+ - Change matchmaker to also try get more players at the expense of match balance (2=critical need for more players, 4=OK, 8=we're fine)
+ - Almost around corner -> auto-shift position
+ - Minimap
+ - Add a "last seen" status to Tank() entities, and make them go grey (or something like that) so you can tell which you have/haven't spotted yet in Experience Battles
+ - Per-team particle lists (for communication purposes, keeps communication secret from other teams) However, the other team's radar will spot your for using radio communications.
+ - Remove the divide by zero error in handle_damage() in entity.py
+ - Update the menu system to give players a way to see others' stats in the matchmaker
+ - Give players a daily gift of full hollow shells upon signing in
+ - Reduce the bitrate needed to sustain 20PPS (Currently, 1 packet = 1.2-3.5KB...so * 20 = 24-70KB/s = too much)
+ - Triple-Thread the client
+ - Add an offline n-player split-screen multiplayer mode
+ - Add a GPL notice and music credits at login screen
+ - Controller registers key config when a *change* in keypresses occur
+ - Controller behavior parity between offline and online modes
+ - Increase visible_arena for better play
+ - Offline mode will function properly from the main directory instead of only from "python/libraries"
+ - Modified item descriptions in the lobby menu to make navigation easier
+ - Add data filtering to Entity.py to help keep the server from crashing due to bad data entries
+ - Use my OWN sound effects from a VIC20 synthesizer chip via basic commands
+ - Rebalance the matchmaker based on some good math (based on TTK essentially, plus some guesswork for engine upgrades)
+ - Unspotted image for tanks does not have a black background anymore
+ - Make it so players can actually buy everything in the game in offline mode
+ - Rebalance account costs based on some battles with an approximate player density of 16 tiles/tank
+ - Rebalance exp gain system based on some battles with an approximate player density of 16 tiles/tank
+ - Eliminated the issue where a thread would endlessly utilize 100% CPU following offline mode game closure
+ - Redrew all tiles & tanks
+ - Bots can no longer change direction post-mortem
+ - Improved offline FPS counter accuracy
+ - Allowed free spectating post mortem
+ - Made bots commit suicide if they exit the arena boundaries
+ - Added account.Account() enter_data() data verification
+ - Designed more maps for the game
+ - Added grey minimap markers for flags
+ - Battle time scales to player count
+ - Map chooser algorithm now bases its choice off of free space in the map, and also chooses maps within a suitable space range instead of just making sure a map was big enough
+ - Add back buttons to all offline menus (e.g. a player who is already in the map selection screen can go back two menus to change bot count before proceeding)
+ - Bots now start with *essentially* infinite hollow shells so they never run out of ammunition
+ - Dead players never become grey due to becoming unspotted
+ - Flags now produce more and are also biased towards providing more ammunition supply
+ - Players get teleported back inside the map if they manage to exit through wall clipping/hacking
+ - Players get to move faster when dead to make spectating easier
+ - Make better tank position correction/collision algorithm (now tanks don't clip through walls @ low FPS!)
+ - Players can start with no money or EXP in offline mode (0^ is selectable in setup menus now)
+ - Lobby music only starts once the client has received the player's settings from the server as to whether/what volume the music should be played at
+ - Entities only get drawn onscreen when they are actually within the player's FOV (game optimisation)
+ - HUGE game optimisations in entity.py regarding visibility check functions and collision detection - over 4x performance increase (now I can have 399 bots w/ myself playing as well @ 15FPS lol)!
+ - Bugfix: It used to be that if a tank begins turning towards a direction, and changes the direction they are attempting to face by exactly 180 degrees, they will complete the turn towards their initial goal direction, and then instantaneously face the exact opposite direction once the initial turn is completed
+ - Tanks can rotate at low FPS now (this means that even if you're at 3 FPS, you can still spin your tank, even if you can't really move or see what you're doing...)
+ - Bullets no longer deal 0 damage to other bullets
+ - Rearranged draw order of things on minimap; Entities are always visible above other things (e.g. GFX, SFX)
+ - Endgame explosions now spread across entire map, not just the top-left corner
+ - Tanks can now run up against a block, break it, and run through it without having to change direction first
+ - Bugfix: Account settings used to stop updating after changing a setting
+ - Black seams no longer appear between tiles ingame
+ - Bugfix: Music folders can be empty without throwing an error
+ - Bugfix: Sound effects almost never play twice in a row
+ - Anticheat now prevents players from blatantly driving through walls
+ - Added one more frame of water animation to improve smoothness
+ - Tiles no longer become corrupted when changing window sizes ingame
+ - Bugfix: Dead players may no longer collect powerups
+ - Redesigned maps so that bots can find each other's base (keeps gameplay fast-paced)
+ - Added mouse controls; Exception: Store + Ingame in OFFLINE mode only
+ - Fixed paragraph display newline bug
+ - Bugfix: draw minimap before menu
+ - Typo: fixed typo in "Dangerous Loading" description
+ - Bugfix: fixed rare timing issue where if a tank clock() occurred while handle_damage() was running for that tank, an exception could be thrown
+ - Added black background to ingame menu; menu was previously almost unreadable with gameplay as the menu background
+ - Rebuilt git server without copyrighted assets
+ - Improved SFX (still generated by VIC-20)
+
+IGNORED BUGS
+ - Controller button numbers are not displayed on HUD in offline mode
+ - Entering the lobby menu from the login screen or from the matchmaker/ingame takes twice as long to load as "Loading..." appears for
+ - The button to switch from Keyboard to Joystick mode in offline mode has to be pressed twice for some reason
+ - The last explosion from a game does not happen
+ - Battle outcomes are not always recorded correctly. As a result, players will sometimes be incorrectly awarded for their contributions to the battle.
+ - Sometimes when beginning to turn one direction and changing to another before completing the first turn, the player will infinitely spin in circles until the player tries to move in a new direction.
