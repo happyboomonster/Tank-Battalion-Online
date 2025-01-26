@@ -1,6 +1,6 @@
-##"battle_server.py" library ---VERSION 0.63---
+##"battle_server.py" library ---VERSION 0.64---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
-##Copyright (C) 2024  Lincoln V.
+##Copyright (C) 2025  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -353,8 +353,8 @@ class BattleEngine():
                 #append our special window data to the send list
                 reply.append(special_window)
 
-                #wait that 0.25 seconds before we should send a packet to achieve ~4PPS at best, ~0.5PPS worst before a disconnect occurs (if the timeout constant in netcode.py is 2 seconds)
-                time.sleep(0.25)
+                #wait that 0.X seconds before we should send a packet to achieve ~1/0.X PPS at best
+                time.sleep(0.125)
 
                 #send back a response based on whether we had to perform any action, and whether we could perform it.
                 netcode.send_data(player_data[1], self.buffersize, reply) #Server transmission format: [True] (success), [None] (no operation), [False, "$$$ needed"/"max"]

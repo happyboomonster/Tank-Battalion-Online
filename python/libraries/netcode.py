@@ -1,6 +1,6 @@
-##"netcode.py" library ---VERSION 0.45---
+##"netcode.py" library ---VERSION 0.46---
 ## - A extra layer of simplification to the Python socket API. Makes netcode really easy -
-##Copyright (C) 2024  Lincoln V.
+##Copyright (C) 2025  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -25,6 +25,12 @@ MAX_PACKET_CT = 65535
 
 #the default timeout value for socket.recv() functions
 DEFAULT_TIMEOUT = 5.0 #seconds
+
+#the default timeout used to check whether a socket is empty (see clear_socket() below)
+DEFAULT_CLEAR_TIMEOUT = 0.75 #seconds
+
+#the default recovery timeout used to get the last bit of data out of the socket to finish one "packet"
+DEFAULT_PACKET_TIMEOUT = 0.05 #seconds
 
 #some premade error messages, as well as some constants to help show which message corresponds to which index in the error msgs list
 ERROR_MSGS = [
@@ -236,18 +242,18 @@ def recieve_data(Cs,buffersize): #tries to recieve some data without checking it
         except: #it didn't work? Well then we set this flag so that we know we need to try something else before we count the data as lost...
             errors.append("(" + justify(str(packet_count),5) + ") " + ERROR_MSGS[INITIAL_EVAL])
             initial_success = False
-    #   --- IF we can't evaluate the data string as-is, we try to see if there is ANYTHING left in the socket buffer ---
-    else: #this occurs if data != None
+        #   --- IF we can't evaluate the data string as-is, we try to see if there is ANYTHING left in the socket buffer ---
         if(initial_success == False and not Cs._closed):
-            Cs.settimeout(0.35)
+            Cs.settimeout(DEFAULT_PACKET_TIMEOUT)
+            fail_ct = 0
             while len(list(data)) < Nbuffersize and not Cs._closed: #grab some data if we can
                 data_pack = socket_recv(Cs,Nbuffersize - len(list(data)))
                 if(data_pack[1] == 'timeout'): #if we got a timeout error, we ran out of data to retrieve...packet LOST
                     errors.append("(" + justify(str(packet_count),5) + ") " + ERROR_MSGS[LOST_EVAL])
-                    break
+                    fail_ct += 1
                 elif(data_pack[1] == 'disconnect'): #well if this happens, we're really out of luck.
                     connected = False
-                    break
+                    fail_ct += 1
                 else: #nothing went wrong yet???
                     data += data_pack[0].decode('utf-8')
                 try: #try to evaluate the data string again after recieving more tidbits of it
@@ -255,6 +261,9 @@ def recieve_data(Cs,buffersize): #tries to recieve some data without checking it
                     break
                 except: #else, we repeat this loop, trying to grab more data from the buffer cache, and hoping that it completes this data string...
                     errors.append("(" + justify(str(packet_count),5) + ") " + ERROR_MSGS[EVAL])
+                if(fail_ct > 5):
+                    data = None
+                    break
     # - Clear out the socket if we can't get our data -
     if(data == None):
         connected = clear_socket(Cs)
@@ -266,12 +275,16 @@ def recieve_data(Cs,buffersize): #tries to recieve some data without checking it
         connected = False
     else: #restore our old timeout value
         Cs.settimeout(old_timeout)
+    # - Delay till our timeout is hit if we didn't get data (to allow more to buffer in + resync clients/servers) -
+    if(data == None):
+        if(DEFAULT_TIMEOUT - (time.time() - ping_start) > 0):
+            time.sleep(DEFAULT_TIMEOUT - (time.time() - ping_start))
     return [data, ping, errors, connected] #return the data this function gathered
 
 # - Clears out all data within a socket connection -
 def clear_socket(Cs):
     old_timeout = eval(str(Cs.gettimeout())) #this gives me a pointer rather than a float...so I need to change that with the eval(str()) argument.
-    Cs.settimeout(0.75)
+    Cs.settimeout(DEFAULT_CLEAR_TIMEOUT)
     clearing = True
     clear_counter = 0 #this gets incremented each time we get no data from the socket. If we get 2 no-data recv() commands, then we consider the socket cleared.
     while clearing:
@@ -282,7 +295,7 @@ def clear_socket(Cs):
             clear_counter += 1
         else: #we got data, socket's still not empty...
             clear_counter = 0
-        if(clear_counter > 1): #we're clear?
+        if(clear_counter > 5): #we're clear?
             clearing = False
         if(errors == "disconnect" or Cs._closed): #we lost connection?
             Cs.settimeout(old_timeout)
