@@ -1,7 +1,7 @@
 Release ready
- - MacOS binary (use Karsten's computer)
- - Beta testing
- - Post finished game
+1 - Beta testing
+2 - Clean up game files (remove __pycache__, game save data)
+3 - MacOS binary, then post finished game
 
 DONE!
  - Movement anti-cheat
