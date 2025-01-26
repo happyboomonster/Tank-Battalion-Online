@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.71---
+##"battle_client.py" library ---VERSION 0.73---
 ## - Handles client stuff (battles, main game loops, lobby stuff, and game setup) -
 ##Copyright (C) 2025  Lincoln V.
 ##
@@ -719,7 +719,7 @@ class BattleEngine():
 
             # - Update our Music() manager, and check if we need to queue more tracks (this MAY NOT happen in split-screen mode, since this thread would hang then) -
             if(ph == None):
-                if(time.time() - music_timer > netcode.DEFAULT_TIMEOUT * 2.25 and len(self.music_files[0]) > 1): #wait until we hear from the server whether we want music on or not before starting it.
+                if(time.time() - music_timer > netcode.DEFAULT_TIMEOUT * 2.25 and len(self.music_files[0]) > 0): #wait until we hear from the server whether we want music on or not before starting it.
                     queue = not self.music.clock() #returns False if we need to queue more tracks
                     if(queue): #queue a new random track
                         music_track += 1
@@ -1231,9 +1231,9 @@ class BattleEngine():
 
             # - Update "Up" and "Down" settings so that we know which range of players we're looking at -
             if(queue_menu.current_menu == 0):
-                opt_str = str(player_view_index) + "/" + str(total_players)
+                opt_str = str(player_view_index + 1) + "/" + str(total_players)
                 queue_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"Up")
-                opt_str = str(player_view_index + 4) + "/" + str(total_players)
+                opt_str = str(player_view_index + 5) + "/" + str(total_players)
                 queue_menu.reconfigure_setting([opt_str,opt_str],opt_str,0,"Down")
 
                 # - Update "Player X" settings so that we know what players are in queue -
