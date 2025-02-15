@@ -187,7 +187,11 @@ class BattleEngine():
             # - Set up our networking stuff; This has to be done here since we don't want to make real IP connections when playing in offline mode -
             #the IP/device name of our server
             HOST_NAME = socket.gethostname()
-            self.IP = socket.gethostbyname(HOST_NAME + ".local")
+            try: #for some reason (maybe network configuration?) this fails on AWS instances. You have to type in the server IP address manually.
+                self.IP = socket.gethostbyname(HOST_NAME + ".local")
+            except Exception as e:
+                print("[ERROR] Couldn't get server IP!")
+                self.IP = input("Please enter the server IP manually: ")
 
             #create a random port number
             PORT = 5031

@@ -1,4 +1,4 @@
-##"SFX.py" library ---VERSION 0.10---
+##"SFX.py" library ---VERSION 0.09---
 ## - For creating basic audio effects with volume-based positional sound (this is a duplicate of SFX.py for PygameHandler's usage) -
 ##Copyright (C) 2024  Lincoln V.
 ##
@@ -21,12 +21,7 @@ import time
 import _thread
 
 pygame.init()
-
-# - If you don't have a sound card/drivers, this will fail -
-try:
-    pygame.mixer.init()
-except:
-    print("[ERROR] Couldn't initialize pygame mixer! Maybe missing sound hardware?")
+pygame.mixer.init()
 
 # - How quickly does sound decrease through distance? -
 SOUND_DISPERSION = 0.075 #Xe2% volume lost per block
