@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.73---
+##"battle_client.py" library ---VERSION 0.74---
 ## - Handles client stuff (battles, main game loops, lobby stuff, and game setup) -
 ##Copyright (C) 2025  Lincoln V.
 ##
@@ -1600,8 +1600,9 @@ class BattleEngine():
 
             # - Handle updating various objects (this MUST go before collision detection happens) -
             arena.shuffle_tiles() #update the arena object's tile shuffling system
-            with player_tank.lock: #update some of our various timing variables for reload time, etc.
-                player_tank.clock(arena.TILE_SIZE, screen_scale, particles, framecounter[0], None, False)
+            with entities_lock:
+                with player_tank.lock: #update some of our various timing variables for reload time, etc.
+                    player_tank.clock(arena.TILE_SIZE, screen_scale, particles, framecounter[0], None, False)
 
             # - Update screen_scale -
             new_scale = arena.get_scale(tile_viewport, self.screen)
