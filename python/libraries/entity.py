@@ -1,4 +1,4 @@
-##"entity.py" library ---VERSION 0.85---
+##"entity.py" library ---VERSION 0.86---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
 ##Copyright (C) 2024  Lincoln V.
 ##
@@ -636,8 +636,8 @@ class Tank():
         # - Check if we have been destroyed -
         if(self.HP < 0 and self.destroyed == False):
             # - If we already have fire in gas tank/engine, AND we're below 0HP, we need to make sure we increment the kill counter! -
-            if(self.fire > 0):
-                self.fire_cause.kills += 1
+            if(self.fire > 0 and server == True):
+                self.fire_cause.kills += 1 #this crashes the client
             self.destroyed = True
             self.explosion_done = False
             self.speed = 3.75 #make sure we can spectate in a speedy manner
@@ -686,9 +686,10 @@ class Tank():
                                        exec(self.powerup_effects[x][b][0] + " /= " + str(self.powerup_effects[x][b][1]))
 
         # - Return the damage done to this tank via fire -
-        if(return_damage):
+        if(return_damage): #changing fire_cause crashes the client since it doesn't ever point to an object
             if(self.damage_second > 0.5):
-                self.fire_cause.total_damage += self.damage_second #increment that bad tank's damage counter who set fire to our gas tank/engine!
+                if(server == True):
+                    self.fire_cause.total_damage += self.damage_second #increment that bad tank's damage counter who set fire to our gas tank/engine!
                 damage_second = round(self.damage_second, 0) #we need to reset damage_second
                 self.damage_second = 0
                 return damage_second
