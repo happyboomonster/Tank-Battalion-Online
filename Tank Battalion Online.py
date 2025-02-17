@@ -16,9 +16,20 @@
 
 #Changelog: Too many! See docs/TBO-plans.txt for changes!
 
+# - Removes the backslashes in Windows filenames and replaces them with
+#   forward slashes, like everyone SHOULD be using
+def debackslash(path):
+    result = ""
+    for char in list(path):
+        if(char == "\\"):
+            result += "/"
+        else:
+            result += str(char)
+    return result
+
 import sys, pygame, os
 #make sure we can find our absolute path
-path = os.path.abspath(os.path.dirname(sys.argv[0]))
+path = debackslash(os.path.abspath(os.path.dirname(sys.argv[0])))
 print("Running from path: " + str(path))
 #set up an external import directory (the TBO client code)
 sys.path.insert(0, path + "/python/libraries")
