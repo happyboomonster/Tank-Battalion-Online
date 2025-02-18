@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.64---
+##"battle_server.py" library ---VERSION 0.65---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2025  Lincoln V.
 ##
@@ -231,7 +231,11 @@ class BattleEngine():
     def connect_players(self):
         while True:
             print("[WAIT] Waiting for a connection...")
-            Cs, Caddress = self.s.accept() #connect to a client
+            try:
+                Cs, Caddress = self.s.accept() #connect to a client
+            except Exception as e:
+                print("[ERROR] Couldn't open a new socket! Assuming older accept() syntax and retrying...")
+                Cs, Caddress = self.s.accept(100) #100 failed connects before server stops accepting new clients (needs restart then)
             netcode.configure_socket(Cs) #configure our socket settings so it's ready for netcode.py commands
 
             # - A bad client could kill the server, so let's save our data before that happens... -
