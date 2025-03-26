@@ -1,6 +1,7 @@
 Release ready
-1 - Beta testing
-2 - Clean up game files (remove __pycache__, game save data)
+0 - Add system requirements (Debian 10, Windows XP (32-bit build), Windows 10 (64-bit build), MacOS ???)
+1 - Beta testing (fix rotation bug in 2p_bot_demo)
+2 - Clean up game files (game save data)
 3 - MacOS binary, then post finished game
 
 DONE!
