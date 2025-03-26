@@ -136,7 +136,7 @@ bricks = [
     ]
 
 # - Import an external map -
-arena_data = import_arena.return_arena("t3_Arena02")
+arena_data = import_arena.return_arena("t3_Arena01")
 my_map = arena_data[0]
 my_tiles = arena_data[1]
 my_shuffle = arena_data[2]
@@ -171,7 +171,7 @@ p2_mh.default_display_size = [p2_screen.get_width(), p2_screen.get_height()]
 #Set the account rating of all our players and bots
 ACCT_RATING = 31.0
 #Players Per Team
-ppt = 4
+ppt = 8
 #Bot Intelligence Rating
 bir = 1.00
 
@@ -327,10 +327,11 @@ for x in range(0,len(players)): #add the HUD elements for all players to p1's an
     hud.add_HUD_element("horizontal bar",[[0,-50],[20,5],[[0,255,0],[0,0,0],[0,0,255]],1.0],False)
     hud.add_HUD_element("text",[[0,-50],7,[[255,0,0],False,False],"100 HP"],False)
 
-### - Uncomment this script to turn on MINES game mode! -
-##for x in range(0,len(players)):
-##    players[x].penetration_multiplier = 0.01
-##    players[x].damage_multiplier += 100.0
+# - Uncomment this script to turn on MINES game mode! -
+for x in range(0,len(players)):
+    players[x].speed = 1.00
+    players[x].penetration_multiplier = 0.01
+    players[x].damage_multiplier += 100.0
 
 # - Print out the arena size, and the squares of space available to one player -
 free_space = 0
@@ -389,7 +390,7 @@ p2_tank_bullets = [pygame.K_7,
                 pygame.K_9,
                 pygame.K_0
                 ]
-p2_tank_shoot = pygame.K_RSHIFT
+p2_tank_shoot = pygame.K_RCTRL
 p2_tank_powerups = [pygame.K_t,
                  pygame.K_y,
                  pygame.K_u,
