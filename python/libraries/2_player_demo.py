@@ -1,6 +1,6 @@
-##"2_player_demo.py" demo ---VERSION 0.02---
+##"2_player_demo.py" demo ---VERSION 0.03---
 ## - A two-player offline version of TBO with no bots, menus, or store, but with configurable settings -
-##Copyright (C) 2024  Lincoln V.
+##Copyright (C) 2025  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -357,9 +357,11 @@ while running:
     for x in range(0,len(tank_move)):
         if(tank_move[x] in keypresses):
             tank.move(x * 90, my_arena.TILE_SIZE, screen_scale) #move in whatever direction needed
+            break
     for x in range(0,len(tank_bullets)):
         if(tank_bullets[x] in keypresses):
             tank.use_shell(x) #change bullets
+            break
     for x in range(0,len(tank_powerups)):
         if(tank_powerups[x] in keypresses):
             tank.use_powerup(x,False) #use powerup
@@ -372,9 +374,11 @@ while running:
     for x in range(0,len(p2_tank_move)):
         if(p2_tank_move[x] in keypresses):
             p2_tank.move(x * 90, my_arena.TILE_SIZE, screen_scale) #move in whatever direction needed
+            break
     for x in range(0,len(p2_tank_bullets)):
         if(p2_tank_bullets[x] in keypresses):
             p2_tank.use_shell(x) #change bullets
+            break
     for x in range(0,len(p2_tank_powerups)):
         if(p2_tank_powerups[x] in keypresses):
             p2_tank.use_powerup(x,False) #use powerup

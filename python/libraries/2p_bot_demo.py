@@ -1,6 +1,6 @@
-##"2p_bot_demo.py" demo ---VERSION 0.08---
+##"2p_bot_demo.py" demo ---VERSION 0.09---
 ## - A two-player offline version of TBO with no store or menus and configurable settings (see the variables below before the game loop) -
-##Copyright (C) 2024  Lincoln V.
+##Copyright (C) 2025  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -462,9 +462,11 @@ while running:
     for x in range(0,len(tank_move)):
         if(tank_move[x] in keypresses):
             tank.move(x * 90, my_arena.TILE_SIZE, screen_scale) #move in whatever direction needed
+            break #only allow ONE move command per tank per frame; issues result otherwise. See 1p_bot_demo's control handling code for more info on this, and the move() script in entity.py.
     for x in range(0,len(tank_bullets)):
         if(tank_bullets[x] in keypresses):
             tank.use_shell(x) #change bullets
+            break #allow changing bullet types only ONCE per frame. I know the pros are mad at me for this one, but it probably will cause game crashes otherwise...
     for x in range(0,len(tank_powerups)):
         if(tank_powerups[x] in keypresses):
             tank.use_powerup(x, False) #use powerup
@@ -477,9 +479,11 @@ while running:
     for x in range(0,len(p2_tank_move)):
         if(p2_tank_move[x] in keypresses):
             p2_tank.move(x * 90, my_arena.TILE_SIZE, screen_scale) #move in whatever direction needed
+            break
     for x in range(0,len(p2_tank_bullets)):
         if(p2_tank_bullets[x] in keypresses):
             p2_tank.use_shell(x) #change bullets
+            break
     for x in range(0,len(p2_tank_powerups)):
         if(p2_tank_powerups[x] in keypresses):
             p2_tank.use_powerup(x, False) #use powerup

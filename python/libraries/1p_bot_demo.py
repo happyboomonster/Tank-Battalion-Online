@@ -1,4 +1,4 @@
-##"1p_bot_demo.py" demo ---VERSION 0.08---
+##"1p_bot_demo.py" demo ---VERSION 0.09---
 ## - One-player offline version of TBO with no store and configurable settings (see the variables listed below throughout the game script before the game loop) -
 ##Copyright (C) 2024  Lincoln V.
 ##
@@ -135,7 +135,7 @@ bricks = [
     ]
 
 # - Import an external map -
-arena_data = import_arena.return_arena("t4_Arena08")
+arena_data = import_arena.return_arena("t4_Arena04")
 my_map = arena_data[0]
 my_tiles = arena_data[1]
 my_shuffle = arena_data[2]
@@ -164,7 +164,7 @@ mh.default_display_size = [160, 120]
 #Set the account rating of all our players and bots
 ACCT_RATING = 31.0
 #Players Per Team
-ppt = 1
+ppt = 8
 #Bot Intelligence Rating
 bir = 1.50
 
@@ -400,9 +400,11 @@ while running:
     for x in range(0,len(tank_move)):
         if(tank_move[x] in keypresses):
             tank.move(x * 90, my_arena.TILE_SIZE, screen_scale) #move in whatever direction needed
-    for x in range(0,len(tank_bullets)):
+            break #no more than ONE movement per frame; otherwise BAD stuff happens; self.direction gets corrupted with weird values, and you can literally fire stationary bullets...DON'T ASK WHY, I don't care anymore!!
+    for x in range(0,len(tank_bullets)): #bet you that changing bullet types more than once per frame also causes issues (I got division errors and all kinds of weird stuff with multiple move() commands on 1 frame)
         if(tank_bullets[x] in keypresses):
             tank.use_shell(x) #change bullets
+            break
     for x in range(0,len(tank_powerups)):
         if(tank_powerups[x] in keypresses):
             tank.use_powerup(x, False) #use powerup

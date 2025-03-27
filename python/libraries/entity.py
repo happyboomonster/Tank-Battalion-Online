@@ -1,6 +1,6 @@
-##"entity.py" library ---VERSION 0.86---
+##"entity.py" library ---VERSION 0.87---
 ## - For managing basically any non-map object within Tank Battalion Online (Exception: bricks) -
-##Copyright (C) 2024  Lincoln V.
+##Copyright (C) 2025  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -865,7 +865,8 @@ class Tank():
             old_self_direction = self.direction #this old self.direction state is needed to calculate when we've reached the endpoint of our rotation.
             # - Start rotating (90 degrees is considered "1" rotation, so if you try a 180 turn, it will take twice as long)
             #   - The goal_rotation/abs(goal_rotation) term is in there to get the SIGN from goal_rotation so that we turn the right way...
-            self.direction += 90.0 * self.goal_rotation/abs(self.goal_rotation) * self.time_difference * self.speed * 2
+            if(self.goal_rotation != 0): #Calling move() more than once per frame (e.g. two simultaneous keypresses) causes some issues...like sometimes goal_rotation can be 0...ZeroDivisionError HERE WE GO!!!
+                self.direction += 90.0 * self.goal_rotation/abs(self.goal_rotation) * self.time_difference * self.speed * 2
             # - Check if we are within a certain threshold of our desired rotation value...
             #   ...If we are, we just set self.direction to that value
             if(self.goal_rotation > 0): #we're spinning to the left

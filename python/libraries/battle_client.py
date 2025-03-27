@@ -1,4 +1,4 @@
-##"battle_client.py" library ---VERSION 0.74---
+##"battle_client.py" library ---VERSION 0.75---
 ## - Handles client stuff (battles, main game loops, lobby stuff, and game setup) -
 ##Copyright (C) 2025  Lincoln V.
 ##
@@ -1554,6 +1554,7 @@ class BattleEngine():
                         if(x in keys and not CURSOR_MOD in keys):
                             with player_tank.lock:
                                 player_tank.move(directions.index(x) * 90, arena.TILE_SIZE, screen_scale)
+                            break
                         elif(x in keys and CURSOR_MOD in keys):
                             mousepos[1] -= math.sin(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 80 * battle_menu.menu_scale
                             mousepos[0] += math.cos(math.radians(directions.index(x) * 90 + 90)) / (abs(fps) + 1) * 80 * battle_menu.menu_scale
@@ -1589,6 +1590,7 @@ class BattleEngine():
                     for x in tank_bullets:
                         if(x in keys):
                             player_tank.use_shell(tank_bullets.index(x))
+                            break
                 else: #we're trying to speak, are we??
                     for x in keys:
                         speak_word = None #find out what on earth we said
