@@ -1,8 +1,8 @@
 Release ready
-0 - Add system requirements (Debian 10, Windows XP (32-bit build), Windows 10 (64-bit build), MacOS ???)
-1 - Beta testing (fix rotation bug in 2p_bot_demo)
+0 - Reread manual, server manual
+1 - Figure out minimum pygame version I tested
 2 - Clean up game files (game save data)
-3 - MacOS binary, then post finished game
+3 - Post finished game
 
 DONE!
  - Movement anti-cheat

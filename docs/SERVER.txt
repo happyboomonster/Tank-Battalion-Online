@@ -1,5 +1,5 @@
 ##Tank Battalion Online Server Manual ---VERSION 1.0---
-##Copyright (C) 2024  Lincoln V.
+##Copyright (C) 2025  Lincoln V.
 ##
 ##This program is free software: you can redistribute it and/or modify
 ##it under the terms of the GNU General Public License as published by
@@ -16,8 +16,68 @@
 
 The goal of this manual is to show you how to start and manage your own TBO server, since there is no official server.
 
-Starting a LAN server is very simple; Simply run the "start_server.py" script located in "python/libraries" with Python 3. By default, the server uses port 5031. However, you can change the port constant (located on line ~193 in "battle_server.py" in "python/libraries") to a different value if port 5031 is not suitable. Also, remember to open/forward whatever port you are planning on using if you want the TBO server present on the WAN. However, be aware that the server script is not programmed with security in mind, and could very possibly accumulate viruses by even amateur hackers.
+****************************
+*Starting/Stopping a server*
+****************************
+
+Starting a LAN server is very simple; Simply run the "start_server.py" script located in "python/libraries" with Python 3. By default, the server uses port 5031. However, you can change the port constant (located on line ~197 in "battle_server.py" in "python/libraries") to a different value if port 5031 is not suitable. The only catch with modifying the port number is that players can only change the port number of the server they connect to after the client fails to connect to a server once. This essentially adds a small connection delay to any user playing on the server. Also, remember to open/forward whatever port you are planning on using if you want the TBO server present on the WAN. However, be aware that the server script is not programmed to be secure, and could possibly be abused by hackers to spread viruses to other clients. My recommendation is to use the server on LAN only, which completely avoids such threats.
+
+The server can be safely closed whenever no player is in the process of leaving (the save data is rewritten each time a player leaves the server, so closing the server when a player leaves could corrupt it).
+
+***************
+*Server Tweaks*
+***************
+
+There are a handful of variables located in the first ~200 lines of battle_server.py which basically just change how TBO's matchmaker behaves. You may want to change some of these values depending on the skill and number of people playing in a server. For example, you may want to reduce matchmaking time if hosting a server for a LAN party, or decrease the battle timeout if there are several players who hide rather than fight. Here is a list of some useful values you can change and how these variables affect the game:
+
+[ANTI-CHEAT]
+self.ac_enable (True/False): If this is enabled, the server will monitor player tank speed and restrict players from moving if they are moving faster than supposed to.
+	Not recommended if slow machines will be used with the server, since the low client framerates confuse the server; The server will freeze these players even if
+	they are not cheating.
+self.AC_THRESH (decimal value): Located at roughly line 1627, this value controls the strictness of the anti-cheat system. Instead of disabling it, you can increase this
+	value to reduce its strictness. Do not set it below 1 (unless it is April Fools), as it will treat EVERYONE as cheaters and no one will be able to move.
+
+[MATCHMAKER RATING]
+self.EXP_WEIGHT (decimal value): A player's EXP is multiplied by this value and added to his matchmaker rating.
+self.UPGRADE_WEIGHTS (4 decimal values): A player's gun/armor/loading speed/engine upgrade level is multiplied by these values and added to his matchmaker rating.
+self.CASH_WEIGHT (decimal value): A player's total ^ is multiplied by this value and added to his matchmaker rating.
+self.SHELLS_WEIGHT (4 decimal values): The number of each shell a player has is multiplied by these values (hollow, regular, explosive, disk) and added to his
+	matchmaker rating.
+self.POWERUP_WEIGHT (decimal value): The number of powerups a player owns is multiplied by this value and added to his matchmaker rating.
+self.SPECIALIZATION_WEIGHT (decimal value): The absolute value of a player's specialization value (-6 for heavy to +6 for light) is multiplied by this
+	value and added to his matchmaker rating.
+self.IMBALANCE_LIMIT (decimal value): This value MUST be larger than the rating of one disk shell AFTER taking into account
+	self.MMCEF (disk shell rating / self.MMCEF; self.MMCEF is printed out when the server starts). This value represents the maximum imbalance tolerated in a
+	match before creating bots to assist the disadvantaged side.
+
+[MATCHMAKING]
+
+self.PLAYER_CT (2 integer values): The first is the minimum value, and the second is the maximum number of players allowed in a battle.
+self.TEAM_CT (2 integer values): The first is the minimum value, and the second is the maximum number of teams allowed in a battle.
+self.MAXIMUM_MATCH_TIME (decimal value): Reducing this value will force the matchmaker to reduce its restrictions on match balance sooner.
+	Increase this value in a server with lots of players, but decrease it in a server with very few players. Recommended values are between 5 (for a quick match)
+	and 30 (for a balanced game).
+self.TIME_SCALING_CONSTANT (decimal value): Reducing this value will make the game attempt to make matches sooner.
+self.IMMEDIATE_MATCH (decimal value): How long in seconds before self.TIME_SCALING_CONSTANT's control over when matches are made is overridden and the matchmaker attempts
+	to make a match anyways.
+self.OPTIMAL_MATCH_CT (integer value): How many players is the matchmaker trying to get in a battle?
+self.FORCED_MATCH_URGENCY (decimal value between 0 and 1): self.OPTIMAL_MATCH_CT is ignored sooner if this number is closer to 1.
+self.MIN_URGENCY (decimal value between 0 and 1): The matchmaker will allow sloppier matches if this number is smaller. Reduce it when playing with a small group.
+self.MIN_WAIT_ADD_URGENCY (decimal value between 0 and 1): The lower this number is, the more the matchmaker will prioritize allowing more players into a match at the
+	expense of balance. This number should not be lower than self.MIN_URGENCY.
+
+[MAP CHOOSER]
+self.MAX_SQUARES_PER_PERSON (decimal value): How much space (in map tiles) should be given to each player at maximum? This affects the possible maps the game will choose. 
+self.MIN_SQUARES_PER_PERSON (decimal value): How much space (in map tiles) should be given to each player at minimum? This affects the possible maps the game will choose.
+
+[BATTLE TIME]
+self.BATTLE_TIME (integer value): How long in seconds should a battle take?
+self.BATTLE_TIME_PLAYER_COEFFICIENT (integer value): How long in seconds should be added to a battle's timer for each additional player in the match?
+
+
+****************
+*Game Save Info*
+****************
 
 Save data is stored in "python/libraries/saves" in a Pickle file. You can modify that data with the "save_admin_tool.py" script. It is rather primitive, but makes it possible to manipulate player account data by manually assigning new values to variables in Account() data types (see "account.py" in "python/libraries" for all variable names). Entering "help" in the save tool will give you all the commands the tool accepts. "Modify account" is one of the most useful commands. When using it, you must first select the account you want to modify. Then you can modify a variable in the player's Account() data class via the following command syntax: ".[variable name] = [new value]"
 
-The server can be closed whenever no player is in the process of leaving (the save data is rewritten each time a player leaves the server, so the data could become corrupted if it is interrupted half-way).

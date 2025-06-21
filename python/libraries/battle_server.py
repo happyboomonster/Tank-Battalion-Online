@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.65---
+##"battle_server.py" library ---VERSION 0.66---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2025  Lincoln V.
 ##
@@ -115,6 +115,7 @@ class BattleEngine():
                       self.UPGRADE_WEIGHTS[2] * account.upgrade_limit + self.UPGRADE_WEIGHTS[3] * account.upgrade_limit
         self.MMCEF += self.SPECIALIZATION_WEIGHT * account.upgrade_limit
         self.MMCEF = self.MMCEF / 30 #get MMCEF so that any rating can be divided by it to bring all ratings closer to X, where X is the value after the division sign in this assignment expression.
+        print("self.MMCEF is: " + str(self.MMCEF)) #print it out for mathing stuff if you want to tweak the server
         # - This value MUST be larger than a single rating value (e.g. the rating of owning 1 disk shell).
         #   - If a match gets past this imbalance, bots get created to help out a bit.
         self.IMBALANCE_LIMIT = 1.25 / self.MMCEF #self.POWERUP_WEIGHT
@@ -1624,7 +1625,7 @@ class AntiCheater():
         self.first_cheat = None #this stores the index of the first position where a player was flagged for cheating.
         self.BEFORE_CHEAT = 8 #when we return the position speedhax cheaters should return to, we're going to return a position BEFORE_CHEAT indexes behind self.first_cheat.
         #How much beyond a player's speed will we permit the tank being watched to go WITHOUT sending a sync() call to make it return to the last NON-CHEATING spot?
-        self.AC_THRESH = 1.325 #This is useful for helping people with inconsistent internet connections from always teleporting around.
+        self.AC_THRESH = 1.5 #This is useful for helping people with inconsistent internet connections from always teleporting around.
         self.speed_max = None #Since a tank's speed can change (speed boosts?), we need to know the MAXIMUM speed it is ALLOWED to go recently.
         self.last_speed_update = time.time() #we only need a maximum speed allowance to last until all data samples holding that speed have been emptied from self.last_positions.
         #This value is from Entity.py and needs to be the same as the value in Entity.py. It is used to detect when a player has rounded a corner without turning, which really throws off the Anti-Cheat without knowing this value.
