@@ -20,7 +20,7 @@ The goal of this manual is to show you how to start and manage your own TBO serv
 *Starting/Stopping a server*
 ****************************
 
-Starting a LAN server is very simple; Simply run the "start_server.py" script located in "python/libraries" with Python 3. By default, the server uses port 5031. However, you can change the port constant (located on line ~197 in "battle_server.py" in "python/libraries") to a different value if port 5031 is not suitable. The only catch with modifying the port number is that players can only change the port number of the server they connect to after the client fails to connect to a server once. This essentially adds a small connection delay to any user playing on the server. Also, remember to open/forward whatever port you are planning on using if you want the TBO server present on the WAN. However, be aware that the server script is not programmed to be secure, and could possibly be abused by hackers to spread viruses to other clients. My recommendation is to use the server on LAN only, which completely avoids such threats.
+Starting a LAN server is very simple; Simply run the "start_server.py" script located in "python/libraries" with Python 3. By default, the server uses port 5031. However, you can change the port constant (located on line ~197 in "battle_server.py" in "python/libraries") to a different value if port 5031 is not suitable. The only catch with modifying the port number is that players can only change the port number of the server they connect to after the client fails to connect to a server once. This essentially adds a small connection delay to any user playing on the server. Also, remember to open/forward whatever port you are planning on using if you want the TBO server present on the WAN. However, be aware that the server script is not programmed to be secure, and could possibly be abused by hackers to spread viruses to your server and other clients. My recommendation is to use the server on LAN only, which completely avoids such threats.
 
 The server can be safely closed whenever no player is in the process of leaving (the save data is rewritten each time a player leaves the server, so closing the server when a player leaves could corrupt it).
 
@@ -32,9 +32,9 @@ There are a handful of variables located in the first ~200 lines of battle_serve
 
 [ANTI-CHEAT]
 self.ac_enable (True/False): If this is enabled, the server will monitor player tank speed and restrict players from moving if they are moving faster than supposed to.
-	Not recommended if slow machines will be used with the server, since the low client framerates confuse the server; The server will freeze these players even if
+	Not recommended if slow machines will be used with the server, since low client framerates confuse the server; The server will freeze these players even if
 	they are not cheating.
-self.AC_THRESH (decimal value): Located at roughly line 1627, this value controls the strictness of the anti-cheat system. Instead of disabling it, you can increase this
+self.AC_THRESH (decimal value): Located at line ~1627, this value controls the strictness of the anti-cheat system. Instead of disabling it, you can increase this
 	value to reduce its strictness. Do not set it below 1 (unless it is April Fools), as it will treat EVERYONE as cheaters and no one will be able to move.
 
 [MATCHMAKER RATING]
@@ -44,27 +44,33 @@ self.CASH_WEIGHT (decimal value): A player's total ^ is multiplied by this value
 self.SHELLS_WEIGHT (4 decimal values): The number of each shell a player has is multiplied by these values (hollow, regular, explosive, disk) and added to his
 	matchmaker rating.
 self.POWERUP_WEIGHT (decimal value): The number of powerups a player owns is multiplied by this value and added to his matchmaker rating.
-self.SPECIALIZATION_WEIGHT (decimal value): The absolute value of a player's specialization value (-6 for heavy to +6 for light) is multiplied by this
+self.SPECIALIZATION_WEIGHT (decimal value): The absolute value of a player's specialization value (-6 for maximum heavy to +6 for max. light) is multiplied by this
 	value and added to his matchmaker rating.
 self.IMBALANCE_LIMIT (decimal value): This value MUST be larger than the rating of one disk shell AFTER taking into account
 	self.MMCEF (disk shell rating / self.MMCEF; self.MMCEF is printed out when the server starts). This value represents the maximum imbalance tolerated in a
 	match before creating bots to assist the disadvantaged side.
 
 [MATCHMAKING]
-
 self.PLAYER_CT (2 integer values): The first is the minimum value, and the second is the maximum number of players allowed in a battle.
-self.TEAM_CT (2 integer values): The first is the minimum value, and the second is the maximum number of teams allowed in a battle.
+self.TEAM_CT (2 integer values): The first is the minimum value, and the second is the maximum number of teams allowed in a battle. NOTE: If you want more than
+	four teams you will have to add code to the game in various places (I believe just battle_server.py and battle_client.py) to increase the number of player
+	tank colours available. You will also have to add extra base tiles with new colours, and build new maps with more than four team bases...GLHF xD
 self.MAXIMUM_MATCH_TIME (decimal value): Reducing this value will force the matchmaker to reduce its restrictions on match balance sooner.
 	Increase this value in a server with lots of players, but decrease it in a server with very few players. Recommended values are between 5 (for a quick match)
-	and 30 (for a balanced game).
+	and 30 (for a more balanced game).
 self.TIME_SCALING_CONSTANT (decimal value): Reducing this value will make the game attempt to make matches sooner.
 self.IMMEDIATE_MATCH (decimal value): How long in seconds before self.TIME_SCALING_CONSTANT's control over when matches are made is overridden and the matchmaker attempts
-	to make a match anyways.
+	to make a match anyways. Set this value to 5 if you are playing in a small group and want to start a game ASAP. This will give everyone time to enter the queue
+	before any matches are made, while making sure that the entire game doesn't turn into a giant matchmaking wait timer. A value of 60 might be good for a larger
+	group.
 self.OPTIMAL_MATCH_CT (integer value): How many players is the matchmaker trying to get in a battle?
 self.FORCED_MATCH_URGENCY (decimal value between 0 and 1): self.OPTIMAL_MATCH_CT is ignored sooner if this number is closer to 1.
-self.MIN_URGENCY (decimal value between 0 and 1): The matchmaker will allow sloppier matches if this number is smaller. Reduce it when playing with a small group.
+self.MIN_URGENCY (decimal value between 0 and 1): The matchmaker will allow sloppier matches if this number is smaller. 0.1 might be a good value for playing with a
+	small group.
 self.MIN_WAIT_ADD_URGENCY (decimal value between 0 and 1): The lower this number is, the more the matchmaker will prioritize allowing more players into a match at the
-	expense of balance. This number should not be lower than self.MIN_URGENCY.
+	expense of balance. This number should not be lower than self.MIN_URGENCY. NOTE: If you want to get EVERYONE into a single match, set this number to a very small
+	value, like 0.000000001. Don't make it too small, or Python will treat it like 0 and the game will crash. Adjust self.MIN_URGENCY so it is just below this
+	value. When in the lobby, get all players to enter the match queue at the same time. The game should place everyone in the same map.
 
 [MAP CHOOSER]
 self.MAX_SQUARES_PER_PERSON (decimal value): How much space (in map tiles) should be given to each player at maximum? This affects the possible maps the game will choose. 
