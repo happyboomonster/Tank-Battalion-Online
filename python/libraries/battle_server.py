@@ -1,4 +1,4 @@
-##"battle_server.py" library ---VERSION 0.66---
+##"battle_server.py" library ---VERSION 0.67---
 ## - Handles battles (main game loops, matchmaking, lobby stuff, and game setup) for SERVER ONLY -
 ##Copyright (C) 2025  Lincoln V.
 ##
@@ -240,7 +240,10 @@ class BattleEngine():
             netcode.configure_socket(Cs) #configure our socket settings so it's ready for netcode.py commands
 
             # - A bad client could kill the server, so let's save our data before that happens... -
-            self.save_data()
+            try:
+                self.save_data()
+            except:
+                print("[SAVE] Failed to save data before new client connect...")
 
             print("[CONNECT] Connected a client - ", end="")
 
